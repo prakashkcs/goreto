@@ -36,6 +36,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void initState() {
     super.initState();
+    final cached = _chatService.cachedConversations;
+    if (cached.isNotEmpty) {
+      _direct   = cached.where((c) => !c.showInRequests).toList();
+      _requests = cached.where((c) =>  c.showInRequests).toList();
+      _isLoading = false;
+    }
     _loadConversations();
     _startPolling();
     _newMsgSub = _socket.onNewMessage.listen((_) {

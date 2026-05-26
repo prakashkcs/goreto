@@ -17,6 +17,10 @@ class ChatService {
   final List<Conversation> _conversations = [];
   final Map<String, List<Message>> _messages = {};
 
+  /// Returns the current in-memory conversation list synchronously.
+  /// Empty on cold start; populated after the first [getConversations] call.
+  List<Conversation> get cachedConversations => List.unmodifiable(_conversations);
+
   // Block state caches
   final Map<String, bool> _blockedByMeMap = {};
   final Map<String, bool> _blockedByThemMap = {};

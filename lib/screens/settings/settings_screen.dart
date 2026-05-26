@@ -78,38 +78,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     _settingsStore = await SettingsStore.getInstance();
 
-    // Trigger refresh of KYC status from server to ensure it's not stale
-    await KycStatusController.instance.init(refresh: true);
-
-    // Force a profile refresh so subscription_status gets synced to SettingsStore
-    try {
-      await ProfileService().getMyProfile(forceRefresh: true);
-    } catch (e) {}
-
-    // Now read all cached values AFTER profile sync — in parallel
-    final cached = await Future.wait([
-      _settingsStore!.getSubscriptionStatus(), // [0]
-      _settingsStore!.getKycStatus(),           // [1]
-      _settingsStore!.getKycVerified(),         // [2]
-      _settingsStore!.getWalletBalance(),       // [3]
-      _settingsStore!.getReferralCode(),        // [4]
+    // Show screen immediately using locally-stored values — no network needed.
+    final local = await Future.wait([
+      _settingsStore!.getSubscriptionStatus(),
+      _settingsStore!.getKycStatus(),
+      _settingsStore!.getKycVerified(),
+      _settingsStore!.getWalletBalance(),
+      _settingsStore!.getReferralCode(),
     ]);
-    final subscriptionStatus = cached[0] as String;
-    final kycStatus          = cached[1] as String;
-    final kycVerified        = cached[2] as bool;
-    final walletBalance      = cached[3] as double;
-    final referralCode       = cached[4] as String;
-
     if (mounted) {
       setState(() {
-        _subscriptionStatus = subscriptionStatus;
-        _kycVerified = kycVerified;
-        _kycStatus = kycStatus;
-        _walletBalance = walletBalance;
-        _referralCode = referralCode;
+        _subscriptionStatus = local[0] as String;
+        _kycStatus          = local[1] as String;
+        _kycVerified        = local[2] as bool;
+        _walletBalance      = local[3] as double;
+        _referralCode       = local[4] as String;
         _isLoading = false;
       });
     }
+
+    // Refresh from network in background — updates UI when done.
+    _refreshSettingsFromNetwork();
+  }
+
+  Future<void> _refreshSettingsFromNetwork() async {
+    try {
+      await Future.wait([
+        KycStatusController.instance.init(refresh: true),
+        ProfileService().getMyProfile(forceRefresh: true),
+      ]);
+    } catch (_) {}
+    if (_settingsStore == null || !mounted) return;
+    try {
+      final fresh = await Future.wait([
+        _settingsStore!.getSubscriptionStatus(),
+        _settingsStore!.getKycStatus(),
+        _settingsStore!.getKycVerified(),
+        _settingsStore!.getWalletBalance(),
+        _settingsStore!.getReferralCode(),
+      ]);
+      if (mounted) {
+        setState(() {
+          _subscriptionStatus = fresh[0] as String;
+          _kycStatus          = fresh[1] as String;
+          _kycVerified        = fresh[2] as bool;
+          _walletBalance      = fresh[3] as double;
+          _referralCode       = fresh[4] as String;
+        });
+      }
+    } catch (_) {}
   }
 
   void _showComingSoon(String feature) {

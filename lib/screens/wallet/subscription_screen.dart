@@ -20,11 +20,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   @override
   void initState() {
     super.initState();
+    _subscriptionService.getCachedSubscriptions().then((cached) {
+      if (cached.isNotEmpty && mounted && _items.isEmpty) {
+        setState(() { _items = cached; _isLoading = false; });
+      }
+    });
     _load();
   }
 
   Future<void> _load() async {
-    if (mounted) setState(() => _isLoading = true);
+    if (_items.isEmpty && mounted) setState(() => _isLoading = true);
 
     try {
       final items = await _subscriptionService.getSubscriptions();

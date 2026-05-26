@@ -13,6 +13,7 @@ class WalletService {
       'wallet_local_pending_deposits';
   static const String _pendingInstallReferralCodeKey =
       'wallet_pending_install_referral_code';
+  static const String _txCacheKey = 'cached_wallet_tx';
 
   final ApiService _apiService;
 
@@ -367,6 +368,21 @@ class WalletService {
     return transactions;
   }
 
+  Future<List<WalletTransaction>> getCachedTransactions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_txCacheKey);
+      if (raw == null) return [];
+      final list = jsonDecode(raw) as List;
+      return list
+          .whereType<Map>()
+          .map((e) => WalletTransaction.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<List<WalletTransaction>> getMergedTransactions({
     int limit = 20,
   }) async {
@@ -378,44 +394,30 @@ class WalletService {
     }
 
     final local = await getLocalPendingTransactions();
+    List<WalletTransaction> merged;
     if (local.isEmpty) {
-      final sortedRemote = [...remote]..sort(_compareByNewest);
-      return sortedRemote.take(limit).toList();
-    }
-
-    final remoteIds = remote
-        .map((e) => e.id)
-        .where((e) => e.isNotEmpty)
-        .toSet();
-    final remoteDepositIds = remote
-        .map((e) => e.depositId)
-        .whereType<int>()
-        .toSet();
-
-    final stillPending = <WalletTransaction>[];
-    final merged = <WalletTransaction>[...remote];
-
-    for (final pending in local) {
-      final matchedByDeposit =
-          pending.depositId != null &&
-          remoteDepositIds.contains(pending.depositId);
-      final matchedById =
-          pending.id.isNotEmpty && remoteIds.contains(pending.id);
-
-      if (matchedByDeposit || matchedById) {
-        continue;
+      merged = [...remote]..sort(_compareByNewest);
+    } else {
+      final remoteIds = remote.map((e) => e.id).where((e) => e.isNotEmpty).toSet();
+      final remoteDepositIds = remote.map((e) => e.depositId).whereType<int>().toSet();
+      final stillPending = <WalletTransaction>[];
+      merged = <WalletTransaction>[...remote];
+      for (final pending in local) {
+        final matched = (pending.depositId != null && remoteDepositIds.contains(pending.depositId))
+            || (pending.id.isNotEmpty && remoteIds.contains(pending.id));
+        if (!matched) { stillPending.add(pending); merged.add(pending); }
       }
-
-      stillPending.add(pending);
-      merged.add(pending);
+      if (stillPending.length != local.length) {
+        await _saveLocalPendingTransactions(stillPending);
+      }
+      merged.sort(_compareByNewest);
     }
 
-    if (stillPending.length != local.length) {
-      await _saveLocalPendingTransactions(stillPending);
-    }
-
-    merged.sort(_compareByNewest);
-    return merged.take(limit).toList();
+    final result = merged.take(limit).toList();
+    SharedPreferences.getInstance().then(
+      (p) => p.setString(_txCacheKey, jsonEncode(result.map((e) => e.toJson()).toList())),
+    );
+    return result;
   }
 
   Future<void> setPendingInstallReferralCode(String code) async {

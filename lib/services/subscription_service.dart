@@ -1,14 +1,32 @@
 import 'package:dio/dio.dart';
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:love_vibe_pro/models/wallet_models.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/config/app_env.dart';
 
 class SubscriptionService {
+  static const String _subsCacheKey = 'cached_subscriptions';
+
   final ApiService _apiService;
 
   SubscriptionService({ApiService? apiService})
       : _apiService = apiService ?? ApiService();
+
+  Future<List<SubscriptionItem>> getCachedSubscriptions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_subsCacheKey);
+      if (raw == null) return [];
+      final list = jsonDecode(raw) as List;
+      return list
+          .whereType<Map>()
+          .map((e) => SubscriptionItem.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
 
   /// Returns the ekloadmin root URL (strips /api/v1 suffix from baseUrl).
   String _rootUrl() {
@@ -51,10 +69,14 @@ class SubscriptionService {
             payload['subscriptions'] ?? payload['items'] ?? payload['data'];
         if (list is! List) return <SubscriptionItem>[];
 
-        return list
+        final items = list
             .whereType<Map>()
             .map((e) => SubscriptionItem.fromJson(Map<String, dynamic>.from(e)))
             .toList();
+        SharedPreferences.getInstance().then(
+          (p) => p.setString(_subsCacheKey, jsonEncode(list)),
+        );
+        return items;
       } on DioException {
         continue;
       }

@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/config/app_env.dart';
 import 'package:love_vibe_pro/screens/profile_screen.dart';
@@ -84,13 +86,24 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Future<void> _loadTrending() async {
+    // Show cached reels grid immediately (shared cache with ReelsScreen).
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('cached_reels_for_you');
+      if (raw != null) {
+        final list = (jsonDecode(raw) as List).take(18).toList();
+        if (list.isNotEmpty && mounted) {
+          setState(() { _trending = list; _loadingTrending = false; });
+          _prefetchVideoThumbs(list);
+        }
+      }
+    } catch (_) {}
+
+    // Refresh from network in background.
     try {
       final reels = await _api.getReels(type: 'trending');
       if (mounted) {
-        setState(() {
-          _trending = reels.take(18).toList();
-          _loadingTrending = false;
-        });
+        setState(() { _trending = reels.take(18).toList(); _loadingTrending = false; });
         _prefetchVideoThumbs(_trending);
       }
     } catch (_) {

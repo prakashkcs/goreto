@@ -21,11 +21,16 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
   @override
   void initState() {
     super.initState();
+    _walletService.getCachedTransactions().then((cached) {
+      if (cached.isNotEmpty && mounted && _transactions.isEmpty) {
+        setState(() { _transactions = cached; _isLoading = false; });
+      }
+    });
     _loadTransactions();
   }
 
   Future<void> _loadTransactions() async {
-    if (mounted) setState(() => _isLoading = true);
+    if (_transactions.isEmpty && mounted) setState(() => _isLoading = true);
 
     try {
       final list = await _walletService.getMergedTransactions(limit: 200);
