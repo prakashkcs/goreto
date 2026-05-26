@@ -3,6 +3,8 @@ import 'package:love_vibe_pro/utils/date_util.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'dart:typed_data';
 
 /// ChatService - REST wrapper for live chat functionality powered by /chat.php
 class ChatService {
@@ -20,6 +22,10 @@ class ChatService {
   final Map<String, bool> _blockedByThemMap = {};
   final Map<String, bool> _isFriendMap = {};
   final Map<String, String> _requestStatusMap = {};
+
+  // Cached Dio — created once, reused for all requests (HTTP keep-alive)
+  Dio? _dio;
+  String? _cachedToken;
 
   bool isBlockedByMe(String userId) => _blockedByMeMap[userId] ?? false;
   bool isBlockedByThem(String userId) => _blockedByThemMap[userId] ?? false;
@@ -49,35 +55,75 @@ class ChatService {
   String get currentUserId => _currentUserId;
 
   // Dio client initialization
+  /// Returns a cached [Dio] instance, creating it only once.
+  /// Reusing the instance keeps TCP connections alive (HTTP keep-alive),
+  /// eliminating the ~200 ms TCP handshake overhead on every request.
   Future<Dio> _ensureInitializedDio() async {
+    if (_dio != null) return _dio!;
+
     final prefs = await SharedPreferences.getInstance();
     var baseUrl = prefs.getString('api_base_url') ??
         'https://goreto.org/ekloadmin/api/v1/';
-
     if (!baseUrl.endsWith('/')) baseUrl = '$baseUrl/';
 
-    final dio = Dio(
+    // Cache token once; call updateToken() after login/logout to refresh.
+    _cachedToken =
+        prefs.getString('app_token') ?? prefs.getString('auth_token');
+
+    _dio = Dio(
       BaseOptions(
         baseUrl: baseUrl,
         connectTimeout: const Duration(seconds: 8),
         receiveTimeout: const Duration(seconds: 8),
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'GoretoApp/1.0 (Android; Flutter)',
+        },
       ),
     );
 
-    dio.interceptors.add(
+    const appId = 'love_vibe_pro';
+    const appSecret =
+        'Ib47RTmAiMO66Vg2kY5gzMYekBNpctMusB7AWAHZDR0IEA1en09r8y1ZDFYM52ni';
+
+    _dio!.interceptors.add(
       InterceptorsWrapper(
-        onRequest: (options, handler) async {
-          final token =
-              prefs.getString('app_token') ?? prefs.getString('auth_token');
-          if (token != null) {
+        onRequest: (options, handler) {
+          // Auth token from memory — no disk I/O per request.
+          final token = _cachedToken;
+          if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
-          options.headers['Accept'] = 'application/json';
+          // HMAC-SHA256 app signature (matches server enforce_app_signature check).
+          final ts =
+              (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+          final method = options.method.toUpperCase();
+          final path = options.uri.toString();
+          final body = options.data is String
+              ? (options.data as String)
+              : (options.data != null ? jsonEncode(options.data) : '');
+          final base = '$appId|$ts|$method|$path|$body';
+          final sig = Hmac(sha256, utf8.encode(appSecret))
+              .convert(utf8.encode(base))
+              .toString();
+          options.headers['X-App-ID'] = appId;
+          options.headers['X-App-Timestamp'] = ts;
+          options.headers['X-App-Signature'] = sig;
           return handler.next(options);
         },
       ),
     );
-    return dio;
+
+    return _dio!;
+  }
+
+  /// Call after login / token refresh so the cached auth header stays current.
+  void updateToken(String? token) => _cachedToken = token;
+
+  /// Call on logout to force full re-initialisation on next request.
+  void resetDio() {
+    _dio = null;
+    _cachedToken = null;
   }
 
   /// Get all conversations for current user
