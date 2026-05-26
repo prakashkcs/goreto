@@ -1279,8 +1279,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  bool get _bothHaveMessaged {
+    if (_messages.isEmpty) return false;
+    final myId = _chatService.currentUserId;
+    return _messages.any((m) => m.senderId == myId) &&
+        _messages.any((m) => m.senderId == widget.userId);
+  }
+
   Widget _buildCallButton(IconData icon, bool isVideo) {
-    final canCall = _isFriend || _requestStatus == 'accepted';
+    final canCall = _isFriend || _requestStatus == 'accepted' || _bothHaveMessaged;
     if (!canCall) return const SizedBox.shrink();
     return GestureDetector(
       onTap: () => _startCall(isVideo),

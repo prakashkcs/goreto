@@ -82,16 +82,26 @@ try {
             exit;
         }
 
-        // Only friends (mutual follows) or users with an accepted message request can call
+        // Allow calls between: mutual followers (friends), accepted message request,
+        // OR both sides have previously sent messages to each other.
         $mfA = $pdo->prepare("SELECT COUNT(*) FROM follows WHERE follower_id=? AND following_id=?");
         $mfA->execute([$userId, $receiverId]); $af = (int)$mfA->fetchColumn();
         $mfA->execute([$receiverId, $userId]); $bf = (int)$mfA->fetchColumn();
         $isFriend = $af > 0 && $bf > 0;
         if (!$isFriend) {
+            // Check accepted message request
             $rSt = $pdo->prepare("SELECT accepted FROM message_requests WHERE ((requester_id=? AND receiver_id=?) OR (requester_id=? AND receiver_id=?)) AND accepted=1 LIMIT 1");
             $rSt->execute([$userId, $receiverId, $receiverId, $userId]);
-            if (!$rSt->fetchColumn()) {
-                echo json_encode(['status' => 'error', 'message' => 'You can only call friends or people who accepted your message request', 'error_code' => 'not_allowed_to_call']);
+            $requestAccepted = (bool)$rSt->fetchColumn();
+
+            // Check mutual messaging (both have sent at least one message to each other)
+            $msgQ = $pdo->prepare("SELECT COUNT(*) FROM messages WHERE sender_id=? AND receiver_id=?");
+            $msgQ->execute([$userId, $receiverId]); $aToB = (int)$msgQ->fetchColumn();
+            $msgQ->execute([$receiverId, $userId]); $bToA = (int)$msgQ->fetchColumn();
+            $bothHaveChatted = $aToB > 0 && $bToA > 0;
+
+            if (!$requestAccepted && !$bothHaveChatted) {
+                echo json_encode(['status' => 'error', 'message' => 'You can only call friends or people you have chatted with', 'error_code' => 'not_allowed_to_call']);
                 exit;
             }
         }

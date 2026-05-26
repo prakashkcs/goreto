@@ -299,10 +299,11 @@ class ProfileHeader extends StatelessWidget {
                 profile.rating.toStringAsFixed(1),
                 const Color(0xFFFFD700),
               ),
-              _ProposalBadge(
-                proposalsCount: profile.proposalsCount,
-                buildCompactBadge: _buildCompactBadge,
-              ),
+              if (profile.isOwnProfile)
+                _ProposalBadge(
+                  proposalsCount: profile.proposalsCount,
+                  buildCompactBadge: _buildCompactBadge,
+                ),
               if (profile.income > 0 &&
                   (profile.incomeStatus == 'verified' ||
                       profile.incomeStatus == 'approved'))
