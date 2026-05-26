@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:love_vibe_pro/main.dart';
 import 'package:love_vibe_pro/models/call_session.dart';
 import 'package:love_vibe_pro/screens/chat/call/webrtc_call_screen.dart';
+import 'package:love_vibe_pro/screens/match/nearby_alert_screen.dart';
 import 'package:love_vibe_pro/services/signaling_service.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 
@@ -38,6 +39,17 @@ class CallChannelService {
 
   static void _handleCallAction(Map<String, dynamic> data) {
     final action = data['action']?.toString();
+
+    // Nearby alert: open NearbyAlertScreen
+    if (action == 'open_nearby_alert') {
+      _navigateToNearbyAlert(
+        senderId:     data['sender_id']?.toString()     ?? '',
+        senderName:   data['sender_name']?.toString()   ?? 'Someone',
+        senderAvatar: data['sender_avatar']?.toString() ?? '',
+      );
+      return;
+    }
+
     final callId = int.tryParse(data['call_id']?.toString() ?? '0') ?? 0;
     final callUuid = data['call_uuid']?.toString() ?? '';
     final callerName = data['caller_name']?.toString() ?? 'Unknown';
@@ -63,6 +75,35 @@ class CallChannelService {
         callType: callType,
         isRandom: isRandom,
         autoAccept: true,
+      );
+    }
+  }
+
+  static void _navigateToNearbyAlert({
+    required String senderId,
+    required String senderName,
+    required String senderAvatar,
+    int attempts = 0,
+  }) {
+    if (navigatorKey.currentState != null) {
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => NearbyAlertScreen(
+            senderId: senderId,
+            senderName: senderName,
+            senderAvatar: senderAvatar,
+          ),
+        ),
+      );
+    } else if (attempts < 10) {
+      Future.delayed(
+        const Duration(milliseconds: 500),
+        () => _navigateToNearbyAlert(
+          senderId: senderId,
+          senderName: senderName,
+          senderAvatar: senderAvatar,
+          attempts: attempts + 1,
+        ),
       );
     }
   }

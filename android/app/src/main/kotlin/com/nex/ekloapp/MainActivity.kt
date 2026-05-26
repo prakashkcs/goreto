@@ -152,7 +152,19 @@ class MainActivity : FlutterActivity() {
                     )
                     callChannel?.invokeMethod("onCallAction", data)
                 } else {
-                    // Flutter not ready yet — store for Dart's getPendingCallIntent poll
+                    pendingCallIntent = intent
+                }
+            }
+            "open_nearby_alert" -> {
+                val data = mapOf(
+                    "action"         to action,
+                    "sender_id"      to (intent.getStringExtra("sender_id")      ?: ""),
+                    "sender_name"    to (intent.getStringExtra("sender_name")    ?: "Someone"),
+                    "sender_avatar"  to (intent.getStringExtra("sender_avatar")  ?: "")
+                )
+                if (flutterReady && callChannel != null) {
+                    callChannel?.invokeMethod("onCallAction", data)
+                } else {
                     pendingCallIntent = intent
                 }
             }

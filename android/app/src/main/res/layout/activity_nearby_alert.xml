@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D1A">
+
+    <!-- Blurred background avatar -->
+    <ImageView
+        android:id="@+id/ivBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0.35"
+        android:src="@drawable/ic_default_avatar" />
+
+    <!-- Dark gradient overlay -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/call_gradient_overlay" />
+
+    <!-- Top bar: close button -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_gravity="top"
+        android:paddingTop="52dp"
+        android:paddingHorizontal="20dp">
+
+        <FrameLayout
+            android:id="@+id/btnClose"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/circle_avatar_bg">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="✕"
+                android:textColor="#AAFFFFFF"
+                android:textSize="16sp" />
+        </FrameLayout>
+
+    </LinearLayout>
+
+    <!-- Centre content -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:layout_gravity="center_vertical"
+        android:paddingBottom="20dp">
+
+        <!-- NEARBY badge -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📍 NEARBY"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.12"
+            android:background="@drawable/btn_accept_bg"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="6dp" />
+
+        <androidx.core.widget.Space
+            android:layout_width="wrap_content"
+            android:layout_height="24dp" />
+
+        <!-- Avatar circle -->
+        <ImageView
+            android:id="@+id/ivSenderAvatar"
+            android:layout_width="140dp"
+            android:layout_height="140dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_default_avatar"
+            android:background="@drawable/circle_avatar_bg"
+            android:clipToOutline="true"
+            android:elevation="2dp" />
+
+        <!-- Sender name -->
+        <TextView
+            android:id="@+id/tvSenderName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Someone"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif-medium"
+            android:shadowColor="#80FF007F"
+            android:shadowDx="0"
+            android:shadowDy="0"
+            android:shadowRadius="16" />
+
+        <!-- Sub-label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="is near you right now!"
+            android:textColor="#CCFFFFFF"
+            android:textSize="15sp" />
+
+    </LinearLayout>
+
+    <!-- Bottom buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:layout_gravity="bottom"
+        android:paddingBottom="64dp"
+        android:paddingHorizontal="32dp">
+
+        <!-- View Profile & Connect (primary) -->
+        <Button
+            android:id="@+id/btnConnect"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="View Profile &amp; Connect"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:background="@drawable/btn_accept_bg"
+            android:elevation="4dp" />
+
+        <androidx.core.widget.Space
+            android:layout_width="wrap_content"
+            android:layout_height="12dp" />
+
+        <!-- Ignore (secondary) -->
+        <Button
+            android:id="@+id/btnIgnore"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="Ignore"
+            android:textColor="#CCFFFFFF"
+            android:textSize="15sp"
+            android:background="@drawable/btn_decline_bg"
+            android:elevation="2dp" />
+
+    </LinearLayout>
+
+</FrameLayout>

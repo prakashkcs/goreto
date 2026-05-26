@@ -123,6 +123,18 @@
             android:excludeFromRecents="true"
             android:taskAffinity="com.nex.ekloapp.call" />
 
+        <!-- Nearby alert full-screen activity -->
+        <activity
+            android:name=".NearbyAlertActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:showOnLockScreen="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.nex.ekloapp.nearby" />
+
         <!-- FCM: route notification-payload messages to our high-importance channel on Android 8+ -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"

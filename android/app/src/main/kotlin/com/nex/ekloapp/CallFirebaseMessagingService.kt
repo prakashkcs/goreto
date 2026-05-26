@@ -236,6 +236,42 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
 
         ensureRegularChannels()
 
+        // Nearby: full-screen overlay (same mechanism as incoming calls)
+        if (isNearby) {
+            val nearbyIntent = NearbyAlertActivity.createIntent(this, data)
+            val nearbyPi = PendingIntent.getActivity(this, notifId, nearbyIntent, pendingIntentFlags())
+
+            val builder = NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(R.drawable.ic_stat_goreto)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+                .setFullScreenIntent(nearbyPi, true)
+                .setContentIntent(nearbyPi)
+                .setVibrate(longArrayOf(0, 250, 100, 250))
+
+            // Show notification immediately (activates full-screen intent)
+            showNotification(notifId, builder.build())
+
+            // Also launch the activity directly for devices where FSI may not fire
+            try { startActivity(nearbyIntent) } catch (_: Exception) {}
+
+            // Update large icon in background (best-effort)
+            if (senderAvatar.isNotEmpty()) {
+                executor.execute {
+                    try {
+                        val bmp = BitmapFactory.decodeStream(URL(senderAvatar).openStream())
+                        builder.setLargeIcon(bmp)
+                        showNotification(notifId, builder.build())
+                    } catch (_: Exception) {}
+                }
+            }
+            return
+        }
+
+        // Non-nearby: standard tray notification
         val tapIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("notification_type", type)
