@@ -95,11 +95,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _profileService.getCachedProfile().then((cached) {
-      if (cached != null && mounted && _profile == null) {
-        setState(() => _profile = cached);
-      }
-    });
+    final rawUserId = widget.userId;
+    final isViewingOwnProfile =
+        rawUserId == null || rawUserId.isEmpty || rawUserId == '0';
+    if (isViewingOwnProfile) {
+      _profileService.getCachedProfile().then((cached) {
+        if (cached != null && mounted && _profile == null) {
+          setState(() => _profile = cached);
+        }
+      });
+    }
     _profileFuture = _loadProfileData();
     // Listen for cache clears (e.g. from ProposalsScreen) to trigger a refresh
     _profileService.currentProfileNotifier.addListener(_onProfileChanged);
