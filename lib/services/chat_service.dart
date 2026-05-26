@@ -18,9 +18,13 @@ class ChatService {
   // Block state caches
   final Map<String, bool> _blockedByMeMap = {};
   final Map<String, bool> _blockedByThemMap = {};
+  final Map<String, bool> _isFriendMap = {};
+  final Map<String, String> _requestStatusMap = {};
 
   bool isBlockedByMe(String userId) => _blockedByMeMap[userId] ?? false;
   bool isBlockedByThem(String userId) => _blockedByThemMap[userId] ?? false;
+  bool isFriend(String userId) => _isFriendMap[userId] ?? false;
+  String requestStatus(String userId) => _requestStatusMap[userId] ?? 'none';
 
   // Current user ID (loaded from SharedPreferences)
   String _currentUserId = '';
@@ -134,6 +138,8 @@ class ChatService {
       if (payload is Map<String, dynamic> && payload['status'] == 'success') {
         _blockedByMeMap[otherUserId] = payload['is_blocked_by_me'] ?? false;
         _blockedByThemMap[otherUserId] = payload['is_blocked_by_them'] ?? false;
+        _isFriendMap[otherUserId] = payload['is_friend'] == true || payload['is_friend'] == 1;
+        _requestStatusMap[otherUserId] = payload['request_status']?.toString() ?? 'none';
 
         final List<dynamic> data = payload['messages'] ?? [];
         final parsed = data.map((e) => _parseMessage(e)).toList();
@@ -446,7 +452,48 @@ class ChatService {
       updatedAt: json['updated_at'] != null
           ? DateUtil.parseServerTime(json['updated_at'].toString())
           : DateTime.now(),
+      isFriend: json['is_friend'] == true || json['is_friend'] == 1,
+      requestStatus: json['request_status']?.toString() ?? 'none',
     );
+  }
+
+  /// Accept a message request from [requesterId]
+  Future<bool> acceptRequest(String requesterId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post('chat.php', data: {
+        'action': 'accept_request',
+        'requester_id': requesterId,
+      });
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      if (payload['status'] == 'success') {
+        _requestStatusMap[requesterId] = 'accepted';
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// Decline a message request from [requesterId] (deletes messages too)
+  Future<bool> declineRequest(String requesterId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post('chat.php', data: {
+        'action': 'decline_request',
+        'requester_id': requesterId,
+      });
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      if (payload['status'] == 'success') {
+        _requestStatusMap.remove(requesterId);
+        _conversations.removeWhere((c) => c.otherUserId == requesterId);
+        final convId = _getConversationId(requesterId);
+        _messages.remove(convId);
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   void _updateConversationWithMessage(String otherUserId, Message message) {

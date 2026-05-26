@@ -79,6 +79,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _isBlockedByMe = false;
   bool _isBlockedByThem = false;
 
+  bool _isFriend = false;
+  String _requestStatus = 'none';
+
   bool _isDownloading = false;
   final Map<String, Uint8List?> _thumbCache = {};
 
@@ -316,6 +319,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _isLoading = false;
           _isBlockedByMe = _chatService.isBlockedByMe(widget.userId);
           _isBlockedByThem = _chatService.isBlockedByThem(widget.userId);
+          _isFriend = _chatService.isFriend(widget.userId);
+          _requestStatus = _chatService.requestStatus(widget.userId);
         });
         _chatService.markAsRead(convId);
 
@@ -933,12 +938,103 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                 ),
               )
+            else if (_requestStatus == 'pending_received')
+              _buildRequestPendingBar()
             else
               _buildInputArea(),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildRequestPendingBar() {
+    final navPadding = MediaQuery.of(context).padding.bottom;
+    final bottomPadding = navPadding > 0 ? navPadding + 10.0 : 20.0;
+    return Container(
+      padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: bottomPadding),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E0E14),
+        border: Border(
+          top: BorderSide(color: const Color(0xFFF97316).withValues(alpha: 0.3)),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.mail_outline, color: Color(0xFFF97316), size: 28),
+          const SizedBox(height: 8),
+          Text(
+            '${widget.userName} sent you a message request',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Accept to reply, call, and use all features.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _declineRequest,
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.red),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text('Decline',
+                      style: TextStyle(color: Colors.red)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _acceptRequest,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF97316),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text('Accept',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _acceptRequest() async {
+    try {
+      await _chatService.acceptRequest(widget.userId);
+      if (mounted) {
+        setState(() {
+          _requestStatus = 'accepted';
+          _isFriend = _chatService.isFriend(widget.userId);
+        });
+        NeonToast.success(context, 'Message request accepted!');
+      }
+    } catch (e) {
+      if (mounted) NeonToast.error(context, 'Failed to accept request');
+    }
+  }
+
+  Future<void> _declineRequest() async {
+    try {
+      await _chatService.declineRequest(widget.userId);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) NeonToast.error(context, 'Failed to decline request');
+    }
   }
 
   Widget _buildRestrictedInput() {
@@ -1112,6 +1208,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         fontSize: 11,
                         fontStyle: FontStyle.italic),
                   )
+                else if (_isFriend && _otherUserOnline)
+                  const Text(
+                    'Friends • Online',
+                    style: TextStyle(color: Color(0xFF22C55E), fontSize: 11),
+                  )
+                else if (_isFriend)
+                  Text(
+                    _otherUserLastSeen != null
+                        ? 'Friends • last seen ${_formatLastSeen(_otherUserLastSeen!)}'
+                        : 'Friends',
+                    style: const TextStyle(color: Color(0xFF22C55E), fontSize: 11),
+                  )
+                else if (_requestStatus == 'pending_received')
+                  const Text(
+                    'Message Request',
+                    style: TextStyle(color: Color(0xFFF97316), fontSize: 11),
+                  )
+                else if (_requestStatus == 'pending_sent')
+                  const Text(
+                    'Request Sent',
+                    style: TextStyle(color: Colors.white38, fontSize: 11),
+                  )
                 else if (_otherUserOnline)
                   const Text(
                     'Online',
@@ -1162,6 +1280,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildCallButton(IconData icon, bool isVideo) {
+    final canCall = _isFriend || _requestStatus == 'accepted';
+    if (!canCall) return const SizedBox.shrink();
     return GestureDetector(
       onTap: () => _startCall(isVideo),
       child: Container(

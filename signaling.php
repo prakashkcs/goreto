@@ -82,6 +82,20 @@ try {
             exit;
         }
 
+        // Only friends (mutual follows) or users with an accepted message request can call
+        $mfA = $pdo->prepare("SELECT COUNT(*) FROM follows WHERE follower_id=? AND following_id=?");
+        $mfA->execute([$userId, $receiverId]); $af = (int)$mfA->fetchColumn();
+        $mfA->execute([$receiverId, $userId]); $bf = (int)$mfA->fetchColumn();
+        $isFriend = $af > 0 && $bf > 0;
+        if (!$isFriend) {
+            $rSt = $pdo->prepare("SELECT accepted FROM message_requests WHERE ((requester_id=? AND receiver_id=?) OR (requester_id=? AND receiver_id=?)) AND accepted=1 LIMIT 1");
+            $rSt->execute([$userId, $receiverId, $receiverId, $userId]);
+            if (!$rSt->fetchColumn()) {
+                echo json_encode(['status' => 'error', 'message' => 'You can only call friends or people who accepted your message request', 'error_code' => 'not_allowed_to_call']);
+                exit;
+            }
+        }
+
         // Auto-expire old ringing calls from this caller (> 60s)
         $pdo->prepare("UPDATE calls SET status='missed' WHERE caller_id=? AND status='ringing' AND (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(created_at)) > 60")->execute([$userId]);
 

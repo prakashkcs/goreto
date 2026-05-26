@@ -112,6 +112,9 @@ class Message {
   }
 }
 
+/// 'none' | 'pending_sent' | 'pending_received' | 'accepted'
+typedef RequestStatus = String;
+
 class Conversation {
   final String id;
   final List<String> participantIds;
@@ -121,6 +124,13 @@ class Conversation {
   final Message? lastMessage;
   final int unreadCount;
   final DateTime updatedAt;
+  final bool isFriend;
+  final RequestStatus requestStatus;
+
+  bool get canSendMessage => isFriend || requestStatus == 'accepted' || requestStatus == 'pending_sent' || requestStatus == 'none';
+  bool get canCall => isFriend || requestStatus == 'accepted';
+  bool get isPendingReceived => requestStatus == 'pending_received';
+  bool get showInRequests => requestStatus == 'pending_received';
 
   Conversation({
     required this.id,
@@ -131,6 +141,8 @@ class Conversation {
     this.lastMessage,
     this.unreadCount = 0,
     DateTime? updatedAt,
+    this.isFriend = false,
+    this.requestStatus = 'none',
   }) : updatedAt = updatedAt ?? DateTime.now();
 
   Conversation copyWith({
@@ -142,6 +154,8 @@ class Conversation {
     Message? lastMessage,
     int? unreadCount,
     DateTime? updatedAt,
+    bool? isFriend,
+    RequestStatus? requestStatus,
   }) {
     return Conversation(
       id: id ?? this.id,
@@ -152,6 +166,8 @@ class Conversation {
       lastMessage: lastMessage ?? this.lastMessage,
       unreadCount: unreadCount ?? this.unreadCount,
       updatedAt: updatedAt ?? this.updatedAt,
+      isFriend: isFriend ?? this.isFriend,
+      requestStatus: requestStatus ?? this.requestStatus,
     );
   }
 
@@ -165,6 +181,8 @@ class Conversation {
       'last_message': lastMessage?.toJson(),
       'unread_count': unreadCount,
       'updated_at': updatedAt.toIso8601String(),
+      'is_friend': isFriend,
+      'request_status': requestStatus,
     };
   }
 
@@ -180,6 +198,8 @@ class Conversation {
           : null,
       unreadCount: json['unread_count'] ?? 0,
       updatedAt: DateUtil.parseServerTime(json['updated_at']),
+      isFriend: json['is_friend'] == true || json['is_friend'] == 1,
+      requestStatus: json['request_status']?.toString() ?? 'none',
     );
   }
 }
