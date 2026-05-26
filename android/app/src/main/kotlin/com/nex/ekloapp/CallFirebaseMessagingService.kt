@@ -198,16 +198,21 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
             .addAction(R.drawable.ic_call_end,    "Decline", declinePi)
             .setTimeoutAfter(60_000)
 
+        // Show immediately so the notification never misses its window.
+        // OEM battery managers can kill the service process seconds after
+        // onMessageReceived() returns — waiting for a network avatar download
+        // risks a silent miss.
+        showNotification(CALL_NOTIFICATION_ID, builder.build())
+
+        // Update large icon with the caller's avatar in the background (best-effort).
         if (callerAvatar.isNotEmpty()) {
             executor.execute {
                 try {
                     val bmp = BitmapFactory.decodeStream(URL(callerAvatar).openStream())
                     builder.setLargeIcon(bmp)
+                    showNotification(CALL_NOTIFICATION_ID, builder.build())
                 } catch (_: Exception) {}
-                showNotification(CALL_NOTIFICATION_ID, builder.build())
             }
-        } else {
-            showNotification(CALL_NOTIFICATION_ID, builder.build())
         }
     }
 

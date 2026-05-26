@@ -94,17 +94,18 @@ class PushNotificationFCM
         return false;
     }
 
-    public function sendCallNotification($fcmToken, $projectId, $callerName, $callerId, $callUuid, $callId, $type = 'video')
+    public function sendCallNotification($fcmToken, $projectId, $callerName, $callerId, $callUuid, $callId, $type = 'video', $callerAvatar = '')
     {
         $data = [
-            'action' => 'incoming_call',
-            'type' => $type,
-            'call_uuid' => $callUuid,
-            'call_id' => $callId,
-            'caller_id' => $callerId,
-            'caller_name' => $callerName,
-            'title' => 'Incoming ' . ucfirst($type) . ' Call',
-            'body' => $callerName . ' is calling you...'
+            'action'        => 'incoming_call',
+            'type'          => $type,
+            'call_uuid'     => $callUuid,
+            'call_id'       => $callId,
+            'caller_id'     => $callerId,
+            'caller_name'   => $callerName,
+            'caller_avatar' => $callerAvatar,
+            'title'         => 'Incoming ' . ucfirst($type) . ' Call',
+            'body'          => $callerName . ' is calling you...',
         ];
         // For calls, we want DATA-ONLY to ensure onBackgroundMessage is triggered reliably for custom tray
         return $this->sendDataMessage($fcmToken, $projectId, $data, null, true);

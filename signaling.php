@@ -121,8 +121,12 @@ try {
                 $jsonAccount = json_decode(file_get_contents($serviceAccountPath), true);
                 $projectId = $jsonAccount['project_id'] ?? '';
                 if (!empty($projectId)) {
+                    $rawAvatar = $callerInfo['avatar'] ?? '';
+                    $callerAvatar = (preg_match('~^https?://~i', $rawAvatar))
+                        ? $rawAvatar
+                        : ($rawAvatar !== '' ? 'https://goreto.org/ekloadmin/' . ltrim($rawAvatar, '/') : '');
                     $fcmClient = new PushNotificationFCM($serviceAccountPath);
-                    $fcmClient->sendCallNotification($receiver['fcm_token'], $projectId, $callerInfo['name'] ?? 'Someone', $userId, $callUuid, $callId, $type);
+                    $fcmClient->sendCallNotification($receiver['fcm_token'], $projectId, $callerInfo['name'] ?? 'Someone', $userId, $callUuid, $callId, $type, $callerAvatar);
                     $fcmSent = true;
                 }
             }

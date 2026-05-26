@@ -95,13 +95,12 @@ class MainActivity : FlutterActivity() {
 
     // Android 14+ requires USE_FULL_SCREEN_INTENT to be granted by the user
     // for the incoming-call full-screen activity to pop up automatically.
+    // We redirect to Settings on every launch until the permission is granted —
+    // a one-time prompt is not enough because users often dismiss it without acting.
     private fun requestFullScreenIntentPermission() {
         if (Build.VERSION.SDK_INT < 34) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.canUseFullScreenIntent()) return
-        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("fsi_requested", false)) return
-        prefs.edit().putBoolean("fsi_requested", true).apply()
         try {
             startActivity(
                 Intent(
