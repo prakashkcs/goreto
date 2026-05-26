@@ -309,7 +309,7 @@ class ChatService {
           {
             'sender_id': _currentUserId,
             'receiver_id': receiverId,
-            'type': 'text',
+            'type': type.name,
             'content': content,
             'status': 'sent',
             'created_at': DateTime.now().toIso8601String(),

@@ -796,19 +796,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             '${isVideo ? 'Video' : 'Voice'} call • $m:${s.toString().padLeft(2, '0')}';
       }
 
-      final msg = await _chatService.sendMessage(
-        receiverId: widget.userId,
-        type: MessageType.call,
-        content: callLog,
-      );
-      // Insert immediately so the call log appears without waiting for next sync tick
-      if (mounted) {
-        setState(() => _messages.insert(0, msg));
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_scrollController.hasClients) {
-            _scrollController.jumpTo(0);
-          }
-        });
+      try {
+        final msg = await _chatService.sendMessage(
+          receiverId: widget.userId,
+          type: MessageType.call,
+          content: callLog,
+        );
+        // Insert immediately so the call log appears without waiting for next sync tick
+        if (mounted) {
+          setState(() => _messages.insert(0, msg));
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_scrollController.hasClients) {
+              _scrollController.jumpTo(0);
+            }
+          });
+        }
+      } catch (_) {
+        // If network fails, the call log will appear on next message poll
       }
     }
   }
