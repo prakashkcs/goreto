@@ -33,6 +33,11 @@ class _GroupChatListTabState extends State<GroupChatListTab> {
       final id = int.tryParse(p.getString('user_id') ?? '') ?? 0;
       if (mounted) setState(() => _myUserId = id);
     });
+    _service.getCachedGroups().then((cached) {
+      if (cached.isNotEmpty && mounted) {
+        setState(() { _myGroups = cached; _isLoading = false; });
+      }
+    });
     _loadData();
     _timer = Timer.periodic(const Duration(seconds: 10), (_) {
       _loadData(showLoading: false);
@@ -91,7 +96,7 @@ class _GroupChatListTabState extends State<GroupChatListTab> {
   }
 
   Future<void> _loadData({bool showLoading = true}) async {
-    if (showLoading && mounted) setState(() => _isLoading = true);
+    if (showLoading && _myGroups.isEmpty && mounted) setState(() => _isLoading = true);
     try {
       final groups = await _service.getMyGroups();
       if (mounted) {

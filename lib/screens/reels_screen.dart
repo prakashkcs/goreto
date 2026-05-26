@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +24,7 @@ import 'package:love_vibe_pro/services/user_prefs_cache.dart';
 import 'package:love_vibe_pro/services/profile_service.dart';
 import 'package:love_vibe_pro/services/eye_blink_service.dart';
 import 'package:love_vibe_pro/services/settings_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum ReelsFeedMode { reels, live }
 
@@ -93,6 +95,7 @@ class _ReelsScreenState extends State<ReelsScreen>
 
     _loadCurrentUserId();
     if (_mode == ReelsFeedMode.reels) {
+      _loadCachedReels();
       _fetchForYouReels();
     } else {
       _isLoading = false;
@@ -190,8 +193,30 @@ class _ReelsScreenState extends State<ReelsScreen>
   }
 
 
+  static const _kForYouCacheKey = 'cached_reels_for_you';
+
+  Future<void> _loadCachedReels() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kForYouCacheKey);
+      if (raw == null || !mounted) return;
+      final list = jsonDecode(raw) as List<dynamic>;
+      if (list.isNotEmpty && mounted) {
+        setState(() { _forYouReels = list; _isLoading = false; });
+      }
+    } catch (_) {}
+  }
+
+  void _saveCachedReels(List<dynamic> reels) {
+    SharedPreferences.getInstance().then((prefs) {
+      try {
+        prefs.setString(_kForYouCacheKey, jsonEncode(reels.take(30).toList()));
+      } catch (_) {}
+    });
+  }
+
   Future<void> _fetchForYouReels() async {
-    setState(() => _isLoading = true);
+    if (_forYouReels.isEmpty) setState(() => _isLoading = true);
     try {
       final reels = await _apiService.getReels(type: 'trending');
       if (!mounted) return;
@@ -209,6 +234,7 @@ class _ReelsScreenState extends State<ReelsScreen>
         }
         _isLoading = false;
       });
+      _saveCachedReels(reels);
       _jumpToInitialReel();
       _checkFollowStatusForCurrentReel();
       _recordViewForCurrentReel();

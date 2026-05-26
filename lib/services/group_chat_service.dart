@@ -54,6 +54,22 @@ class GroupChatService {
     return [];
   }
 
+  static const String _myGroupsCacheKey = 'cached_my_groups';
+
+  Future<List<ChatGroup>> getCachedGroups() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_myGroupsCacheKey);
+      if (raw == null) return [];
+      final list = json.decode(raw) as List<dynamic>;
+      return list
+          .map((g) => ChatGroup.fromJson(Map<String, dynamic>.from(g as Map)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<List<ChatGroup>> getMyGroups() async {
     final token = await _getToken();
     if (token == null) return [];
@@ -67,9 +83,12 @@ class GroupChatService {
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       if (data['status'] == 'success') {
-        return (data['groups'] as List)
+        final groups = (data['groups'] as List)
             .map((g) => ChatGroup.fromJson(g))
             .toList();
+        final prefs = await SharedPreferences.getInstance();
+        prefs.setString(_myGroupsCacheKey, json.encode(data['groups']));
+        return groups;
       }
     }
     return [];
