@@ -43,8 +43,25 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _isLoading = true);
+  Future<void> _load({bool forceRefresh = false}) async {
+    // Show cached data immediately so the screen never shows a blank spinner
+    final cached = _svc.getCached();
+    if (cached.isNotEmpty && !forceRefresh) {
+      setState(() {
+        _notifications = cached;
+        _isLoading = false;
+      });
+      // Refresh in background; update UI if fresh data differs
+      _svc.getNotifications().then((fresh) {
+        if (mounted && fresh.isNotEmpty) {
+          setState(() => _notifications = fresh);
+          _svc.markAsRead();
+        }
+      });
+      return;
+    }
+
+    setState(() => _isLoading = cached.isEmpty);
     final list = await _svc.getNotifications();
     if (!mounted) return;
     setState(() {
@@ -368,7 +385,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   color: const Color(0xFFD946EF),
                   backgroundColor: const Color(0xFF1C1C1E),
                   displacement: 20,
-                  onRefresh: _load,
+                  onRefresh: () => _load(forceRefresh: true),
                   child: _buildList(),
                 ),
     );

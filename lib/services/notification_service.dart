@@ -8,7 +8,29 @@ class NotificationService {
 
   final ApiService _apiService = ApiService();
 
+  // In-memory cache — populated after first successful fetch
+  List<AppNotification> _cache = [];
+  bool _fetching = false;
+
+  List<AppNotification> getCached() => _cache;
+
   Future<List<AppNotification>> getNotifications() async {
+    if (_cache.isNotEmpty) {
+      // Return cache immediately; refresh in background so caller shows data fast
+      _refreshInBackground();
+      return List.from(_cache);
+    }
+    return _fetchFromNetwork();
+  }
+
+  void _refreshInBackground() {
+    if (_fetching) return;
+    _fetchFromNetwork();
+  }
+
+  Future<List<AppNotification>> _fetchFromNetwork() async {
+    if (_fetching) return _cache;
+    _fetching = true;
     try {
       final dio = await _apiService.getDioClient();
       final response = await dio.get('api_notifications.php?action=list');
@@ -17,11 +39,14 @@ class NotificationService {
           (response.data['status'] == 'success' ||
               response.data['status'] == true)) {
         final List<dynamic> data = response.data['data'] ?? [];
-        return data.map((e) => AppNotification.fromJson(e)).toList();
+        _cache = data.map((e) => AppNotification.fromJson(e)).toList();
+        return _cache;
       }
-      return [];
+      return _cache;
     } catch (e) {
-      return [];
+      return _cache;
+    } finally {
+      _fetching = false;
     }
   }
 

@@ -127,11 +127,25 @@ class ChatService {
   }
 
   /// Get all conversations for current user
+  bool _fetchingConversations = false;
+
   Future<List<Conversation>> getConversations() async {
     await _ensureUserIdLoaded();
-    final dio = await _ensureInitializedDio();
 
+    // Return cache immediately; fetch fresh data in background
+    if (_conversations.isNotEmpty) {
+      _fetchConversationsFromNetwork();
+      return List.from(_conversations);
+    }
+
+    return _fetchConversationsFromNetwork();
+  }
+
+  Future<List<Conversation>> _fetchConversationsFromNetwork() async {
+    if (_fetchingConversations) return _conversations;
+    _fetchingConversations = true;
     try {
+      final dio = await _ensureInitializedDio();
       final response = await dio.get(
         'chat.php',
         queryParameters: {'action': 'get_conversations'},
@@ -145,13 +159,11 @@ class ChatService {
         for (var item in data) {
           final conv = _parseConversation(item);
           _conversations.add(conv);
-          // Auto mark as delivered if unread
-          if (conv.unreadCount > 0) {
-            markDelivered(conv.id);
-          }
+          if (conv.unreadCount > 0) markDelivered(conv.id);
         }
       }
     } catch (e) {}
+    _fetchingConversations = false;
     return _conversations;
   }
 
