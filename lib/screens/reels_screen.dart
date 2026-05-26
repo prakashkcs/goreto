@@ -95,8 +95,9 @@ class _ReelsScreenState extends State<ReelsScreen>
 
     _loadCurrentUserId();
     if (_mode == ReelsFeedMode.reels) {
-      _loadCachedReels();
-      _fetchForYouReels();
+      _loadCachedReels().then((_) {
+        if (mounted) _fetchForYouReels();
+      });
     } else {
       _isLoading = false;
     }

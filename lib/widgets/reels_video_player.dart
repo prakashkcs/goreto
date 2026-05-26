@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/services/thumbnail_cache.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
 
@@ -118,15 +119,12 @@ class _ReelsVideoPlayerState extends State<ReelsVideoPlayer>
           !_videoPlayerController!.value.isInitialized) {
         _initializePlayer();
       } else {
-        // Controller was preloaded — show thumbnail for 400ms, then play.
+        // Controller was preloaded — play immediately.
         if (!_isPausedByUser) {
           final c = _videoPlayerController!;
-          Future.delayed(const Duration(milliseconds: 400), () {
-            if (mounted && widget.isActive && _videoPlayerController == c) {
-              c.play();
-              setState(() => _isVideoPlaying = true);
-            }
-          });
+          c.play();
+          if (mounted) setState(() => _isVideoPlaying = true);
+          widget.onControllerReady?.call(c);
         }
       }
     } else if (widget.preload) {
@@ -173,12 +171,7 @@ class _ReelsVideoPlayerState extends State<ReelsVideoPlayer>
       await Future.wait([controller.setLooping(true), controller.setVolume(1)]);
       if (!widget.isActive || _videoPlayerController != controller || !mounted) return;
 
-      // Thumbnail is in cache — show it instantly.
       setState(() => _isInitializing = false);
-
-      // Hold thumbnail visible for 400ms so the user actually sees it.
-      await Future.delayed(const Duration(milliseconds: 400));
-      if (!widget.isActive || _videoPlayerController != controller || !mounted) return;
 
       if (!_isPausedByUser) {
         await controller.play();
@@ -288,24 +281,21 @@ class _ReelsVideoPlayerState extends State<ReelsVideoPlayer>
   Widget _buildThumbnailLayer() {
     final thumbUrl = widget.thumbnailUrl?.trim() ?? '';
     if (thumbUrl.startsWith('http')) {
-      return Image.network(
-        thumbUrl,
+      return CachedNetworkImage(
+        imageUrl: thumbUrl,
         fit: BoxFit.cover,
-        gaplessPlayback: true,
-        loadingBuilder: (_, child, loadingProgress) {
-          if (loadingProgress == null) return child;
-          // Thumbnail still downloading — show gradient placeholder.
-          return Container(
-            decoration: _kGradientDecoration,
-            child: const Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFFD946EF),
-                strokeWidth: 2,
-              ),
+        fadeInDuration: Duration.zero,
+        placeholderFadeInDuration: Duration.zero,
+        placeholder: (_, __) => Container(
+          decoration: _kGradientDecoration,
+          child: const Center(
+            child: CircularProgressIndicator(
+              color: Color(0xFFD946EF),
+              strokeWidth: 2,
             ),
-          );
-        },
-        errorBuilder: (_, __, ___) => Container(
+          ),
+        ),
+        errorWidget: (_, __, ___) => Container(
           decoration: _kGradientDecoration,
           child: const Center(
             child: Icon(Icons.play_circle_outline_rounded,
