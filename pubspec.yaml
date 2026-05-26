@@ -1,0 +1,98 @@
+﻿name: love_vibe_pro
+description: "Eklo - Nepali Social App"
+publish_to: 'none'
+
+version: 1.0.1+2
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.1.0
+  glassmorphism: ^3.0.0
+  flutter_svg: ^2.0.10
+  simple_gradient_text: ^1.3.0
+  video_player: ^2.11.0
+  http: ^1.2.1
+  shared_preferences: ^2.2.3
+  provider: ^6.1.2
+  google_sign_in: ^6.2.0
+  cached_network_image: ^3.3.1
+  geolocator: ^10.1.0
+  geocoding: ^3.0.0
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.1
+  url_launcher: ^6.2.5
+  image_picker: ^1.0.7
+  audioplayers: ^6.1.0
+  gradient_borders: ^1.0.0
+  dio: ^5.9.1
+  chewie: ^1.8.1
+  visibility_detector: ^0.4.0+2
+  share_plus: ^12.0.2
+  shimmer: ^3.0.0
+  path_provider: ^2.1.2
+  flutter_webrtc: ^0.12.4
+  just_audio: ^0.10.5
+  permission_handler: ^12.0.1
+  uuid: ^4.3.3
+  intl: ^0.19.0
+  record: ^6.0.0
+  camera: ^0.11.0+2
+  google_mlkit_face_detection: ^0.13.1
+  model_viewer_plus: ^1.10.0
+  flutter_cache_manager: ^3.4.1
+  zego_uikit_prebuilt_call: ^4.22.3
+  agora_rtc_engine: ^6.5.3
+  firebase_core: ^4.5.0
+  firebase_messaging: ^16.1.2
+  onesignal_flutter: ^5.2.5
+  timeago: ^3.7.1
+  flutter_local_notifications: ^17.0.0
+  connectivity_plus: ^6.0.0
+  sqflite: ^2.3.0
+  flutter_blue_plus: ^1.32.0
+  flutter_background_service: ^5.0.5
+  zego_uikit_prebuilt_live_streaming: ^3.15.6
+  font_awesome_flutter: ^10.7.0
+  video_thumbnail: ^0.5.3
+  image_cropper: ^8.0.2
+  app_links: ^6.3.4
+  google_mobile_ads: ^5.3.0
+  socket_io_client: ^2.0.3+1
+  gal: ^1.3.0
+  flutter_secure_storage: ^9.2.2
+  crypto: ^3.0.3
+
+dependency_overrides:
+  android_intent_plus: ^5.1.4
+  ffi: ^2.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/goreto.png"
+  min_sdk_android: 21
+
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/app_logo.png
+    - assets/images/splash_logo.png
+    - assets/images/goreto.png
+    - assets/notify.mp3
+    - assets/call-send.mp3
+    - assets/nearby.mp3
+    - assets/ringtone.mp3
+    - assets/placeholders/story_placeholder.svg

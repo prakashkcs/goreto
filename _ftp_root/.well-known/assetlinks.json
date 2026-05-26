@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.nex.ekloapp",
+      "sha256_cert_fingerprints": [
+        "D0:91:81:27:C6:DF:F8:BD:6C:F7:BE:C9:8D:E3:90:9F:16:C3:DA:74:67:B5:41:AC:87:B5:86:27:C7:5A:4C:46"
+      ]
+    }
+  }
+]

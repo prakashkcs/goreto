@@ -1,0 +1,8 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+put profile.php profile.php
+quit

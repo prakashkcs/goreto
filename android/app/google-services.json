@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "354056335842",
+    "project_id": "eklo-app",
+    "storage_bucket": "eklo-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:354056335842:android:dc9a957dfe17e97e8149bb",
+        "android_client_info": {
+          "package_name": "com.nex.ekloapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "354056335842-v0qg73i3cv44bsgnti6d3rht57eikd3g.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nex.ekloapp",
+            "certificate_hash": "7f66b27618823d425bd83d675c92f51ffb0e58d6"
+          }
+        },
+        {
+          "client_id": "354056335842-t2mgdi7487coht7tkjr3545dkakrmkqa.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBBWzzgM2vx8EVrc3vdNG0g4yOrhoxlNGY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "354056335842-t2mgdi7487coht7tkjr3545dkakrmkqa.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

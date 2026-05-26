@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# Allow real files and directories to be served directly
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Route /{username} → profile.php?username={username}
+# Excludes known top-level directories: ekloadmin, .well-known, wp-*, etc.
+RewriteCond %{REQUEST_URI} ^/([A-Za-z0-9._][A-Za-z0-9._-]{0,29})/?$
+RewriteCond %{REQUEST_URI} !^/(ekloadmin|\.well-known|wp-admin|wp-content|wp-includes|api|static|assets)(/|$)
+RewriteRule ^([A-Za-z0-9._][A-Za-z0-9._-]{0,29})/?$ /profile.php?username=$1 [L,QSA]

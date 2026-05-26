@@ -1,0 +1,122 @@
+# ── Gzip compression ──────────────────────────────────────────────────────────
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/json
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE text/plain
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/css
+    SetEnvIfNoCase Request_URI \.(?:gif|jpe?g|png|webp|mp4|mp3|gz|zip)$ no-gzip dont-vary
+</IfModule>
+
+# ── Rewrite ───────────────────────────────────────────────────────────────────
+RewriteEngine On
+RewriteRule ^.*$ - [L]
+
+# ── Security headers ──────────────────────────────────────────────────────────
+<IfModule mod_headers.c>
+    # Prevent MIME-type sniffing
+    Header always set X-Content-Type-Options "nosniff"
+
+    # Block clickjacking
+    Header always set X-Frame-Options "DENY"
+
+    # Legacy XSS filter (still useful for older browsers)
+    Header always set X-XSS-Protection "1; mode=block"
+
+    # Control referrer information
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Disable browser features not needed by the API
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+    # HSTS — only sent over HTTPS (Apache sets this only when SSL is active)
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+
+    # Prevent caching of sensitive API responses
+    <FilesMatch "\.(php)$">
+        Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+        Header always set Pragma "no-cache"
+    </FilesMatch>
+
+    # Remove server fingerprinting headers
+    Header always unset X-Powered-By
+    Header always unset Server
+</IfModule>
+
+# ── CORS — centrally override the wildcard set by individual PHP files ─────────
+# Apache mod_headers fixups phase runs after PHP, so "always unset" removes
+# any Access-Control-Allow-Origin: * that a PHP script already emitted.
+# Mobile apps (Flutter) send no Origin header and are completely unaffected.
+<IfModule mod_headers.c>
+    <IfModule mod_setenvif.c>
+        SetEnvIf Origin "^https://goreto\.org$"     CORS_ALLOW=1
+        SetEnvIf Origin "^https://www\.goreto\.org$" CORS_ALLOW=1
+    </IfModule>
+
+    # Remove the wildcard emitted by PHP, then conditionally re-add the exact origin.
+    Header always unset Access-Control-Allow-Origin
+    Header always set   Access-Control-Allow-Origin "https://goreto.org" env=CORS_ALLOW
+    Header always set   Vary "Origin"
+</IfModule>
+
+# ── Content-Security-Policy (admin panel + API pages) ─────────────────────────
+<IfModule mod_headers.c>
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https://goreto.org; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
+    Header always set X-Content-Type-Options "nosniff"
+</IfModule>
+
+# ── Block direct access to sensitive files ────────────────────────────────────
+<FilesMatch "^(db_connect|config|auth_middleware|security|debug_probe|notification_helper|fcm_v1|bunny_config|bunny_helper)\.php$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block access to hidden files (.git, .env, etc.)
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block access to backup / temp / source files
+<FilesMatch "\.(bak|sql|log|sh|py|ps1|txt|zip|tar|gz|env|lock|md)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block test/diagnostic utilities
+<FilesMatch "^(test_|check_|probe_|diag_|dev_)">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── Disable directory listing ─────────────────────────────────────────────────
+Options -Indexes
+
+# ── Limit request methods ─────────────────────────────────────────────────────
+<LimitExcept GET POST OPTIONS>
+    Order allow,deny
+    Deny from all
+</LimitExcept>
+
+# ── Limit upload size (32 MB max) ─────────────────────────────────────────────
+<IfModule mod_php.c>
+    php_value upload_max_filesize 32M
+    php_value post_max_size 34M
+    php_value max_execution_time 60
+    php_value memory_limit 128M
+</IfModule>
+
+# ── Block common attack patterns in query strings ─────────────────────────────
+<IfModule mod_rewrite.c>
+    RewriteCond %{QUERY_STRING} (union.*select|select.*from|insert.*into|delete.*from|drop.*table) [NC]
+    RewriteRule .* - [F,L]
+
+    RewriteCond %{QUERY_STRING} (<script|javascript:|vbscript:|onload=|onerror=) [NC]
+    RewriteRule .* - [F,L]
+
+    RewriteCond %{QUERY_STRING} (\.\./|\.\.\\) [NC]
+    RewriteRule .* - [F,L]
+
+    RewriteCond %{QUERY_STRING} (%00|%0d%0a|%0a%0d) [NC]
+    RewriteRule .* - [F,L]
+</IfModule>

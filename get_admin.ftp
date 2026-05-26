@@ -1,0 +1,10 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd admin
+get kyc_review.php
+get kyc_tasks.php
+get _layout_header.php
+quit

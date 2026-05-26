@@ -1,0 +1,9 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+ls -la
+cd ekloadmin/admin
+ls -la
+quit

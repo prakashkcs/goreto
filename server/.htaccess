@@ -1,0 +1,13 @@
+RewriteEngine On
+
+# Don't rewrite requests that already go to the ekloadmin backend
+RewriteCond %{REQUEST_URI} ^/ekloadmin/ [NC]
+RewriteRule ^ - [L]
+
+# Don't rewrite actual files or directories that exist on disk
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Rewrite /{username}/{postId} (and any other unknown paths) to index.php
+RewriteRule ^(.*)$ /index.php [QSA,L]

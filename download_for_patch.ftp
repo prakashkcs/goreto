@@ -1,0 +1,13 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+get admin_wallet_requests.php downloaded_admin_wallet_requests.php
+get kyc_review.php downloaded_kyc_review.php
+get income_review.php downloaded_income_review.php
+get gifts.php downloaded_gifts.php
+get follow.php downloaded_follow.php
+get user_actions.php downloaded_user_actions.php
+quit

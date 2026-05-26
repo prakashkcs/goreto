@@ -1,0 +1,8 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd admin
+get wallet_requests.php
+quit

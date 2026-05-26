@@ -1,0 +1,10 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+put downloaded_user_actions.php user_actions.php
+cd ..
+put admin_reports.php admin_reports.php
+quit

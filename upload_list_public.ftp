@@ -1,0 +1,9 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+put list_public_html.php
+ls -l
+quit

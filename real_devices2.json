@@ -1,0 +1,30 @@
+﻿{
+    "logs":  [
+                 {
+                     "user_id":  "9",
+                     "nearby_user_id":  "13",
+                     "last_notified_at":  "2026-03-15 06:29:56"
+                 },
+                 {
+                     "user_id":  "13",
+                     "nearby_user_id":  "9",
+                     "last_notified_at":  "2026-03-15 06:29:56"
+                 }
+             ],
+    "users":  [
+                  {
+                      "id":  "9",
+                      "name":  "Prakash Chandra Karki",
+                      "gender":  "male",
+                      "latitude":  "26.75979960",
+                      "longitude":  "87.54806840"
+                  },
+                  {
+                      "id":  "13",
+                      "name":  "Nabina Rai",
+                      "gender":  "female",
+                      "latitude":  "26.75980460",
+                      "longitude":  "87.54807710"
+                  }
+              ]
+}

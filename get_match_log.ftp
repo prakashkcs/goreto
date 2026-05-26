@@ -1,0 +1,9 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+ls match_debug.log
+get match_debug.log C:\Users\ofici\OneDrive\Documents\anti goreto\match_debug.log
+quit

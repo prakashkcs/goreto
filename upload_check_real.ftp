@@ -1,0 +1,9 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+put "C:\Users\ofici\OneDrive\Documents\anti goreto\check_real_devices.php" check_real_devices.php
+ls -l
+quit

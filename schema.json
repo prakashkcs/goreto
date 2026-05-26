@@ -1,0 +1,61 @@
+﻿{
+    "value":  [
+                  {
+                      "Field":  "id",
+                      "Type":  "int(11)",
+                      "Null":  "NO",
+                      "Key":  "PRI",
+                      "Default":  null,
+                      "Extra":  "auto_increment"
+                  },
+                  {
+                      "Field":  "subscriber_id",
+                      "Type":  "int(11)",
+                      "Null":  "NO",
+                      "Key":  "MUL",
+                      "Default":  null,
+                      "Extra":  ""
+                  },
+                  {
+                      "Field":  "creator_id",
+                      "Type":  "int(11)",
+                      "Null":  "NO",
+                      "Key":  "MUL",
+                      "Default":  null,
+                      "Extra":  ""
+                  },
+                  {
+                      "Field":  "plan_id",
+                      "Type":  "int(11)",
+                      "Null":  "NO",
+                      "Key":  "",
+                      "Default":  null,
+                      "Extra":  ""
+                  },
+                  {
+                      "Field":  "started_at",
+                      "Type":  "datetime",
+                      "Null":  "YES",
+                      "Key":  "",
+                      "Default":  "current_timestamp()",
+                      "Extra":  ""
+                  },
+                  {
+                      "Field":  "expires_at",
+                      "Type":  "datetime",
+                      "Null":  "NO",
+                      "Key":  "",
+                      "Default":  null,
+                      "Extra":  ""
+                  },
+                  {
+                      "Field":  "status",
+                      "Type":  "varchar(20)",
+                      "Null":  "YES",
+                      "Key":  "",
+                      "Default":  null,
+                      "Extra":  ""
+                  }
+              ],
+    "Count":  7
+}

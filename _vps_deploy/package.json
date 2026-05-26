@@ -1,0 +1,14 @@
+{
+  "name": "goreto-socket",
+  "version": "1.0.0",
+  "description": "Goreto real-time chat Socket.IO server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "socket.io": "^4.7.5",
+    "mysql2": "^3.9.7",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

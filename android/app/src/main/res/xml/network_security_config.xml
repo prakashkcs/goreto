@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Block all cleartext (HTTP) traffic — HTTPS only -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+
+    <!--
+    TO ENABLE CERTIFICATE PINNING (recommended before release):
+    1. Get the SHA-256 SPKI pin for goreto.org:
+       openssl s_client -connect goreto.org:443 </dev/null 2>/dev/null |
+         openssl x509 -pubkey -noout |
+         openssl pkey -pubin -outform der |
+         openssl dgst -sha256 -binary | base64
+    2. Add a backup pin from your CA's intermediate certificate.
+    3. Uncomment the block below and replace the placeholder pins.
+    4. Update the expiration date annually.
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">goreto.org</domain>
+        <pin-set expiration="2027-01-01">
+            <pin digest="SHA-256">REPLACE_WITH_LEAF_CERT_SPKI_HASH=</pin>
+            <pin digest="SHA-256">REPLACE_WITH_BACKUP_CA_SPKI_HASH=</pin>
+        </pin-set>
+    </domain-config>
+    -->
+</network-security-config>

@@ -1,0 +1,9 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+put check_income_sync.php
+ls -l
+quit

@@ -1,0 +1,25 @@
+# Fix 415 Unsupported Media Type - allow all content types
+<IfModule mod_headers.c>
+    Header always unset X-Content-Type-Options
+</IfModule>
+
+# Remove any content-type restrictions
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+# Allow all request methods and content types
+<LimitExcept GET POST PUT DELETE PATCH OPTIONS HEAD>
+    Deny from all
+</LimitExcept>
+
+# Ensure PHP handles all requests
+<FilesMatch "\.php$">
+    SetHandler application/x-httpd-php
+</FilesMatch>
+
+# Remove content-type enforcement
+<IfModule mod_negotiation.c>
+    Options -MultiViews
+</IfModule>

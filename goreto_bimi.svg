@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#FF6B6B"/>
+      <stop offset="50%"  stop-color="#FF8E53"/>
+      <stop offset="100%" stop-color="#FF6B9D"/>
+    </linearGradient>
+    <linearGradient id="b" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#FF6B6B"/>
+      <stop offset="100%" stop-color="#FF6B9D"/>
+    </linearGradient>
+    <clipPath id="c"><circle cx="100" cy="100" r="100"/></clipPath>
+  </defs>
+
+  <!-- Dark background -->
+  <circle cx="100" cy="100" r="100" fill="#05030A"/>
+
+  <!-- Outer gradient ring -->
+  <circle cx="100" cy="100" r="96" fill="none" stroke="url(#a)" stroke-width="8"/>
+
+  <!-- Decorative arc top-right -->
+  <path d="M 155 45 A 78 78 0 0 1 165 100" fill="none" stroke="url(#a)" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- G shape built from paths (no <text>) -->
+  <!-- Outer arc of G -->
+  <path d="M 100 38
+    A 62 62 0 1 0 155 125
+    L 135 125
+    A 42 42 0 1 1 100 58
+    Z"
+    fill="url(#b)"/>
+
+  <!-- Horizontal bar of G -->
+  <rect x="102" y="100" width="52" height="20" rx="4" fill="url(#b)"/>
+
+  <!-- Inner cutout to make it look like G -->
+  <circle cx="100" cy="100" r="30" fill="#05030A"/>
+</svg>

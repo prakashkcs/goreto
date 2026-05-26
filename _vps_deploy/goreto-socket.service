@@ -1,0 +1,31 @@
+[Unit]
+Description=Goreto Socket.IO Server
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/goreto/ekloadmin/_vps_deploy
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+# ── Credentials (never hardcode in source) ────────────────────────────────────
+# Fill in real values before deploying. Then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl restart goreto-socket
+Environment=DB_HOST=127.0.0.1
+Environment=DB_USER=ekloadmin_user
+Environment=DB_PASS=REPLACE_WITH_REAL_PASSWORD
+Environment=DB_NAME=ekloadmin_db
+Environment=ALLOWED_ORIGIN=https://goreto.org
+Environment=NODE_ENV=production
+
+# ── Hardening ─────────────────────────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Goreto – Nepal's #1 Dating &amp; Social App | Find Your Match</title>
+  <meta name="description" content="Goreto is Nepal's most popular dating and social app. Meet genuine Nepali singles, make meaningful connections, video chat, and find your perfect match. Download free on Android.">
+  <meta name="keywords" content="Goreto, Nepal dating app, Nepali dating, Nepal social app, नेपाली डेटिंग एप, meet nepali singles, Goreto app, Nepal matchmaking">
+  <meta name="author" content="Goreto">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <link rel="canonical" href="https://goreto.org/">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://goreto.org/">
+  <meta property="og:title" content="Goreto – Nepal's #1 Dating &amp; Social App">
+  <meta property="og:description" content="Meet genuine Nepali singles, make meaningful connections and find your perfect match. Nepal's most trusted dating app.">
+  <meta property="og:image" content="https://goreto.org/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:site_name" content="Goreto">
+  <meta property="og:locale" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Goreto – Nepal's #1 Dating App">
+  <meta name="twitter:description" content="Meet genuine Nepali singles and find your perfect match. Download free on Android.">
+  <meta name="twitter:image" content="https://goreto.org/og-image.jpg">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="theme-color" content="#F2028A">
+  <meta name="geo.region" content="NP">
+  <meta name="geo.placename" content="Nepal">
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"MobileApplication","name":"Goreto","url":"https://goreto.org/","description":"Nepal's #1 dating and social app. Meet genuine Nepali singles, make meaningful connections, and find your perfect match.","applicationCategory":"SocialNetworkingApplication","operatingSystem":"Android","offers":{"@type":"Offer","price":"0","priceCurrency":"NPR"},"inLanguage":["en","ne"],"countriesSupported":"NP","logo":"https://goreto.org/icon-512.png","author":{"@type":"Organization","name":"Goreto","url":"https://goreto.org/"}}
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --pink: #F2028A; --pink2: #D946EF; --dark: #05030A;
+      --card: #110E1B; --text: #F0ECF8; --muted: #9B8FB0; --radius: 20px;
+    }
+    html { scroll-behavior: smooth; }
+    body { background: var(--dark); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow-x: hidden; }
+
+    /* ── 3D CANVAS ── */
+    #bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+
+    /* ── PAGE WRAPPER ── */
+    #page { position: relative; z-index: 1; }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 32px;
+      background: rgba(5,3,10,0.7); backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(242,2,138,0.12);
+    }
+    .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .nav-logo img { width: 40px; height: 40px; object-fit: contain; }
+    .nav-logo span { font-size: 22px; font-weight: 900; background: linear-gradient(135deg,#F2028A,#D946EF); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .nav-dl {
+      background: linear-gradient(135deg,#F2028A,#D946EF); color: #fff;
+      border: none; border-radius: 50px; padding: 10px 24px;
+      font-size: 14px; font-weight: 700; text-decoration: none;
+      box-shadow: 0 0 20px rgba(242,2,138,0.4); transition: transform .2s, box-shadow .2s;
+    }
+    .nav-dl:hover { transform: scale(1.05); box-shadow: 0 0 36px rgba(242,2,138,0.7); }
+
+    /* ── HERO (tall for scroll room) ── */
+    .hero-space { height: 220vh; }
+    .hero-pin {
+      position: sticky; top: 0; height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; padding: 100px 24px 40px;
+      pointer-events: none;
+    }
+    .hero-msg {
+      position: absolute; width: 100%; padding: 0 24px;
+      display: flex; flex-direction: column; align-items: center;
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(242,2,138,0.12); border: 1px solid rgba(242,2,138,0.35);
+      border-radius: 50px; padding: 6px 18px;
+      font-size: 13px; font-weight: 600; color: var(--pink);
+      margin-bottom: 22px; pointer-events: auto;
+    }
+    .hero-msg h1 {
+      font-size: clamp(34px, 5.5vw, 68px); font-weight: 900; line-height: 1.1;
+      margin-bottom: 18px; max-width: 800px;
+    }
+    .hero-msg h1 span { background: linear-gradient(135deg,#F2028A,#D946EF,#A855F7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero-msg p { font-size: clamp(15px, 1.8vw, 19px); color: var(--muted); max-width: 500px; margin-bottom: 36px; }
+    .hero-btns { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; pointer-events: auto; }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: linear-gradient(135deg,#F2028A,#D946EF); color: #fff;
+      border-radius: 50px; padding: 15px 30px; font-size: 15px; font-weight: 700;
+      text-decoration: none; box-shadow: 0 4px 28px rgba(242,2,138,0.5);
+      transition: transform .2s, box-shadow .2s;
+    }
+    .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 8px 40px rgba(242,2,138,0.7); }
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
+      color: var(--text); border-radius: 50px; padding: 15px 30px;
+      font-size: 15px; font-weight: 600; text-decoration: none;
+      transition: background .2s, border-color .2s;
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.1); border-color: rgba(242,2,138,0.4); }
+
+    /* Scroll indicator */
+    .scroll-hint {
+      position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase;
+      animation: bounce 2s infinite;
+    }
+    .scroll-hint svg { opacity: 0.5; }
+    @keyframes bounce { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(8px); } }
+
+    /* ── SECTIONS (opaque so they cover the 3D canvas) ── */
+    .content-section { background: var(--dark); }
+
+    /* ── STATS ── */
+    .stats-bar {
+      background: var(--dark); display: flex; gap: 0; flex-wrap: wrap;
+      justify-content: center; border-top: 1px solid rgba(255,255,255,0.05);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .stat { padding: 36px 48px; text-align: center; border-right: 1px solid rgba(255,255,255,0.05); }
+    .stat:last-child { border-right: none; }
+    .stat-num { font-size: 38px; font-weight: 900; background: linear-gradient(135deg,#F2028A,#D946EF); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .stat-lbl { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+    /* ── FEATURES ── */
+    .features { background: var(--dark); padding: 90px 24px; }
+    .sec-inner { max-width: 1100px; margin: 0 auto; }
+    .sec-tag { font-size: 12px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: var(--pink); margin-bottom: 12px; }
+    .sec-h { font-size: clamp(26px, 3.5vw, 44px); font-weight: 900; margin-bottom: 14px; }
+    .sec-sub { font-size: 16px; color: var(--muted); max-width: 500px; line-height: 1.7; }
+    .feat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 52px; }
+    .feat-card {
+      background: var(--card); border: 1px solid rgba(255,255,255,0.05);
+      border-radius: var(--radius); padding: 28px;
+      transition: border-color .3s, transform .3s;
+    }
+    .feat-card:hover { border-color: rgba(242,2,138,0.3); transform: translateY(-5px); }
+    .feat-icon { width: 50px; height: 50px; border-radius: 14px; background: rgba(242,2,138,0.1); display: flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 16px; }
+    .feat-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+    .feat-card p { font-size: 14px; color: var(--muted); line-height: 1.65; }
+
+    /* ── HOW IT WORKS ── */
+    .how { background: var(--dark); padding: 90px 24px; }
+    .steps { display: flex; flex-direction: column; gap: 0; margin-top: 52px; }
+    .step { display: flex; gap: 22px; align-items: flex-start; position: relative; padding-bottom: 40px; }
+    .step:last-child { padding-bottom: 0; }
+    .step::before { content: ''; position: absolute; left: 23px; top: 52px; bottom: 0; width: 2px; background: linear-gradient(to bottom, rgba(242,2,138,0.5), transparent); }
+    .step:last-child::before { display: none; }
+    .step-n { width: 48px; height: 48px; flex-shrink: 0; border-radius: 50%; background: linear-gradient(135deg,#F2028A,#D946EF); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 900; }
+    .step-b h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+    .step-b p { font-size: 14px; color: var(--muted); }
+
+    /* ── CTA ── */
+    .cta { background: var(--dark); padding: 0 24px 90px; }
+    .cta-box {
+      max-width: 1100px; margin: 0 auto;
+      background: linear-gradient(135deg, rgba(242,2,138,0.1), rgba(168,85,247,0.07));
+      border: 1px solid rgba(242,2,138,0.2); border-radius: 28px;
+      padding: 72px 40px; text-align: center;
+    }
+    .cta-box h2 { font-size: clamp(26px, 4vw, 46px); font-weight: 900; margin-bottom: 14px; }
+    .cta-box p { font-size: 16px; color: var(--muted); margin-bottom: 36px; }
+
+    /* ── FOOTER ── */
+    footer { background: var(--dark); border-top: 1px solid rgba(255,255,255,0.06); padding: 36px 32px; }
+    .foot-inner { max-width: 1100px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between; }
+    .foot-logo { display: flex; align-items: center; gap: 8px; }
+    .foot-logo img { width: 34px; height: 34px; object-fit: contain; }
+    .foot-logo span { font-size: 18px; font-weight: 900; background: linear-gradient(135deg,#F2028A,#D946EF); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .foot-links { display: flex; gap: 28px; flex-wrap: wrap; }
+    .foot-links a { font-size: 14px; color: var(--muted); text-decoration: none; transition: color .2s; }
+    .foot-links a:hover { color: var(--pink); }
+    .foot-copy { font-size: 13px; color: var(--muted); }
+
+    @media (max-width: 600px) {
+      nav { padding: 14px 18px; }
+      .stat { padding: 28px 24px; }
+      .cta-box { padding: 48px 20px; }
+      footer { text-align: center; }
+      .foot-links { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div id="page">
+  <!-- NAV -->
+  <nav>
+    <a class="nav-logo" href="/">
+      <img src="/icon-192.png" alt="Goreto">
+      <span>Goreto</span>
+    </a>
+    <a class="nav-dl" href="https://play.google.com/store/apps/details?id=com.nex.ekloapp" rel="noopener" target="_blank">Download Free</a>
+  </nav>
+
+  <!-- HERO — tall section gives scroll room for the 3D break animation -->
+  <div class="hero-space">
+    <div class="hero-pin">
+      <!-- Message 1: Whole heart — "Find your match" -->
+      <div class="hero-msg" id="hmsg1">
+        <div class="hero-badge">🇳🇵 Nepal's #1 Dating App</div>
+        <h1>Find Your <span>Perfect Match</span> in Nepal</h1>
+        <p>Connect with genuine Nepali singles. Chat, video call, share stories, and build real relationships — all in one place.</p>
+        <div class="hero-btns">
+          <a class="btn-primary" href="https://play.google.com/store/apps/details?id=com.nex.ekloapp" rel="noopener" target="_blank">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3.18 23.76c.3.17.64.24.98.21l11.53-11.53L12.34 9.1 3.18 23.76zm16.36-11.2L16.7 10.9l-3.35 3.34 3.35 3.35 2.85-1.65c.81-.47.81-1.71-.01-2.38zM3.05.23C2.72.57 2.54 1.1 2.54 1.8v20.41c0 .7.18 1.23.51 1.55l.08.08L14.7 12.27v-.28L3.13.15l-.08.08zm9.29 9.29L3.05.23l-.01-.01A1.13 1.13 0 0 0 2.54 0v.01l11.67 11.67-1.87-2.16z"/></svg>
+            Get on Google Play
+          </a>
+          <a class="btn-ghost" href="mailto:help@goreto.org">Contact Us</a>
+        </div>
+      </div>
+
+      <!-- Message 2: Breaking heart — "Sometimes hearts break" -->
+      <div class="hero-msg" id="hmsg2" style="opacity:0;transform:translateY(20px)">
+        <h1>Sometimes <span>Hearts Break</span>...</h1>
+        <p>But every heartbreak is a step closer to finding the love you truly deserve.</p>
+      </div>
+
+      <!-- Message 3: Reassembling — "Love finds a way" -->
+      <div class="hero-msg" id="hmsg3" style="opacity:0;transform:translateY(20px)">
+        <h1>Love Always <span>Finds a Way</span> 💖</h1>
+        <p>Goreto brings Nepali hearts together. Scroll up to watch it heal, or scroll down to begin your story.</p>
+        <div class="hero-btns">
+          <a class="btn-primary" href="https://play.google.com/store/apps/details?id=com.nex.ekloapp" rel="noopener" target="_blank">Start Your Story</a>
+        </div>
+      </div>
+
+      <!-- Scroll hint -->
+      <div class="scroll-hint" id="scrollHint">
+        <span>Scroll to explore</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats-bar content-section">
+    <div class="stat"><div class="stat-num">50K+</div><div class="stat-lbl">Active Users</div></div>
+    <div class="stat"><div class="stat-num">4.5★</div><div class="stat-lbl">App Rating</div></div>
+    <div class="stat"><div class="stat-num">100%</div><div class="stat-lbl">Verified Profiles</div></div>
+    <div class="stat"><div class="stat-num">🇳🇵</div><div class="stat-lbl">Made for Nepal</div></div>
+  </div>
+
+  <!-- FEATURES -->
+  <div class="features content-section">
+    <div class="sec-inner">
+      <p class="sec-tag">Why Goreto</p>
+      <h2 class="sec-h">Everything You Need to Connect</h2>
+      <p class="sec-sub">Built for Nepalis, by Nepalis — with features that match the way you live and love.</p>
+      <div class="feat-grid">
+        <div class="feat-card"><div class="feat-icon">💬</div><h3>Real-Time Chat</h3><p>Messages, photos, voice notes, and stickers. Stay connected with the people who matter.</p></div>
+        <div class="feat-card"><div class="feat-icon">📹</div><h3>Video &amp; Voice Calls</h3><p>Crystal-clear calls so you can see each other, wherever you are in Nepal or abroad.</p></div>
+        <div class="feat-card"><div class="feat-icon">🎬</div><h3>Reels &amp; Stories</h3><p>Share your life through short videos and 24-hour stories. Show the real you first.</p></div>
+        <div class="feat-card"><div class="feat-icon">📍</div><h3>Nearby Discovery</h3><p>Find singles near you on the interactive map. Discover who is around your neighborhood.</p></div>
+        <div class="feat-card"><div class="feat-icon">🎁</div><h3>Send Gifts</h3><p>Show appreciation by sending virtual gifts. Earn and spend coins to make it special.</p></div>
+        <div class="feat-card"><div class="feat-icon">🔒</div><h3>Safe &amp; Verified</h3><p>KYC verification and privacy controls keep your experience safe. Your data stays in Nepal.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HOW IT WORKS -->
+  <div class="how content-section">
+    <div class="sec-inner">
+      <p class="sec-tag">How It Works</p>
+      <h2 class="sec-h">Start in 3 Easy Steps</h2>
+      <div class="steps" style="max-width:520px; margin-top:52px;">
+        <div class="step"><div class="step-n">1</div><div class="step-b"><h3>Create Your Profile</h3><p>Sign up in seconds. Add photos, interests, and a short bio.</p></div></div>
+        <div class="step"><div class="step-n">2</div><div class="step-b"><h3>Discover &amp; Match</h3><p>Browse profiles, watch reels, and send a connection request.</p></div></div>
+        <div class="step"><div class="step-n">3</div><div class="step-b"><h3>Chat &amp; Meet</h3><p>Start chatting, video call, and plan to meet when you're ready.</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta content-section">
+    <div class="cta-box">
+      <h2>Your Story Starts Here 🇳🇵</h2>
+      <p>Join thousands of Nepali singles already finding connections on Goreto. Download free today.</p>
+      <a class="btn-primary" href="https://play.google.com/store/apps/details?id=com.nex.ekloapp" rel="noopener" target="_blank" style="display:inline-flex;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3.18 23.76c.3.17.64.24.98.21l11.53-11.53L12.34 9.1 3.18 23.76zm16.36-11.2L16.7 10.9l-3.35 3.34 3.35 3.35 2.85-1.65c.81-.47.81-1.71-.01-2.38zM3.05.23C2.72.57 2.54 1.1 2.54 1.8v20.41c0 .7.18 1.23.51 1.55l.08.08L14.7 12.27v-.28L3.13.15l-.08.08zm9.29 9.29L3.05.23l-.01-.01A1.13 1.13 0 0 0 2.54 0v.01l11.67 11.67-1.87-2.16z"/></svg>
+        Download on Google Play
+      </a>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="content-section">
+    <div class="foot-inner">
+      <div class="foot-logo"><img src="/icon-192.png" alt="Goreto"><span>Goreto</span></div>
+      <div class="foot-links">
+        <a href="https://goreto.org/ekloadmin/api/v1/api_legal.php?action=terms">Terms</a>
+        <a href="https://goreto.org/ekloadmin/api/v1/api_legal.php?action=privacy">Privacy</a>
+        <a href="mailto:help@goreto.org">Support</a>
+      </div>
+      <p class="foot-copy">&copy; 2025 Goreto. Made with ❤️ in Nepal.</p>
+    </div>
+  </footer>
+</div>
+
+<!-- ═══════════════════ THREE.JS HEART ANIMATION ═══════════════════ -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ── Easing ─────────────────────────────────────────────────────── */
+const easeInOutCubic = t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+const lerp = (a, b, t) => a + (b - a) * t;
+
+/* ── Renderer ───────────────────────────────────────────────────── */
+const canvas = document.getElementById('bg-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x000000, 0);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+/* ── Scene & Camera ─────────────────────────────────────────────── */
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 0, 9);
+
+/* ── Lights ─────────────────────────────────────────────────────── */
+scene.add(new THREE.AmbientLight(0x1a0022, 3));
+
+const pinkLight = new THREE.PointLight(0xFF007F, 8, 30);
+pinkLight.position.set(3, 2, 6); scene.add(pinkLight);
+
+const purpleLight = new THREE.PointLight(0xAA00FF, 5, 25);
+purpleLight.position.set(-4, -1, 5); scene.add(purpleLight);
+
+const rimLight = new THREE.PointLight(0xFF88CC, 3, 20);
+rimLight.position.set(0, 5, -2); scene.add(rimLight);
+
+const fillLight = new THREE.PointLight(0xFFFFFF, 1.5, 15);
+fillLight.position.set(0, 0, 8); scene.add(fillLight);
+
+/* ── Background ambient particles ──────────────────────────────── */
+(function buildAmbientDust() {
+  const N = 600;
+  const pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    pos[i*3]   = (Math.random() - .5) * 30;
+    pos[i*3+1] = (Math.random() - .5) * 20;
+    pos[i*3+2] = (Math.random() - .5) * 15 - 5;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const m = new THREE.PointsMaterial({ color: 0xFF60BB, size: 0.04, transparent: true, opacity: 0.5, sizeAttenuation: true });
+  scene.add(new THREE.Points(g, m));
+})();
+
+/* ── Heart Shape ────────────────────────────────────────────────── */
+function makeHeartShape() {
+  const s = new THREE.Shape();
+  s.moveTo(25, 25);
+  s.bezierCurveTo(25, 25, 20, 0, 0, 0);
+  s.bezierCurveTo(-30, 0, -30, 35, -30, 35);
+  s.bezierCurveTo(-30, 55, -10, 77, 25, 95);
+  s.bezierCurveTo(60, 77, 80, 55, 80, 35);
+  s.bezierCurveTo(80, 35, 80, 0, 50, 0);
+  s.bezierCurveTo(35, 0, 25, 25, 25, 25);
+  return s;
+}
+
+/* ── Build heart geometry ───────────────────────────────────────── */
+const heartShape = makeHeartShape();
+const extrudeGeo = new THREE.ExtrudeGeometry(heartShape, {
+  depth: 18, bevelEnabled: true,
+  bevelSegments: 5, steps: 3,
+  bevelSize: 3, bevelThickness: 3, curveSegments: 48
+});
+extrudeGeo.center();
+
+/* Scale down to viewport-friendly size */
+const SCALE = 0.038;
+extrudeGeo.scale(SCALE, SCALE, SCALE * 1.4);
+extrudeGeo.rotateX(Math.PI * 0.08); // slight tilt for 3D depth
+
+/* ── Base material factory ──────────────────────────────────────── */
+function makeMat() {
+  return new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(0.88, 0.03, 0.45),
+    emissive: new THREE.Color(0.5, 0.01, 0.25),
+    emissiveIntensity: 0.4,
+    roughness: 0.08,
+    metalness: 0.15,
+    reflectivity: 0.9,
+    transparent: true,
+    opacity: 0.97,
+    side: THREE.DoubleSide,
+  });
+}
+
+/* ── Fragment the geometry into N shards ────────────────────────── */
+const N_FRAGS = window.innerWidth < 600 ? 10 : 16;
+const heartGroup = new THREE.Group();
+scene.add(heartGroup);
+
+const fragMeshes = [];
+const pos = extrudeGeo.attributes.position;
+const totalVerts = pos.count;
+
+// Assign each triangle to a sector by its centroid angle
+const triGroups = Array.from({ length: N_FRAGS }, () => []);
+for (let i = 0; i < totalVerts; i += 3) {
+  const cx = (pos.getX(i) + pos.getX(i+1) + pos.getX(i+2)) / 3;
+  const cy = (pos.getY(i) + pos.getY(i+1) + pos.getY(i+2)) / 3;
+  // Add slight randomness so sector edges look jagged (like cracks)
+  const jitter = (Math.random() - .5) * .6;
+  const angle = Math.atan2(cy, cx) + jitter;
+  const sector = ((Math.floor((angle + Math.PI) / (Math.PI * 2) * N_FRAGS)) % N_FRAGS + N_FRAGS) % N_FRAGS;
+  triGroups[sector].push(i);
+}
+
+triGroups.forEach((triIdxs, gi) => {
+  if (triIdxs.length < 3) return;
+
+  const positions = new Float32Array(triIdxs.length * 9);
+  let centX = 0, centY = 0, centZ = 0;
+
+  triIdxs.forEach((startI, ti) => {
+    for (let v = 0; v < 3; v++) {
+      const idx = startI + v;
+      const x = pos.getX(idx), y = pos.getY(idx), z = pos.getZ(idx);
+      positions[ti*9 + v*3]   = x;
+      positions[ti*9 + v*3+1] = y;
+      positions[ti*9 + v*3+2] = z;
+      centX += x; centY += y; centZ += z;
+    }
+  });
+
+  const cnt = triIdxs.length * 3;
+  centX /= cnt; centY /= cnt; centZ /= cnt;
+
+  // Re-centre shard vertices around shard centroid
+  for (let i = 0; i < positions.length; i += 3) {
+    positions[i]   -= centX;
+    positions[i+1] -= centY;
+    positions[i+2] -= centZ;
+  }
+
+  const fGeom = new THREE.BufferGeometry();
+  fGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  fGeom.computeVertexNormals();
+
+  const mat = makeMat();
+  const mesh = new THREE.Mesh(fGeom, mat);
+  mesh.position.set(centX, centY, centZ);
+
+  // Explosion data
+  const outDir = new THREE.Vector3(centX, centY, centZ).normalize();
+  outDir.x += (Math.random() - .5) * .8;
+  outDir.y += (Math.random() - .5) * .8;
+  outDir.z = (Math.random() - .5) * 2.5 + .3;
+  outDir.normalize();
+
+  mesh.userData = {
+    origPos: new THREE.Vector3(centX, centY, centZ),
+    explodeDir: outDir,
+    explodeDist: 3.5 + Math.random() * 5,
+    rotSpeed: new THREE.Euler(
+      (Math.random() - .5) * Math.PI * 2.2,
+      (Math.random() - .5) * Math.PI * 2.2,
+      (Math.random() - .5) * Math.PI * 1.5
+    ),
+  };
+
+  heartGroup.add(mesh);
+  fragMeshes.push(mesh);
+});
+
+/* ── Edge glow (wireframe overlay on whole heart) ───────────────── */
+const wireGeo = new THREE.EdgesGeometry(extrudeGeo, 18);
+const wireMat = new THREE.LineBasicMaterial({ color: 0xFF007F, transparent: true, opacity: 0.0 });
+const wireMesh = new THREE.LineSegments(wireGeo, wireMat);
+heartGroup.add(wireMesh);
+
+/* ── Dust particles emitted from break point ────────────────────── */
+const DUST_N = 320;
+const dustPositions  = new Float32Array(DUST_N * 3);
+const dustOriginals  = new Float32Array(DUST_N * 3);
+const dustTargets    = new Float32Array(DUST_N * 3);
+
+// Sample positions from heart surface
+const sampleStep = Math.max(1, Math.floor(totalVerts / DUST_N));
+let di = 0;
+for (let i = 0; i < totalVerts && di < DUST_N; i += sampleStep, di++) {
+  const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+  dustOriginals[di*3]   = x; dustOriginals[di*3+1] = y; dustOriginals[di*3+2] = z;
+  dustPositions[di*3]   = x; dustPositions[di*3+1] = y; dustPositions[di*3+2] = z;
+  // Scattered target
+  const r = 4 + Math.random() * 5;
+  const theta = Math.random() * Math.PI * 2;
+  const phi   = (Math.random() - .5) * Math.PI;
+  dustTargets[di*3]   = Math.cos(theta) * Math.cos(phi) * r;
+  dustTargets[di*3+1] = Math.sin(phi) * r;
+  dustTargets[di*3+2] = Math.sin(theta) * Math.cos(phi) * r;
+}
+
+const dustGeo = new THREE.BufferGeometry();
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+const dustMat = new THREE.PointsMaterial({
+  color: 0xFF60CC, size: 0.035, transparent: true, opacity: 0,
+  sizeAttenuation: true, blending: THREE.AdditiveBlending, depthWrite: false,
+});
+scene.add(new THREE.Points(dustGeo, dustMat));
+
+/* ── Scroll state ───────────────────────────────────────────────── */
+let scrollTarget = 0;   // 0 = assembled, 1 = fully broken
+let scrollSmooth = 0;   // lerped value
+const heroSpace = document.querySelector('.hero-space');
+
+function getScrollProgress() {
+  const rect = heroSpace.getBoundingClientRect();
+  const travel = heroSpace.offsetHeight - window.innerHeight;
+  return travel > 0 ? Math.max(0, Math.min(1, -rect.top / travel)) : 0;
+}
+
+window.addEventListener('scroll', () => { scrollTarget = getScrollProgress(); }, { passive: true });
+
+/* ── Text transitions ───────────────────────────────────────────── */
+const msg1 = document.getElementById('hmsg1');
+const msg2 = document.getElementById('hmsg2');
+const msg3 = document.getElementById('hmsg3');
+const scrollHint = document.getElementById('scrollHint');
+
+function updateText(p) {
+  // p: 0 = top, 1 = bottom of hero space
+  if (p < 0.25) {
+    const t = p / 0.25;
+    msg1.style.opacity = 1 - t;
+    msg1.style.transform = `translateY(${-t*15}px)`;
+    msg2.style.opacity = 0;
+    msg3.style.opacity = 0;
+    scrollHint.style.opacity = 1 - p * 4;
+  } else if (p < 0.6) {
+    const t = (p - 0.25) / 0.35;
+    msg1.style.opacity = 0;
+    msg2.style.opacity = t < .5 ? t * 2 : 2 - t * 2;
+    msg2.style.transform = `translateY(${(1-t)*15}px)`;
+    msg3.style.opacity = 0;
+    scrollHint.style.opacity = 0;
+  } else {
+    const t = (p - 0.6) / 0.4;
+    msg1.style.opacity = 0;
+    msg2.style.opacity = 0;
+    msg3.style.opacity = t;
+    msg3.style.transform = `translateY(${(1-t)*15}px)`;
+    scrollHint.style.opacity = 0;
+  }
+}
+
+/* ── Update fragments based on progress ────────────────────────── */
+function updateFragments(p) {
+  const ep = easeInOutCubic(p);
+
+  fragMeshes.forEach(mesh => {
+    const ud = mesh.userData;
+
+    // Position
+    mesh.position.x = ud.origPos.x + ud.explodeDir.x * ud.explodeDist * ep;
+    mesh.position.y = ud.origPos.y + ud.explodeDir.y * ud.explodeDist * ep;
+    mesh.position.z = ud.origPos.z + ud.explodeDir.z * ud.explodeDist * ep;
+
+    // Rotation — shards spin as they fly
+    mesh.rotation.x = ud.rotSpeed.x * ep;
+    mesh.rotation.y = ud.rotSpeed.y * ep;
+    mesh.rotation.z = ud.rotSpeed.z * ep;
+
+    // Emissive crack-glow brightest at mid-break
+    const glow = Math.sin(ep * Math.PI);
+    mesh.material.emissiveIntensity = 0.4 + glow * 1.2;
+    mesh.material.emissive.setRGB(0.6 + glow * 0.4, 0.02, 0.3 + glow * 0.2);
+
+    // Slight opacity fade as fully broken
+    mesh.material.opacity = 0.97 - ep * 0.25;
+  });
+
+  // Crack edge glow
+  wireMat.opacity = Math.sin(ep * Math.PI) * 0.55;
+
+  // Dust particles
+  const dOp = Math.sin(ep * Math.PI) * 0.85;
+  dustMat.opacity = dOp;
+  for (let i = 0; i < DUST_N; i++) {
+    dustPositions[i*3]   = lerp(dustOriginals[i*3],   dustTargets[i*3],   ep);
+    dustPositions[i*3+1] = lerp(dustOriginals[i*3+1], dustTargets[i*3+1], ep);
+    dustPositions[i*3+2] = lerp(dustOriginals[i*3+2], dustTargets[i*3+2], ep);
+  }
+  dustGeo.attributes.position.needsUpdate = true;
+
+  // Pulsing pink light when breaking
+  pinkLight.intensity = 8 + Math.sin(ep * Math.PI) * 14;
+  purpleLight.intensity = 5 + Math.sin(ep * Math.PI) * 8;
+}
+
+/* ── Animate loop ───────────────────────────────────────────────── */
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // Smooth scroll
+  scrollSmooth += (scrollTarget - scrollSmooth) * 0.065;
+
+  // Heart group: slow Y rotation, subtle float, reduced when breaking
+  const rotSpeed = 0.006 * (1 - scrollSmooth * 0.75);
+  heartGroup.rotation.y += rotSpeed;
+  heartGroup.position.y = Math.sin(t * 0.55) * 0.08 * (1 - scrollSmooth);
+
+  // Slight camera drift
+  camera.position.x = Math.sin(t * 0.2) * 0.3 * (1 - scrollSmooth);
+  camera.position.y = Math.cos(t * 0.15) * 0.2 * (1 - scrollSmooth);
+
+  // Animate lights
+  pinkLight.position.x = 3 + Math.sin(t * 0.7) * 1.5;
+  pinkLight.position.y = 2 + Math.cos(t * 0.5) * 1.5;
+  purpleLight.position.x = -4 + Math.cos(t * 0.6) * 1;
+  purpleLight.position.y = -1 + Math.sin(t * 0.45) * 1;
+
+  updateFragments(scrollSmooth);
+  updateText(scrollSmooth);
+
+  renderer.render(scene, camera);
+}
+
+/* ── Resize ─────────────────────────────────────────────────────── */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>

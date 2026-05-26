@@ -1,0 +1,12 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+put match_profiles.php match_profiles.php
+put auth_middleware.php auth_middleware.php
+put notification_helper.php notification_helper.php
+ls -l match_profiles.php
+ls -l auth_middleware.php
+quit

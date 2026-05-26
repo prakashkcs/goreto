@@ -1,0 +1,10 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+pwd
+cd /admin
+pwd
+ls groups.php
+quit

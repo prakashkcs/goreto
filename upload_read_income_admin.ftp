@@ -1,0 +1,9 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd admin
+put read_income_admin_b64.php
+ls -l
+quit

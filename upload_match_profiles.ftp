@@ -1,0 +1,9 @@
+open ftp-lovevibepro.alwaysdata.net
+lovevibepro
+K[t?U<22_h-&!Z*
+
+cd www
+cd api
+cd v1
+put "C:\Users\ofici\OneDrive\Documents\anti goreto\downloaded_match_profiles.php" match_profiles.php
+bye

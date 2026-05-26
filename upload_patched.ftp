@@ -1,0 +1,15 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+put downloaded_add_proposal.php add_proposal.php
+put downloaded_chat.php chat.php
+put downloaded_follow.php follow.php
+put downloaded_gifts.php gifts.php
+put income_review.php
+cd ..
+put kyc_review.php
+put wallet_requests.php
+quit

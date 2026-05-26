@@ -1,0 +1,15 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd api/v1
+dele get_test_users.php
+dele get_another_user.php
+dele get_female_user.php
+dele make_female.php
+dele check_log.php
+dele check_debug.php
+dele test_nearby_call.php
+dele restore_user.php
+quit

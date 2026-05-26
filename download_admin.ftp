@@ -1,0 +1,13 @@
+open coinzop.com
+coinzopadmin@coinzop.com
+Prakas12@
+binary
+prompt n
+cd admin
+get _layout_header.php
+get _layout_footer.php
+get _core.php
+get dashboard.php
+get users.php
+ls -la
+quit

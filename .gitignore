@@ -1,0 +1,120 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Deploy-time migration flag files (created on first run, must not be committed)
+.posts_migrated
+
+# Credentials and secrets — never commit
+service_account.json
+db_connect.php
+db_connect_*.php
+downloaded_db_connect.php
+config.php
+downloaded_config.php
+bunny_config.php
+*.env
+.env*
+
+# Server backup/migration dumps — contain credentials
+_ftp_backup/
+_ftp_stage/
+_migration_backup/
+
+# Debug/diagnostic JSON output files
+active_provider.json
+api_notifs_fixed.json
+debug_*.json
+diag_out.json
+exact_poll.json
+fix_result*.json
+latest_calls.json
+notifs*.json
+pending_users.json
+profile*.json
+providers.json
+provider_response.json
+real_devices.json
+describe.json
+
+# Claude session files
+.claude/
+
+# Chat trace log
+chat_trace.txt
+
+# Debug/deployment scripts — contain VPS credentials
+*.py
+*.ps1
+check_*.php
+check_*.txt
+fix_*.php
+fix_*.py
+test_*.php
+test_*.txt
+read_*.php
+find_*.php
+locate_*.php
+search_*.php
+add_*.php
+upload_*.php
+download_*.php
+apply_*.py
+build_*.py
+deploy_*.py
+deploy_*.php
+*.txt
+migrate_*.php
+migration_*.php
+
+# Documentation with embedded credentials
+COMPLETE_EMAIL_FIX.md
+DNS_FIX_REQUIRED.md
+EMAIL_DELIVERABILITY_FIX.md
+FIXES_SUMMARY.md
+
+# Server admin utilities and migration backups
+admin/email_inbox.php
+_server_deploy/
