@@ -1,9 +1,0 @@
-open coinzop.com
-coinzopadmin@coinzop.com
-Prakas12@
-binary
-prompt n
-cd admin
-delete users.php
-put admin_users.php users.php
-quit

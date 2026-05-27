@@ -1,8 +1,0 @@
-open coinzop.com
-coinzopadmin@coinzop.com
-Prakas12@
-binary
-prompt n
-cd api/v1
-put _server_deploy/update_location.php update_location.php
-quit

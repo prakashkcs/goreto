@@ -1,8 +1,0 @@
-open coinzop.com
-coinzopadmin@coinzop.com
-Prakas12@
-binary
-prompt n
-cd api/v1
-put patch_user_location_cols.php patch_user_location_cols.php
-quit

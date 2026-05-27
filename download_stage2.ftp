@@ -1,9 +1,0 @@
-open coinzop.com
-coinzopadmin@coinzop.com
-Prakas12@
-binary
-prompt n
-cd api/v1
-get add_proposal.php downloaded_add_proposal.php
-get chat.php downloaded_chat.php
-quit

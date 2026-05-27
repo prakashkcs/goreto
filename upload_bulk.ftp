@@ -1,9 +1,0 @@
-open coinzop.com
-coinzopadmin@coinzop.com
-Prakas12@
-binary
-prompt n
-cd admin
-delete groups.php
-put admin_groups.php groups.php
-quit

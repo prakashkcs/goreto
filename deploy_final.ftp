@@ -1,8 +1,0 @@
-open coinzop.com
-coinzopadmin@coinzop.com
-Prakas12@
-binary
-prompt n
-cd api/v1
-put downloaded_match_profiles.php match_profiles.php
-quit

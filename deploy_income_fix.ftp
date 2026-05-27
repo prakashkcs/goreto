@@ -1,9 +1,0 @@
-open coinzop.com
-coinzopadmin@coinzop.com
-Prakas12@
-binary
-prompt n
-cd admin
-put income_review_fixed.php income_review.php
-ls -l
-quit

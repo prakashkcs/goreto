@@ -1,9 +1,0 @@
-open coinzop.com
-coinzopadmin@coinzop.com
-Prakas12@
-binary
-prompt n
-cd api/v1
-delete group_chat.php
-put group_chat.php group_chat.php
-quit
