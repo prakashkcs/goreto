@@ -39,6 +39,9 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
         const val CALL_NOTIFICATION_ID    = 999999
         const val NEARBY_NOTIFICATION_ID  = 999998
         const val GENERAL_NOTIFICATION_ID = 999997
+        // Calls older than this are dropped silently — the caller has long since
+        // hung up and ringing the receiver now would be misleading.
+        const val STALE_CALL_THRESHOLD_MS = 60_000L
 
         /** Call this from Application.onCreate() so channels exist before any FCM notification arrives. */
         fun createAllChannels(context: Context) {
@@ -102,6 +105,14 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
 
         val isCall = (type == "incoming_call" || action == "incoming_call")
         if (isCall) {
+            // Drop calls that arrived too late to be relevant. OEM battery
+            // restrictions (especially Realme/Oppo/Xiaomi) can delay data-only
+            // FCM delivery by minutes — showing a "ringing" UI for a call the
+            // caller hung up on long ago is worse than no UI at all.
+            val age = System.currentTimeMillis() - remoteMessage.sentTime
+            if (remoteMessage.sentTime > 0 && age > STALE_CALL_THRESHOLD_MS) {
+                return
+            }
             handleCallMessage(data)
             return
         }

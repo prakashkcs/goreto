@@ -139,6 +139,11 @@ class MainActivity : FlutterActivity() {
 
         when (action) {
             "accept_call", "decline_call" -> {
+                // Always tear down the call UI first so the user sees their tap
+                // take effect — the Dart side will still fire the backend
+                // accept/decline API on its next event-loop tick.
+                dismissCallUi(intent.getStringExtra("call_id") ?: "")
+
                 if (flutterReady && callChannel != null) {
                     val data = mapOf(
                         "action" to action,
@@ -173,5 +178,25 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+    }
+
+    /**
+     * Tear down both the system-tray call notification and any open
+     * IncomingCallActivity. Called when the user taps Accept/Decline on the
+     * notification or the lock-screen call UI so they see immediate visual
+     * feedback while the Dart side handles the backend API in parallel.
+     */
+    private fun dismissCallUi(callId: String) {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.cancel(CallFirebaseMessagingService.CALL_NOTIFICATION_ID)
+        } catch (_: Exception) {}
+        try {
+            val broadcast = Intent("com.nex.ekloapp.CALL_CANCELLED").apply {
+                putExtra("call_id", callId)
+                setPackage(packageName)
+            }
+            sendBroadcast(broadcast)
+        } catch (_: Exception) {}
     }
 }
