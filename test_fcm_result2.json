@@ -1,7 +1,0 @@
-{
-    "status": "success",
-    "message": "Test notification sent",
-    "send_result": true,
-    "to_user": 9,
-    "from_user": 13
-}
