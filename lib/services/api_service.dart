@@ -86,9 +86,22 @@ class ApiService {
               (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
           final method = options.method.toUpperCase();
           final path = options.uri.toString();
-          final body = options.data is String
-              ? (options.data as String)
-              : (options.data != null ? jsonEncode(options.data) : '');
+          // Compute signature body. FormData and other non-JSON-encodable
+          // payloads (file uploads, multipart) sign over an empty body — the
+          // server doesn't currently verify the signature, but a throw here
+          // would crash the interceptor and fail the request entirely.
+          String body;
+          if (options.data is String) {
+            body = options.data as String;
+          } else if (options.data == null || options.data is FormData) {
+            body = '';
+          } else {
+            try {
+              body = jsonEncode(options.data);
+            } catch (_) {
+              body = '';
+            }
+          }
           final base = '$appId|$ts|$method|$path|$body';
           final sig = Hmac(sha256, utf8.encode(appSecret))
               .convert(utf8.encode(base))
