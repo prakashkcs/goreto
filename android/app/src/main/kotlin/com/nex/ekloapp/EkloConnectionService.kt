@@ -45,15 +45,18 @@ class EkloConnectionService : ConnectionService() {
         request: ConnectionRequest?
     ): Connection {
         val extras = request?.extras ?: Bundle()
-        val callerName = extras.getString(EXTRA_CALLER_NAME) ?: "Unknown"
-        val callerAvatar = extras.getString(EXTRA_CALLER_AVATAR) ?: ""
-        val callId = extras.getString(EXTRA_CALL_ID) ?: "0"
-        val callUuid = extras.getString(EXTRA_CALL_UUID) ?: ""
-        val callerId = extras.getString(EXTRA_CALLER_ID) ?: ""
-        val callType = extras.getString(EXTRA_CALL_TYPE) ?: "video"
-        val isRandom = extras.getString(EXTRA_IS_RANDOM) ?: "false"
+        // Telecom hands us the *outer* extras Bundle. The per-call payload we
+        // packed into EXTRA_INCOMING_CALL_EXTRAS lives one level deeper.
+        val inner = extras.getBundle(TelecomManager.EXTRA_INCOMING_CALL_EXTRAS) ?: extras
+        val callerName = inner.getString(EXTRA_CALLER_NAME) ?: "Unknown"
+        val callerAvatar = inner.getString(EXTRA_CALLER_AVATAR) ?: ""
+        val callId = inner.getString(EXTRA_CALL_ID) ?: "0"
+        val callUuid = inner.getString(EXTRA_CALL_UUID) ?: ""
+        val callerId = inner.getString(EXTRA_CALLER_ID) ?: ""
+        val callType = inner.getString(EXTRA_CALL_TYPE) ?: "video"
+        val isRandom = inner.getString(EXTRA_IS_RANDOM) ?: "false"
 
-        return EkloConnection(
+        val connection = EkloConnection(
             applicationContext,
             callerName = callerName,
             callerAvatar = callerAvatar,
@@ -69,6 +72,34 @@ class EkloConnectionService : ConnectionService() {
                 it.connectionProperties = Connection.PROPERTY_SELF_MANAGED
             }
         }
+
+        // Self-managed Telecom connections don't get a system call UI — the
+        // app is responsible for showing one. Launch IncomingCallActivity now
+        // so the user sees a ringing screen the moment Telecom accepts the
+        // incoming-call notification. This is the same screen the legacy
+        // notification fallback path would launch.
+        try {
+            val activityIntent = IncomingCallActivity.createIntent(
+                applicationContext,
+                mapOf(
+                    "caller_name" to callerName,
+                    "caller_avatar" to callerAvatar,
+                    "type" to callType,
+                    "call_id" to callId,
+                    "call_uuid" to callUuid,
+                    "caller_id" to callerId,
+                    "is_random" to isRandom,
+                ),
+            )
+            applicationContext.startActivity(activityIntent)
+        } catch (_: Exception) {
+            // If the OS blocked the background activity launch (rare on
+            // Telecom-routed calls because the Connection itself is a
+            // foreground signal), the user can still answer via the
+            // headset / notification surface that the OS draws on its own.
+        }
+
+        return connection
     }
 
     override fun onCreateIncomingConnectionFailed(
