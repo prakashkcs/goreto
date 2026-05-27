@@ -16,11 +16,11 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+import android.app.Activity
 import java.net.URL
 import java.util.concurrent.Executors
 
-class NearbyAlertActivity : AppCompatActivity() {
+class NearbyAlertActivity : Activity() {
 
     companion object {
         const val EXTRA_SENDER_ID     = "sender_id"

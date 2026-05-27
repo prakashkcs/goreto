@@ -15,13 +15,13 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+import android.app.Activity
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 
-class IncomingCallActivity : AppCompatActivity() {
+class IncomingCallActivity : Activity() {
 
     companion object {
         const val EXTRA_CALLER_NAME = "caller_name"
