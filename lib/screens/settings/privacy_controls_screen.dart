@@ -35,6 +35,7 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
   bool _privacyShowProfileViews = true;
   bool _privacyShareDistance = true;
   bool _privacyNearbyVisible = true;
+  bool _privacyNearbyAlert = true;
 
   @override
   void initState() {
@@ -154,6 +155,8 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
           );
           _privacyShareDistance = _asBool(user['privacy_share_distance']);
           _privacyNearbyVisible = _asBool(user['privacy_nearby_visible']);
+          _privacyNearbyAlert =
+              _asBool(user['privacy_nearby_alert'], defaultValue: true);
           _isLoading = false;
         });
         _applying = false;
@@ -177,6 +180,8 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
       _privacyShowProfileViews = _asBool(user['privacy_show_profile_views']);
       _privacyShareDistance = _asBool(user['privacy_share_distance']);
       _privacyNearbyVisible = _asBool(user['privacy_nearby_visible']);
+      _privacyNearbyAlert =
+          _asBool(user['privacy_nearby_alert'], defaultValue: true);
     });
     _applying = false;
   }
@@ -293,6 +298,25 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
             v,
             old,
             (r) => _privacyNearbyVisible = r,
+          );
+        },
+      ),
+      _buildToggle(
+        icon: Icons.notifications_active,
+        label: 'Nearby alerts as call',
+        subtitle:
+            'Full-screen ringing alert when someone is near you. Turn off to stop receiving these.',
+        value: _privacyNearbyAlert,
+        color: const Color(0xFFFF6B9D),
+        onChanged: (v) {
+          if (_applying) return;
+          final old = _privacyNearbyAlert;
+          setState(() => _privacyNearbyAlert = v);
+          _updateSetting(
+            'privacy_nearby_alert',
+            v,
+            old,
+            (r) => _privacyNearbyAlert = r,
           );
         },
       ),

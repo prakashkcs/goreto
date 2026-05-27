@@ -10,7 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
-        android:alpha="0.35"
+        android:alpha="0.45"
         android:src="@drawable/ic_default_avatar" />
 
     <!-- Dark gradient overlay -->
@@ -19,131 +19,157 @@
         android:layout_height="match_parent"
         android:background="@drawable/call_gradient_overlay" />
 
-    <!-- Top bar: close button -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_gravity="top"
-        android:paddingTop="52dp"
-        android:paddingHorizontal="20dp">
-
-        <FrameLayout
-            android:id="@+id/btnClose"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/circle_avatar_bg">
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:text="✕"
-                android:textColor="#AAFFFFFF"
-                android:textSize="16sp" />
-        </FrameLayout>
-
-    </LinearLayout>
-
-    <!-- Centre content -->
+    <!-- Top section: sender info (mirrors incoming-call layout) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:gravity="center_horizontal"
-        android:layout_gravity="center_vertical"
-        android:paddingBottom="20dp">
+        android:layout_gravity="top"
+        android:paddingTop="80dp"
+        android:paddingBottom="24dp">
 
-        <!-- NEARBY badge -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="📍 NEARBY"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.12"
-            android:background="@drawable/btn_accept_bg"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="6dp" />
-
-        <androidx.core.widget.Space
-            android:layout_width="wrap_content"
-            android:layout_height="24dp" />
-
-        <!-- Avatar circle -->
-        <ImageView
-            android:id="@+id/ivSenderAvatar"
+        <!-- Sender avatar (circular) with pulsing ring -->
+        <FrameLayout
             android:layout_width="140dp"
-            android:layout_height="140dp"
-            android:scaleType="centerCrop"
-            android:src="@drawable/ic_default_avatar"
-            android:background="@drawable/circle_avatar_bg"
-            android:clipToOutline="true"
-            android:elevation="2dp" />
+            android:layout_height="140dp">
+
+            <ImageView
+                android:id="@+id/ivSenderAvatar"
+                android:layout_width="140dp"
+                android:layout_height="140dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_default_avatar"
+                android:background="@drawable/circle_avatar_bg"
+                android:clipToOutline="true"
+                android:elevation="2dp" />
+
+            <View
+                android:layout_width="140dp"
+                android:layout_height="140dp"
+                android:background="@drawable/circle_ring_pulse"
+                android:alpha="0.4" />
+        </FrameLayout>
 
         <!-- Sender name -->
         <TextView
             android:id="@+id/tvSenderName"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="20dp"
             android:text="Someone"
             android:textColor="#FFFFFF"
             android:textSize="28sp"
             android:textStyle="bold"
             android:fontFamily="sans-serif-medium"
-            android:shadowColor="#80FF007F"
+            android:shadowColor="#80000000"
             android:shadowDx="0"
-            android:shadowDy="0"
-            android:shadowRadius="16" />
+            android:shadowDy="2"
+            android:shadowRadius="4" />
 
-        <!-- Sub-label -->
+        <!-- Subtitle: "is nearby" -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="is near you right now!"
+            android:text="is nearby right now"
             android:textColor="#CCFFFFFF"
-            android:textSize="15sp" />
+            android:textSize="16sp"
+            android:letterSpacing="0.05" />
+
+        <!-- Animated dots -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="● ● ●"
+            android:textColor="#80FFFFFF"
+            android:textSize="12sp"
+            android:letterSpacing="0.3" />
 
     </LinearLayout>
 
-    <!-- Bottom buttons -->
+    <!-- Top-right close (small) — keeps original behaviour -->
+    <FrameLayout
+        android:id="@+id/btnClose"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="52dp"
+        android:layout_marginEnd="20dp"
+        android:background="@drawable/circle_avatar_bg">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="✕"
+            android:textColor="#AAFFFFFF"
+            android:textSize="16sp" />
+    </FrameLayout>
+
+    <!-- Bottom: Ignore / Connect circular buttons (mirrors call decline/accept) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center_horizontal"
+        android:orientation="horizontal"
+        android:gravity="center"
         android:layout_gravity="bottom"
-        android:paddingBottom="64dp"
-        android:paddingHorizontal="32dp">
+        android:paddingBottom="72dp"
+        android:paddingHorizontal="40dp">
 
-        <!-- View Profile & Connect (primary) -->
-        <Button
-            android:id="@+id/btnConnect"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="View Profile &amp; Connect"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:background="@drawable/btn_accept_bg"
-            android:elevation="4dp" />
+        <!-- Ignore (left, red) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
 
-        <androidx.core.widget.Space
-            android:layout_width="wrap_content"
-            android:layout_height="12dp" />
+            <ImageButton
+                android:id="@+id/btnIgnore"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:background="@drawable/btn_decline_bg"
+                android:src="@drawable/ic_call_end"
+                android:scaleType="center"
+                android:contentDescription="Ignore"
+                android:elevation="4dp" />
 
-        <!-- Ignore (secondary) -->
-        <Button
-            android:id="@+id/btnIgnore"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="Ignore"
-            android:textColor="#CCFFFFFF"
-            android:textSize="15sp"
-            android:background="@drawable/btn_decline_bg"
-            android:elevation="2dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Ignore"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Connect (right, green/accept) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btnConnect"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:background="@drawable/btn_accept_bg"
+                android:src="@drawable/ic_call_accept"
+                android:scaleType="center"
+                android:contentDescription="View profile"
+                android:elevation="4dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Say Hi"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
 
     </LinearLayout>
 

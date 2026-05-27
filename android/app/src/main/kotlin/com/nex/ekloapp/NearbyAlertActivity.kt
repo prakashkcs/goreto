@@ -4,12 +4,16 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.WindowManager
-import android.widget.Button
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -37,6 +41,7 @@ class NearbyAlertActivity : AppCompatActivity() {
 
     private val executor = Executors.newSingleThreadExecutor()
     private val handler  = Handler(Looper.getMainLooper())
+    private var ringPlayer: MediaPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,8 +80,9 @@ class NearbyAlertActivity : AppCompatActivity() {
             }
         }
 
-        // "View Profile & Connect" → open app and navigate to NearbyAlertScreen
-        findViewById<Button>(R.id.btnConnect).setOnClickListener {
+        // "Say Hi" → open app and navigate to NearbyAlertScreen (was btnConnect)
+        findViewById<ImageButton>(R.id.btnConnect).setOnClickListener {
+            stopRing()
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -92,7 +98,8 @@ class NearbyAlertActivity : AppCompatActivity() {
         }
 
         // "Ignore" → dismiss
-        findViewById<Button>(R.id.btnIgnore).setOnClickListener {
+        findViewById<ImageButton>(R.id.btnIgnore).setOnClickListener {
+            stopRing()
             dismissNotification()
             finish()
         }
@@ -106,10 +113,54 @@ class NearbyAlertActivity : AppCompatActivity() {
         // Auto-dismiss after 30 s
         handler.postDelayed({
             if (!isFinishing) {
+                stopRing()
                 dismissNotification()
                 finish()
             }
         }, 30_000)
+
+        // Ring once we're fully on-screen
+        startRing()
+    }
+
+    private fun startRing() {
+        try {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            ringPlayer = MediaPlayer().apply {
+                setAudioAttributes(attrs)
+                val afd = resources.openRawResourceFd(R.raw.nearby)
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                isLooping = true
+                prepare()
+                start()
+            }
+            // Companion vibrate pattern
+            val vib = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            val pattern = longArrayOf(0, 250, 100, 250, 100, 250)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vib.vibrate(android.os.VibrationEffect.createWaveform(pattern, -1))
+            } else {
+                @Suppress("DEPRECATION")
+                vib.vibrate(pattern, -1)
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun stopRing() {
+        try {
+            ringPlayer?.takeIf { it.isPlaying }?.stop()
+            ringPlayer?.release()
+        } catch (_: Exception) {}
+        ringPlayer = null
     }
 
     private fun dismissNotification() {
@@ -119,6 +170,7 @@ class NearbyAlertActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        stopRing()
         super.onDestroy()
         executor.shutdown()
     }
