@@ -29,6 +29,21 @@ class SignalingService {
   int? _activeCallId;
   bool _callAcceptedNotified = false;
 
+  // Call IDs already being routed by another path (e.g. accept_call from
+  // the system notification). The 800ms poll must skip these — otherwise
+  // home_screen's in-app ringing dialog races with the WebRTC navigation
+  // and the user sees the dialog instead of the call connecting.
+  final Set<int> _handledCallIds = <int>{};
+
+  void markCallHandled(int callId) {
+    if (callId <= 0) return;
+    _handledCallIds.add(callId);
+  }
+
+  void unmarkCallHandled(int callId) {
+    _handledCallIds.remove(callId);
+  }
+
   Future<Dio> _getDio() async {
     final prefs = await SharedPreferences.getInstance();
     var baseUrl = prefs.getString('api_base_url') ??
@@ -93,6 +108,9 @@ class SignalingService {
       if (data['status'] == 'success') {
         if (data['has_call'] == true) {
           final call = data['call'];
+          final pollCallId =
+              int.tryParse(call?['call_id']?.toString() ?? '') ?? 0;
+          if (_handledCallIds.contains(pollCallId)) return;
           onIncomingCall?.call(call);
         } else {
           // If there is no incoming call but we were ringing, dismiss the dialog

@@ -66,6 +66,12 @@ class CallChannelService {
     }
 
     if (action == 'accept_call') {
+      // Suppress the 800ms in-app ringing poll for this call so the dialog
+      // doesn't race the WebRTC navigation when the app opens cold.
+      SignalingService.instance.markCallHandled(callId);
+      // Dismiss any in-app ringing dialog that may already be on screen
+      // (e.g. poll fired before this handler ran).
+      SignalingService.instance.dismissActiveCallDialog?.call();
       _navigateToCall(
         callId: callId,
         callUuid: callUuid,
