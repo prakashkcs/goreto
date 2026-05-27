@@ -1,7 +1,0 @@
-{
-    "provider": "zego",
-    "app_id": "98782439",
-    "secret_length": "32",
-    "secret_starts_with": "807d",
-    "note": "Zego App Sign must be 64 hex chars. Server Secret is different from App Sign!"
-}
