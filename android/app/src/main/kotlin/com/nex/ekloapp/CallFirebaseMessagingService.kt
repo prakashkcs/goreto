@@ -215,6 +215,31 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
         }
         val declinePi = PendingIntent.getActivity(this, CALL_NOTIFICATION_ID + 2, declineIntent, flags)
 
+        // Accept action: route directly to MainActivity with the accept_call
+        // payload so a single tap on the notification's Accept button connects
+        // the call immediately — without bouncing through IncomingCallActivity
+        // (which would force the user to tap Accept a second time).
+        val acceptIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            putExtra("action",       "accept_call")
+            putExtra("call_id",      callId)
+            putExtra("call_uuid",    callUuid)
+            putExtra("caller_id",    callerId)
+            putExtra("caller_name",  callerName)
+            putExtra("caller_avatar", callerAvatar)
+            putExtra("type",         callType)
+            putExtra("is_random",    isRandom)
+        } ?: Intent(this, MainActivity::class.java).apply {
+            putExtra("action",       "accept_call")
+            putExtra("call_id",      callId)
+            putExtra("call_uuid",    callUuid)
+            putExtra("caller_id",    callerId)
+            putExtra("caller_name",  callerName)
+            putExtra("caller_avatar", callerAvatar)
+            putExtra("type",         callType)
+            putExtra("is_random",    isRandom)
+        }
+        val acceptPi = PendingIntent.getActivity(this, CALL_NOTIFICATION_ID + 3, acceptIntent, flags)
+
         val builder = NotificationCompat.Builder(this, CALL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_goreto)
             .setContentTitle(callerName)
@@ -228,7 +253,7 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
             .setVibrate(longArrayOf(0, 500, 200, 500, 200, 500))
             .setFullScreenIntent(fullScreenPi, true)
             .setContentIntent(contentPi)
-            .addAction(R.drawable.ic_call_accept, "Accept",  fullScreenPi)
+            .addAction(R.drawable.ic_call_accept, "Accept",  acceptPi)
             .addAction(R.drawable.ic_call_end,    "Decline", declinePi)
             .setTimeoutAfter(60_000)
 
