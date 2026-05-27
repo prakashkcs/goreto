@@ -90,6 +90,10 @@ class MainActivity : FlutterActivity() {
 
         requestFullScreenIntentPermission()
         requestBatteryOptimizationExemption()
+        // Register Goreto as a self-managed phone account so incoming calls
+        // can be presented through the native Android call UI. Idempotent —
+        // Telecom de-dupes on the handle, so cheap to call every launch.
+        EkloConnectionService.register(this)
         handleCallIntent(intent)
     }
 

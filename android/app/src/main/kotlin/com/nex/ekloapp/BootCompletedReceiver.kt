@@ -36,6 +36,9 @@ class BootCompletedReceiver : BroadcastReceiver() {
             FirebaseApp.initializeApp(context)
             FirebaseMessaging.getInstance().token
             CallFirebaseMessagingService.createAllChannels(context)
+            // Re-register the Telecom phone account so calls can route through
+            // the system UI before the user has launched the app post-reboot.
+            EkloConnectionService.register(context)
         } catch (_: Exception) {}
     }
 }

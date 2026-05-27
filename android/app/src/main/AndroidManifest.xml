@@ -48,6 +48,12 @@
          incoming call after a reboot doesn't get silently dropped by Android's
          "stopped app" state. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Telecom self-managed connection: present incoming calls through the
+         Android system call UI instead of a custom in-app activity. Same
+         architecture WhatsApp/Messenger use to survive OEM battery killers. -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <!-- Android 14+ requires per-type foreground-service permission for calls. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
     <!-- Hardware features -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -124,6 +130,26 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!-- Telecom ConnectionService: registers Goreto as a self-managed phone
+             account so incoming calls show the native Android call UI even
+             when the app is killed (WhatsApp/Messenger pattern). -->
+        <service
+            android:name=".EkloConnectionService"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
+        <!-- Short-lived foreground service that holds a wake lock while the
+             call FCM handler runs. Started from CallFirebaseMessagingService
+             on every incoming-call push so the OS doesn't kill us mid-handle. -->
+        <service
+            android:name=".IncomingCallForegroundService"
+            android:foregroundServiceType="phoneCall"
+            android:exported="false" />
 
         <!-- Image Cropper Activity -->
         <activity

@@ -113,6 +113,29 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
             if (remoteMessage.sentTime > 0 && age > STALE_CALL_THRESHOLD_MS) {
                 return
             }
+
+            // Promote this process to foreground so the OS doesn't kill us
+            // mid-handle on aggressive battery managers, and so we can hold a
+            // wake lock through the ring-out window.
+            try {
+                val svc = Intent(this, IncomingCallForegroundService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(svc)
+                } else {
+                    startService(svc)
+                }
+            } catch (_: Exception) {}
+
+            // Primary path: hand the call to Android Telecom so the OS shows
+            // the same native incoming-call UI WhatsApp/Messenger use. This
+            // bypasses doze and most OEM kill-switches because the call is
+            // treated as a first-class telephony event.
+            val telecomAccepted = EkloConnectionService.addIncomingCall(this, data)
+            if (telecomAccepted) {
+                return
+            }
+
+            // Fallback path: classic notification + IncomingCallActivity.
             handleCallMessage(data)
             return
         }
