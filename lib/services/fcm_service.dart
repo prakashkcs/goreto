@@ -510,8 +510,12 @@ void _navigateToScreenWithRetry(String? type, String? action,
     }
     navigatorKey.currentState!.push(MaterialPageRoute(builder: (_) => target));
   } else if (attempts < 10) {
-    Future.delayed(const Duration(milliseconds: 500),
-        () => _navigateToScreenWithRetry(type, action, attempts: attempts + 1));
+    Future.delayed(
+        const Duration(milliseconds: 500),
+        () => _navigateToScreenWithRetry(type, action,
+            senderId: senderId,
+            customData: customData,
+            attempts: attempts + 1));
   }
 }
 
