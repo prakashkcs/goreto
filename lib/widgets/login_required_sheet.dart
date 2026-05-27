@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:love_vibe_pro/providers/auth_provider.dart';
 import 'package:love_vibe_pro/widgets/neon_ui.dart';
 import 'package:love_vibe_pro/screens/auth/login_screen.dart';
-import 'package:love_vibe_pro/screens/auth/signup_screen.dart';
 
 /// Premium iOS-26 "Liquid Love" Login Required Sheet
 /// Shown when guest user tries to access restricted features

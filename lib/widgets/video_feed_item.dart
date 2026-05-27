@@ -2212,12 +2212,13 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         parentIndex,
                         replyIndex: replyIndex,
                       );
-                    } else if (value == 'delete')
+                    } else if (value == 'delete') {
                       _deleteComment(
                         comment,
                         parentIndex,
                         replyIndex: replyIndex,
                       );
+                    }
                   },
                   itemBuilder: (ctx) => [
                     if (isOwn) ...[
@@ -2374,12 +2375,13 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                                   parentIndex,
                                   replyIndex: replyIdx,
                                 );
-                              } else if (value == 'delete')
+                              } else if (value == 'delete') {
                                 _deleteComment(
                                   reply,
                                   parentIndex,
                                   replyIndex: replyIdx,
                                 );
+                              }
                             },
                             itemBuilder: (ctx) => [
                               const PopupMenuItem(
