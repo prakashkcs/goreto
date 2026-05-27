@@ -72,6 +72,9 @@ class EkloConnectionService : ConnectionService() {
                 it.connectionProperties = Connection.PROPERTY_SELF_MANAGED
             }
         }
+        // Make this connection reachable from IncomingCallActivity so its
+        // Accept/Decline buttons can drive Telecom state transitions.
+        activeIncoming = connection
 
         // Self-managed Telecom connections don't get a system call UI — the
         // app is responsible for showing one. Launch IncomingCallActivity now
@@ -122,6 +125,13 @@ class EkloConnectionService : ConnectionService() {
 
         private const val PHONE_ACCOUNT_ID = "goreto_self_managed"
         private const val PHONE_ACCOUNT_LABEL = "Goreto"
+
+        // Currently-ringing connection. IncomingCallActivity reads this to
+        // bridge its in-UI Accept/Decline buttons into Telecom — without it
+        // the OS-side call would stay in RINGING forever even after the user
+        // answered in our UI.
+        @Volatile
+        internal var activeIncoming: Connection? = null
 
         /**
          * Build the [PhoneAccountHandle] this app uses. Same id every call so

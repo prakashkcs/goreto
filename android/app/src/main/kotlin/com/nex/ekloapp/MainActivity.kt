@@ -143,6 +143,26 @@ class MainActivity : FlutterActivity() {
 
         when (action) {
             "accept_call", "decline_call" -> {
+                // Drive the Telecom state machine first — without this the OS
+                // ongoing-call indicator and self-managed Connection would stay
+                // in RINGING even after the user answered in our UI.
+                try {
+                    val conn = EkloConnectionService.activeIncoming
+                    if (conn != null) {
+                        if (action == "accept_call") {
+                            conn.setActive()
+                        } else {
+                            conn.setDisconnected(
+                                android.telecom.DisconnectCause(
+                                    android.telecom.DisconnectCause.REJECTED,
+                                ),
+                            )
+                            conn.destroy()
+                            EkloConnectionService.activeIncoming = null
+                        }
+                    }
+                } catch (_: Exception) {}
+
                 // Always tear down the call UI first so the user sees their tap
                 // take effect — the Dart side will still fire the backend
                 // accept/decline API on its next event-loop tick.

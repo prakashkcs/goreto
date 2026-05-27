@@ -165,8 +165,15 @@ class IncomingCallActivity : Activity() {
             }
         }
 
-        // Accept button
+        // Accept button — answer the Telecom connection so the OS stops
+        // showing the ongoing-call indicator, then launch MainActivity so
+        // Dart/WebRTCCallScreen takes over the actual call media.
         findViewById<ImageButton>(R.id.btnAccept).setOnClickListener {
+            try {
+                EkloConnectionService.activeIncoming?.let { conn ->
+                    conn.setActive()
+                }
+            } catch (_: Exception) {}
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -184,8 +191,20 @@ class IncomingCallActivity : Activity() {
             finish()
         }
 
-        // Decline button
+        // Decline button — disconnect the Telecom connection (REJECTED), then
+        // tell Dart to fire the backend decline endpoint.
         findViewById<ImageButton>(R.id.btnDecline).setOnClickListener {
+            try {
+                EkloConnectionService.activeIncoming?.let { conn ->
+                    conn.setDisconnected(
+                        android.telecom.DisconnectCause(
+                            android.telecom.DisconnectCause.REJECTED,
+                        ),
+                    )
+                    conn.destroy()
+                }
+                EkloConnectionService.activeIncoming = null
+            } catch (_: Exception) {}
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
