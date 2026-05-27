@@ -145,6 +145,19 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
         if (isCancelled) {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.cancel(CALL_NOTIFICATION_ID)
+            // Tear down the Telecom self-managed Connection so the OS stops
+            // showing the ongoing-call indicator and considers the call done.
+            try {
+                EkloConnectionService.activeIncoming?.let { conn ->
+                    conn.setDisconnected(
+                        android.telecom.DisconnectCause(
+                            android.telecom.DisconnectCause.REMOTE,
+                        ),
+                    )
+                    conn.destroy()
+                }
+                EkloConnectionService.activeIncoming = null
+            } catch (_: Exception) {}
             // Broadcast so IncomingCallActivity can finish itself
             val broadcast = Intent("com.nex.ekloapp.CALL_CANCELLED").apply {
                 putExtra("call_id", data["call_id"] ?: "")
