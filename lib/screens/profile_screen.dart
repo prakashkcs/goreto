@@ -396,6 +396,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final proposals = pickInt(['total_proposals', 'proposals_count']);
     final rating = pickDouble(['rating']);
     final isFollowing = pickBool(['is_following']);
+    final isFollowedBy = pickBool(['is_followed_by', 'follows_me']);
 
     // Extract match profile traits if present in live stats
     final income = pickDouble(['income']);
@@ -427,6 +428,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       isFollowing: mergeFollowState
           ? (isFollowing ?? source.isFollowing)
           : source.isFollowing,
+      isFollowedBy: isFollowedBy ?? source.isFollowedBy,
     );
   }
 

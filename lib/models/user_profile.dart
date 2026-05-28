@@ -14,6 +14,9 @@ class UserProfile {
   final int followingCount;
   final int postsCount;
   final bool isFollowing;
+  // True when the user being viewed already follows the current user — drives
+  // the 'Follow Back' label on profile screens.
+  final bool isFollowedBy;
   final bool isSubscribed;
   final bool isOwnProfile;
   final String gender;
@@ -49,6 +52,7 @@ class UserProfile {
     this.followingCount = 0,
     this.postsCount = 0,
     this.isFollowing = false,
+    this.isFollowedBy = false,
     this.isSubscribed = false,
     this.isOwnProfile = true,
     this.gender = 'male', // Default for filtering logic if missing
@@ -135,6 +139,7 @@ class UserProfile {
       followingCount: _asInt(json["following_count"] ?? json["following"]),
       postsCount: _asInt(json["posts_count"] ?? json["posts"]),
       isFollowing: _asBool(json["is_following"]),
+      isFollowedBy: _asBool(json["is_followed_by"] ?? json["follows_me"]),
       isSubscribed: _asBool(json["is_subscribed"]),
       isOwnProfile: _asBool(json["is_own_profile"], fallback: true),
       gender: json["gender"]?.toString() ?? 'male',
@@ -192,6 +197,7 @@ class UserProfile {
       "following_count": followingCount,
       "posts_count": postsCount,
       "is_following": isFollowing,
+      "is_followed_by": isFollowedBy,
       "is_subscribed": isSubscribed,
       "is_own_profile": isOwnProfile,
       "gender": gender,
@@ -227,6 +233,7 @@ class UserProfile {
     int? followingCount,
     int? postsCount,
     bool? isFollowing,
+    bool? isFollowedBy,
     bool? isSubscribed,
     bool? isOwnProfile,
     String? gender,
@@ -258,6 +265,7 @@ class UserProfile {
       followingCount: followingCount ?? this.followingCount,
       postsCount: postsCount ?? this.postsCount,
       isFollowing: isFollowing ?? this.isFollowing,
+      isFollowedBy: isFollowedBy ?? this.isFollowedBy,
       isSubscribed: isSubscribed ?? this.isSubscribed,
       isOwnProfile: isOwnProfile ?? this.isOwnProfile,
       gender: gender ?? this.gender,
