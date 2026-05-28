@@ -8,6 +8,7 @@ import 'package:love_vibe_pro/screens/auth/login_screen.dart';
 import 'package:love_vibe_pro/screens/onboarding/terms_acceptance_screen.dart';
 import 'package:love_vibe_pro/screens/onboarding/profile_setup_screen.dart';
 import 'package:love_vibe_pro/screens/splash_screen.dart';
+import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/fcm_service.dart';
 import 'package:love_vibe_pro/main.dart' show navigatorKey;
 
@@ -41,9 +42,31 @@ class _StartScreenState extends State<StartScreen> {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final prefs = await SharedPreferences.getInstance();
     final termsAccepted = prefs.getBool('terms_accepted') ?? false;
-    final onboardingDone = prefs.getBool('onboarding_done') ?? false;
+    bool onboardingDone = prefs.getBool('onboarding_done') ?? false;
 
     await auth.checkAuth();
+
+    // Reinstall case: account exists on the server but local prefs are blank,
+    // so onboardingDone is falsely false. If the server-side profile already
+    // has the fields ProfileSetupScreen collects (gender on the match
+    // profile), treat onboarding as done and skip back to HomeScreen.
+    if (!onboardingDone && auth.isAuthenticated) {
+      try {
+        final p = await ApiService().getMyMatchProfile();
+        final profileMap = p['profile'];
+        final gender = profileMap is Map
+            ? (profileMap['gender']?.toString().trim() ?? '')
+            : '';
+        if (gender.isNotEmpty) {
+          onboardingDone = true;
+          await prefs.setBool('onboarding_done', true);
+        }
+      } catch (_) {
+        // Network failure: leave onboardingDone as-is. Worst case the user
+        // sees the setup screen once and can skip through; better than
+        // sending an already-onboarded user back to setup every reinstall.
+      }
+    }
 
     if (!mounted) return;
     setState(() {
