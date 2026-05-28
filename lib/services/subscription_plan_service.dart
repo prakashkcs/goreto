@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
-import 'package:love_vibe_pro/config/app_env.dart';
 
 /// Service for creator subscription plan management
 class SubscriptionPlanService {
@@ -13,19 +12,13 @@ class SubscriptionPlanService {
   SubscriptionPlanService._internal() : _apiService = ApiService();
 
   /// All subscription endpoints now live under /api/v1/subscriptions.php.
-  /// There was never a root-level subscriptions.php on this VPS (the legacy
-  /// shared-hosting copy isn't deployed here), so the old _rootUrl() that
-  /// stripped /api/v1 was hitting a non-existent path and returning 404.
+  /// Use the shared authenticated Dio so the Bearer-token interceptor and
+  /// HMAC signing both attach. Building a fresh Dio here used to drop the
+  /// Authorization header (it's set per-request by an interceptor, not in
+  /// default options) which surfaced as "missing auth header" on the
+  /// server.
   Future<Dio> _rootDio() async {
-    final authDio = await _apiService.getDioClient();
-    final base = AppEnv.baseUrl.replaceAll(RegExp(r'/+$'), '');
-    final dio = Dio(BaseOptions(
-      baseUrl: base.endsWith('/') ? base : '$base/',
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
-    ));
-    dio.options.headers.addAll(authDio.options.headers);
-    return dio;
+    return _apiService.getDioClient();
   }
 
   Map<String, dynamic>? _asMap(dynamic raw) {
