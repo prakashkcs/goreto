@@ -12,16 +12,15 @@ class SubscriptionPlanService {
   factory SubscriptionPlanService() => _instance;
   SubscriptionPlanService._internal() : _apiService = ApiService();
 
-  /// Returns the ekloadmin root URL (strips /api/v1 suffix).
-  String _rootUrl() {
-    final base = AppEnv.baseUrl.replaceAll(RegExp(r'/+$'), '');
-    return base.replaceAll(RegExp(r'/api/v\d+$', caseSensitive: false), '');
-  }
-
+  /// All subscription endpoints now live under /api/v1/subscriptions.php.
+  /// There was never a root-level subscriptions.php on this VPS (the legacy
+  /// shared-hosting copy isn't deployed here), so the old _rootUrl() that
+  /// stripped /api/v1 was hitting a non-existent path and returning 404.
   Future<Dio> _rootDio() async {
     final authDio = await _apiService.getDioClient();
+    final base = AppEnv.baseUrl.replaceAll(RegExp(r'/+$'), '');
     final dio = Dio(BaseOptions(
-      baseUrl: _rootUrl(),
+      baseUrl: base.endsWith('/') ? base : '$base/',
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 15),
     ));
