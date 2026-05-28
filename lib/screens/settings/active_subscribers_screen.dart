@@ -2,6 +2,8 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:love_vibe_pro/services/api_service.dart';
+import 'package:love_vibe_pro/widgets/neon_toast.dart';
 
 class ActiveSubscribersScreen extends StatefulWidget {
   const ActiveSubscribersScreen({super.key});
@@ -162,6 +164,60 @@ class _ActiveSubscribersScreenState extends State<ActiveSubscribersScreen> {
     );
   }
 
+  Future<void> _confirmTerminate(Map<String, dynamic> sub) async {
+    final name = (sub['name'] ?? 'this subscriber').toString();
+    final subscriptionId =
+        int.tryParse((sub['subscription_id'] ?? '').toString()) ?? 0;
+    if (subscriptionId <= 0) {
+      NeonToast.error(context, 'Cannot terminate: subscription id missing');
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A28),
+        title: const Text('Terminate subscriber?',
+            style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Cancel the active subscription for $name? They will lose access to your subscriber-only content immediately. This cannot be undone.',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Terminate',
+                style: TextStyle(color: Color(0xFFFF007F))),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      final result = await ApiService().terminateSubscriber(subscriptionId);
+      if (!mounted) return;
+      if (result['status'] == 'success') {
+        NeonToast.success(context, 'Subscriber terminated');
+        // Optimistically drop the card; refresh in background to be safe.
+        setState(() {
+          _subscribers.removeWhere(
+              (s) => (s['subscription_id']?.toString() ?? '') ==
+                  subscriptionId.toString());
+        });
+        _fetchSubscribers();
+      } else {
+        NeonToast.error(
+            context, result['message']?.toString() ?? 'Failed to terminate');
+      }
+    } catch (e) {
+      if (mounted) NeonToast.error(context, 'Network error: $e');
+    }
+  }
+
   Widget _buildSubscriberCard(Map<String, dynamic> sub) {
     final avatar = sub['avatar'] ?? '';
     final name = sub['name'] ?? 'Unknown User';
@@ -241,6 +297,30 @@ class _ActiveSubscribersScreenState extends State<ActiveSubscribersScreen> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => _confirmTerminate(sub),
+                    icon: const Icon(Icons.cancel_outlined,
+                        color: Color(0xFFFF007F), size: 18),
+                    label: const Text(
+                      'Terminate',
+                      style: TextStyle(
+                        color: Color(0xFFFF007F),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      backgroundColor:
+                          const Color(0xFFFF007F).withValues(alpha: 0.08),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
                 ),
               ],
             ),

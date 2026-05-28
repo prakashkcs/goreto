@@ -23,6 +23,7 @@ import 'package:love_vibe_pro/config/app_env.dart';
 import 'package:love_vibe_pro/widgets/manage_user_sheet.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/socket_service.dart';
+import 'package:love_vibe_pro/services/ppm_session_service.dart';
 import 'package:love_vibe_pro/screens/profile_screen.dart';
 import 'package:dio/dio.dart';
 import 'package:gal/gal.dart';
@@ -93,6 +94,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Timer? _typingResetTimer;
   final List<StreamSubscription<dynamic>> _socketSubs = [];
 
+  // Pay-per-minute target settings — fetched once on init from profile.
+  bool _targetPpmEnabled = false;
+  int _targetPpmRate = 0;
+
   @override
   void initState() {
     super.initState();
@@ -101,6 +106,34 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _checkInitialRestriction();
     _startLiveSync();
     _initSocket();
+    _loadTargetPpmSettings();
+  }
+
+  Future<void> _loadTargetPpmSettings() async {
+    try {
+      // Hit profile_v19.php directly so we can read raw pay_per_min_* fields
+      // without piping them through the typed UserProfile model.
+      final dio = await ApiService().getDioClient();
+      final res = await dio.get(
+        'profile_v19.php',
+        queryParameters: {'user_id': widget.userId},
+      );
+      dynamic body = res.data;
+      if (body is String) body = body.isEmpty ? null : null;
+      // dio normally decodes JSON automatically; fall back to res.data direct.
+      final data = res.data is Map ? res.data as Map : <String, dynamic>{};
+      final user = data['user'] is Map ? data['user'] as Map : data;
+      final enabledRaw = user['pay_per_min_enabled'];
+      final rateRaw = user['pay_per_min_rate'];
+      if (!mounted) return;
+      setState(() {
+        _targetPpmEnabled = enabledRaw == 1 || enabledRaw == '1' ||
+            enabledRaw == true || enabledRaw == 'true';
+        _targetPpmRate = int.tryParse(rateRaw?.toString() ?? '') ?? 0;
+      });
+    } catch (_) {
+      // Profile fetch failures don't gate chat — PPM CTA just won't show.
+    }
   }
 
   void _startLiveSync() {
@@ -1896,8 +1929,124 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         ),
       ),
-      child: _isRecording ? _buildRecordingUI() : _buildNormalInputUI(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildPpmBar(),
+          _isRecording ? _buildRecordingUI() : _buildNormalInputUI(),
+        ],
+      ),
     );
+  }
+
+  /// Pay-per-minute banner shown above the composer. Three states:
+  ///   - target has PPM off → nothing
+  ///   - target has PPM on, no session → "Start paid chat (X coins/min)"
+  ///   - session active → running minutes + balance + Stop button
+  Widget _buildPpmBar() {
+    return ValueListenableBuilder<PpmSessionState?>(
+      valueListenable: PpmSessionService.instance.stateNotifier,
+      builder: (_, session, __) {
+        final isMineActive = session != null &&
+            session.active &&
+            session.sellerId.toString() == widget.userId;
+        if (isMineActive) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF00E5FF), Color(0xFFD946EF)],
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.timer_outlined,
+                    color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Paid chat ${session.minutesCharged}m  •  ${session.totalCoinsCharged} coins  •  Balance ${session.balance}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.2),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                  ),
+                  onPressed: () async {
+                    await PpmSessionService.instance.stop();
+                    if (mounted) NeonToast.info(context, 'Paid chat ended');
+                  },
+                  child: const Text('Stop',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          );
+        }
+        if (!_targetPpmEnabled || _targetPpmRate <= 0) {
+          return const SizedBox.shrink();
+        }
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFF007F).withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: const Color(0xFFFF007F).withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.monetization_on_outlined,
+                  color: Color(0xFFFF007F), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Paid chat: $_targetPpmRate coins/min',
+                  style: const TextStyle(
+                      color: Colors.white, fontSize: 12),
+                ),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF007F),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 4),
+                ),
+                onPressed: _startPpmSession,
+                child: const Text('Start',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _startPpmSession() async {
+    final sellerId = int.tryParse(widget.userId);
+    if (sellerId == null) return;
+    try {
+      await PpmSessionService.instance.start(sellerId);
+      if (mounted) NeonToast.success(context, 'Paid chat started');
+    } catch (e) {
+      if (mounted) {
+        NeonToast.error(
+            context, e.toString().replaceAll('Exception: ', ''));
+      }
+    }
   }
 
   Widget _buildNormalInputUI() {

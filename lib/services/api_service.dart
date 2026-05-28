@@ -3997,6 +3997,32 @@ class ApiService {
 
   // --- Pay-Per-Minute Setup ---
 
+  /// Creator-side: terminate one of my active subscribers. Server allows
+  /// either the subscriber themselves OR the plan's creator to flip status.
+  Future<Map<String, dynamic>> terminateSubscriber(int subscriptionId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        'subscriptions.php?action=terminate_subscriber',
+        data: {'subscription_id': subscriptionId},
+        options: Options(responseType: ResponseType.plain),
+      );
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      if (payload is Map<String, dynamic>) return payload;
+      return {'status': 'error', 'message': 'Invalid response'};
+    } on DioException catch (e) {
+      dynamic payload = e.response?.data;
+      if (payload is String) {
+        try {
+          payload = jsonDecode(payload);
+        } catch (_) {}
+      }
+      if (payload is Map<String, dynamic>) return payload;
+      return {'status': 'error', 'message': e.message ?? 'Network error'};
+    }
+  }
+
   Future<bool> updatePayPerMinEnabled(bool enabled) async {
     final dio = await _ensureInitializedDio();
     try {
