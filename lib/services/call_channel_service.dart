@@ -126,28 +126,24 @@ class CallChannelService {
     int attempts = 0,
   }) {
     if (navigatorKey.currentState != null) {
-      SignalingService.instance.checkCallStatus(callId).then((status) {
-        // null = network error — attempt anyway; 'ended'/'declined'/'missed' = skip
-        if (status != null && status != 'ringing' && status != 'accepted') {
-          final ctx = navigatorKey.currentContext;
-          if (ctx != null && ctx.mounted) {
-            NeonToast.error(ctx, 'This call has already ended');
-          }
-          return;
-        }
+      final session = CallSession(
+        id: callUuid,
+        callerId: callerId,
+        callerName: callerName,
+        callerAvatar: callerAvatar,
+        receiverId: '',
+        receiverName: 'You',
+        type: callType == 'audio' ? CallType.audio : CallType.video,
+        state: CallState.incoming,
+        isRandomCall: isRandom,
+      );
 
-        final session = CallSession(
-          id: callUuid,
-          callerId: callerId,
-          callerName: callerName,
-          callerAvatar: callerAvatar,
-          receiverId: '',
-          receiverName: 'You',
-          type: callType == 'audio' ? CallType.audio : CallType.video,
-          state: CallState.incoming,
-          isRandomCall: isRandom,
-        );
-
+      // When the user explicitly tapped Accept/Decline on a notification, do
+      // NOT round-trip through checkCallStatus first — the network latency on
+      // a cold start can be seconds and the call screen never pushes. Push
+      // straight to WebRTCCallScreen; it handles end/decline state itself
+      // when its own accept call returns an error.
+      void pushScreen() {
         navigatorKey.currentState?.push(
           MaterialPageRoute(
             builder: (_) => WebRTCCallScreen(
@@ -158,7 +154,22 @@ class CallChannelService {
             ),
           ),
         );
-      });
+      }
+
+      if (autoAccept) {
+        pushScreen();
+      } else {
+        SignalingService.instance.checkCallStatus(callId).then((status) {
+          if (status != null && status != 'ringing' && status != 'accepted') {
+            final ctx = navigatorKey.currentContext;
+            if (ctx != null && ctx.mounted) {
+              NeonToast.error(ctx, 'This call has already ended');
+            }
+            return;
+          }
+          pushScreen();
+        });
+      }
     } else if (attempts < 10) {
       Future.delayed(
         const Duration(milliseconds: 500),

@@ -114,6 +114,15 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
                 return
             }
 
+            // If the Dart engine is alive and the app is visible, let Flutter's
+            // onMessage path show the in-app ringing dialog instead. Posting a
+            // system call UI on top would duplicate the alert and steal taps
+            // (notification Accept becomes a no-op because MainActivity is
+            // already on top).
+            if (isAppInForeground()) {
+                return
+            }
+
             // Promote this process to foreground so the OS doesn't kill us
             // mid-handle on aggressive battery managers, and so we can hold a
             // wake lock through the ring-out window.
