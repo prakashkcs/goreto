@@ -490,14 +490,21 @@ class ProfileHeader extends StatelessWidget {
               : Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Follow button — 'Follow Back' surfaces when the other
-                    // user already follows you but you haven't followed them.
+                    // Follow button:
+                    //   mutual (you follow + they follow) → Friends
+                    //   you follow only                  → Following
+                    //   they follow you only             → Follow Back
+                    //   neither                          → Follow
                     Expanded(
                       flex: 4,
                       child: NeonButton(
-                        label: profile.isFollowing
-                            ? 'Following'
-                            : (profile.isFollowedBy ? 'Follow Back' : 'Follow'),
+                        label: (profile.isFollowing && profile.isFollowedBy)
+                            ? 'Friends'
+                            : (profile.isFollowing
+                                ? 'Following'
+                                : (profile.isFollowedBy
+                                    ? 'Follow Back'
+                                    : 'Follow')),
                         neonColor: profile.isFollowing
                             ? Colors.white.withValues(alpha: 0.6)
                             : (profile.isSubscribed
