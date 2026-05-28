@@ -2305,6 +2305,136 @@ class _RandomCallViewState extends State<RandomCallView>
     }
   }
 
+  /// When either side has 'Direct random video calls' disabled the server
+  /// puts the call in 'handshake' state. Both users must explicitly tap
+  /// Start before WebRTC begins. This method shows the confirm dialog,
+  /// sends the accept/decline to the server, then polls until the partner
+  /// also accepts (or declines / times out).
+  Future<void> _runRandomHandshake(
+    Map<String, dynamic> matchedUser,
+    int callId,
+    String callUuid,
+  ) async {
+    if (!mounted) return;
+    setState(() => _searching = false);
+
+    final name = matchedUser['name']?.toString() ??
+        matchedUser['full_name']?.toString() ??
+        'a stranger';
+
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A28),
+        title: const Text('Start random call?',
+            style: TextStyle(color: Colors.white)),
+        content: Text(
+          'You matched with $name. Tap Start to begin the call. Both of you must tap Start before the call connects.',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Decline'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Start',
+                style: TextStyle(
+                    color: Color(0xFF00E5FF),
+                    fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    final signaling = SignalingService.instance;
+
+    if (accepted != true) {
+      // Notify server so partner sees declined immediately.
+      try {
+        await signaling.randomCallHandshake(
+            callId: callId, decision: 'decline');
+      } catch (_) {}
+      if (mounted) {
+        NeonToast.info(context, 'Call declined');
+      }
+      return;
+    }
+
+    // Send our accept, then poll for partner's decision.
+    Map<String, dynamic>? myAccept;
+    try {
+      myAccept = await signaling.randomCallHandshake(
+          callId: callId, decision: 'accept');
+    } catch (_) {}
+
+    if (myAccept != null && myAccept['handshake_status'] == 'connected') {
+      // Partner already accepted earlier — go straight to the call.
+      await _navigateToCall(matchedUser, callId, callUuid);
+      return;
+    }
+
+    // Wait up to 30s for the partner.
+    int polls = 0;
+    final completer = Completer<String>();
+    final pollTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      polls++;
+      try {
+        final status =
+            await signaling.randomCallHandshakeStatus(callId: callId);
+        final s = status?['handshake_status']?.toString() ?? 'waiting';
+        if (s == 'connected' || s == 'declined') {
+          timer.cancel();
+          if (!completer.isCompleted) completer.complete(s);
+          return;
+        }
+      } catch (_) {}
+      if (polls > 15) {
+        timer.cancel();
+        if (!completer.isCompleted) completer.complete('timeout');
+      }
+    });
+
+    // Optional: show a small "waiting for partner" dialog
+    if (mounted) {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A28),
+          content: const Row(
+            children: [
+              CircularProgressIndicator(strokeWidth: 2),
+              SizedBox(width: 16),
+              Expanded(
+                child: Text('Waiting for partner to accept...',
+                    style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final outcome = await completer.future;
+    pollTimer.cancel();
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+    if (outcome == 'connected') {
+      await _navigateToCall(matchedUser, callId, callUuid);
+    } else if (outcome == 'declined') {
+      if (mounted) NeonToast.info(context, 'Partner declined the call');
+    } else {
+      if (mounted) NeonToast.info(context, 'Partner did not respond in time');
+      try {
+        await signaling.randomCallHandshake(
+            callId: callId, decision: 'decline');
+      } catch (_) {}
+    }
+  }
+
   Future<void> _navigateToCall(
     Map<String, dynamic> matchedUser,
     int callId,
@@ -2394,7 +2524,12 @@ class _RandomCallViewState extends State<RandomCallView>
         final matchedUser = result['matched_user'] as Map<String, dynamic>;
         final callId = result['call_id'] as int;
         final callUuid = result['call_uuid'] as String;
-        await _navigateToCall(matchedUser, callId, callUuid);
+        final handshakeRequired = result['handshake_required'] == true;
+        if (handshakeRequired) {
+          await _runRandomHandshake(matchedUser, callId, callUuid);
+        } else {
+          await _navigateToCall(matchedUser, callId, callUuid);
+        }
         return;
       }
 

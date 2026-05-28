@@ -388,6 +388,53 @@ class SignalingService {
     } catch (e) {}
   }
 
+  /// Random-call handshake: send our accept/decline to the server. Used
+  /// when either side has 'Direct random video calls' disabled — the
+  /// server holds the call in 'handshake' state until both sides accept.
+  /// Returns the parsed response so the caller can react to
+  /// handshake_status ('waiting_partner' | 'connected' | 'declined').
+  Future<Map<String, dynamic>?> randomCallHandshake({
+    required int callId,
+    required String decision,
+  }) async {
+    try {
+      final dio = await _getDio();
+      final response = await dio.post(
+        'signaling.php',
+        data: FormData.fromMap({
+          'action': 'random_call_handshake',
+          'call_id': callId,
+          'decision': decision,
+        }),
+      );
+      dynamic data = response.data;
+      if (data is String) data = jsonDecode(data);
+      if (data is Map) return Map<String, dynamic>.from(data);
+    } catch (_) {}
+    return null;
+  }
+
+  /// Poll the server for the current handshake/call status. Used while
+  /// waiting on the partner to also tap Start.
+  Future<Map<String, dynamic>?> randomCallHandshakeStatus({
+    required int callId,
+  }) async {
+    try {
+      final dio = await _getDio();
+      final response = await dio.get(
+        'signaling.php',
+        queryParameters: {
+          'action': 'random_call_handshake_status',
+          'call_id': callId,
+        },
+      );
+      dynamic data = response.data;
+      if (data is String) data = jsonDecode(data);
+      if (data is Map) return Map<String, dynamic>.from(data);
+    } catch (_) {}
+    return null;
+  }
+
   /// Clean up
   void dispose() {
     _incomingPollTimer?.cancel();

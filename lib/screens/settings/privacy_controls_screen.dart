@@ -37,6 +37,7 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
   bool _privacyNearbyVisible = true;
   bool _privacyNearbyAlert = true;
   bool _subscriberOnlyDm = false;
+  bool _privacyDirectRandomCall = true;
 
   @override
   void initState() {
@@ -160,6 +161,8 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
               _asBool(user['privacy_nearby_alert'], defaultValue: true);
           _subscriberOnlyDm =
               _asBool(user['subscriber_only_dm'], defaultValue: false);
+          _privacyDirectRandomCall =
+              _asBool(user['privacy_direct_random_call'], defaultValue: true);
           _isLoading = false;
         });
         _applying = false;
@@ -187,6 +190,8 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
           _asBool(user['privacy_nearby_alert'], defaultValue: true);
       _subscriberOnlyDm =
           _asBool(user['subscriber_only_dm'], defaultValue: false);
+      _privacyDirectRandomCall =
+          _asBool(user['privacy_direct_random_call'], defaultValue: true);
     });
     _applying = false;
   }
@@ -341,6 +346,25 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
             v,
             old,
             (r) => _subscriberOnlyDm = r,
+          );
+        },
+      ),
+      _buildToggle(
+        icon: Icons.videocam_outlined,
+        label: 'Direct random video calls',
+        subtitle:
+            'When ON, random matches connect straight to the call. Turn OFF to require both sides to tap Start after the match.',
+        value: _privacyDirectRandomCall,
+        color: const Color(0xFF00E5FF),
+        onChanged: (v) {
+          if (_applying) return;
+          final old = _privacyDirectRandomCall;
+          setState(() => _privacyDirectRandomCall = v);
+          _updateSetting(
+            'privacy_direct_random_call',
+            v,
+            old,
+            (r) => _privacyDirectRandomCall = r,
           );
         },
       ),
