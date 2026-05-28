@@ -302,12 +302,16 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
     // ──────────────────────────────────────────────────────────────
 
     private fun handleRegularMessage(data: Map<String, String>, type: String) {
-        val title = data["title"] ?: when (type) {
+        // notif_title/notif_body are sent for data-only payloads (nearby) to
+        // avoid OneSignal's FCMBroadcastReceiver auto-rendering a duplicate
+        // tray notification. Fall back to title/body for legacy/notification-
+        // payload messages.
+        val title = data["notif_title"] ?: data["title"] ?: when (type) {
             "nearby"           -> "Someone is nearby!"
             "chat", "message"  -> "New Message"
             else               -> "Goreto"
         }
-        val body         = data["body"]          ?: ""
+        val body         = data["notif_body"] ?: data["body"] ?: ""
         val senderAvatar = data["sender_avatar"] ?: ""
 
         val isNearby  = (type == "nearby")
