@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:love_vibe_pro/services/secure_screen_service.dart';
 import 'package:love_vibe_pro/services/thumbnail_cache.dart';
 import 'package:love_vibe_pro/services/user_prefs_cache.dart';
 import 'package:love_vibe_pro/widgets/neon_subscribe_button.dart';
@@ -128,10 +129,22 @@ class _VideoFeedItemState extends State<VideoFeedItem>
   bool _feedActionSubscribe = false; // true = Subscribe button, false = Follow
   final ApiService _api = ApiService();
   String? _currentUserId;
+  bool _secureAcquired = false;
 
   @override
   void initState() {
     super.initState();
+    // Engage FLAG_SECURE while a subscriber is viewing un-blurred
+    // subscriber-only video. Non-subscribers see the blur overlay so don't
+    // need protection. Released in dispose.
+    final bool subscriberOnly = widget.post['subscriber_only'] == 1 ||
+        widget.post['subscriber_only'] == true;
+    final bool isLocked = widget.post['is_locked'] == 1 ||
+        widget.post['is_locked'] == true;
+    _secureAcquired = subscriberOnly && !isLocked;
+    if (_secureAcquired) {
+      SecureScreenService.instance.acquire();
+    }
     // Video init is LAZY — moved to _handleVisibility (first visible)
     _heartController = AnimationController(
       vsync: this,
@@ -247,6 +260,10 @@ class _VideoFeedItemState extends State<VideoFeedItem>
 
   @override
   void dispose() {
+    if (_secureAcquired) {
+      _secureAcquired = false;
+      SecureScreenService.instance.release();
+    }
     if (_impressionStart != null) {
       final ms = DateTime.now().difference(_impressionStart!).inMilliseconds;
       final id = (widget.post['id'] ?? widget.post['post_id'] ?? '').toString();

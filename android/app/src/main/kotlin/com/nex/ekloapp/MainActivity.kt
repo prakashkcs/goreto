@@ -39,6 +39,9 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
 
+        // FLAG_SECURE toggle for subscriber-only content.
+        SecureScreenChannel.register(flutterEngine, this)
+
         callChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_CHANNEL)
         callChannel?.setMethodCallHandler { call, result ->
             when (call.method) {

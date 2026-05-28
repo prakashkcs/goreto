@@ -304,6 +304,17 @@ class ChatService {
     dynamic payload = response.data;
     if (payload is String) payload = jsonDecode(payload);
 
+    // Surface backend errors (subscriber_only_dm gate, block, pending request)
+    // — without this the caller silently created a fake "sent" message even
+    // though the server rejected it.
+    if (payload is Map &&
+        payload['status'] != null &&
+        payload['status'] != 'success' &&
+        payload['status'] != true) {
+      final msg = payload['message']?.toString() ?? 'Could not send message';
+      throw Exception(msg);
+    }
+
     final Message message = _parseMessage(
       payload['message'] ??
           {

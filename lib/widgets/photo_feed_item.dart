@@ -20,6 +20,7 @@ import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/screens/gifts/gifts_sheet.dart';
 import 'package:love_vibe_pro/widgets/gift_overlay_widget.dart';
 import 'package:love_vibe_pro/widgets/subscriber_lock_overlay.dart';
+import 'package:love_vibe_pro/widgets/secure_content_area.dart';
 import 'package:love_vibe_pro/services/analytics_service.dart';
 
 class PhotoFeedItem extends StatefulWidget {
@@ -848,6 +849,12 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
     final bool isTextPost = imageUrl.isEmpty && caption.isNotEmpty;
     final isLocked =
         widget.post['is_locked'] == 1 || widget.post['is_locked'] == true;
+    // Engage FLAG_SECURE when the subscriber is actually viewing the un-blurred
+    // subscriber-only content. No need to block screenshots on locked content
+    // because non-subscribers only see the blur overlay.
+    final bool isSubscriberOnlyContent = (widget.post['subscriber_only'] == 1 ||
+            widget.post['subscriber_only'] == true) &&
+        !isLocked;
     final String authorSubscriptionStatus =
         widget.post['author_subscription_status']?.toString() ?? 'inactive';
     final authorId = int.tryParse(
@@ -904,7 +911,9 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
             },
             child: Container(
               color: Colors.black,
-              child: Stack(
+              child: SecureContentArea(
+                enabled: isSubscriberOnlyContent,
+                child: Stack(
                 fit: StackFit.expand,
                 children: [
                   // â”€â”€ Background & Image â”€â”€
@@ -1164,6 +1173,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                       ),
                     ),
                 ],
+                ),
               ),
             ),
           ),

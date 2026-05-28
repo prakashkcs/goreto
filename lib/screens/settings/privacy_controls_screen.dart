@@ -36,6 +36,7 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
   bool _privacyShareDistance = true;
   bool _privacyNearbyVisible = true;
   bool _privacyNearbyAlert = true;
+  bool _subscriberOnlyDm = false;
 
   @override
   void initState() {
@@ -157,6 +158,8 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
           _privacyNearbyVisible = _asBool(user['privacy_nearby_visible']);
           _privacyNearbyAlert =
               _asBool(user['privacy_nearby_alert'], defaultValue: true);
+          _subscriberOnlyDm =
+              _asBool(user['subscriber_only_dm'], defaultValue: false);
           _isLoading = false;
         });
         _applying = false;
@@ -182,6 +185,8 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
       _privacyNearbyVisible = _asBool(user['privacy_nearby_visible']);
       _privacyNearbyAlert =
           _asBool(user['privacy_nearby_alert'], defaultValue: true);
+      _subscriberOnlyDm =
+          _asBool(user['subscriber_only_dm'], defaultValue: false);
     });
     _applying = false;
   }
@@ -317,6 +322,25 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
             v,
             old,
             (r) => _privacyNearbyAlert = r,
+          );
+        },
+      ),
+      _buildToggle(
+        icon: Icons.lock_outline,
+        label: 'Subscriber-only messages',
+        subtitle:
+            'Only your subscribers can message you. Others see a Subscribe prompt instead of the chat input.',
+        value: _subscriberOnlyDm,
+        color: const Color(0xFFFF007F),
+        onChanged: (v) {
+          if (_applying) return;
+          final old = _subscriberOnlyDm;
+          setState(() => _subscriberOnlyDm = v);
+          _updateSetting(
+            'subscriber_only_dm',
+            v,
+            old,
+            (r) => _subscriberOnlyDm = r,
           );
         },
       ),
