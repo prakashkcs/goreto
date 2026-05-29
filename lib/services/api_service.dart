@@ -4048,6 +4048,86 @@ class ApiService {
     }
   }
 
+  /// Save the PPM 'charge friends' toggle. When OFF (default), mutual
+  /// friends bypass PPM; when ON, even friends must start a paid session.
+  Future<bool> updatePpmChargeFriends(bool enabled) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        'update_profile.php',
+        data: FormData.fromMap({'ppm_charge_friends': enabled ? 1 : 0}),
+        options: Options(
+          headers: {'Content-Type': 'multipart/form-data'},
+          responseType: ResponseType.plain,
+        ),
+      );
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      return payload is Map<String, dynamic> &&
+          payload['status'] == 'success';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Set or clear the per-user PPM override. force=true → this specific
+  /// target user must start a paid session even if they're a friend.
+  /// force=false → remove the override; normal rules apply.
+  Future<Map<String, dynamic>> setPpmOverride({
+    required int targetUserId,
+    required bool force,
+  }) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        'chat.php?action=ppm_override_set',
+        data: FormData.fromMap({
+          'target_user_id': targetUserId,
+          'force': force ? 1 : 0,
+        }),
+        options: Options(
+          headers: {'Content-Type': 'multipart/form-data'},
+          responseType: ResponseType.plain,
+        ),
+      );
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      if (payload is Map<String, dynamic>) return payload;
+      return {'status': 'error', 'message': 'Invalid response'};
+    } on DioException catch (e) {
+      dynamic payload = e.response?.data;
+      if (payload is String) {
+        try {
+          payload = jsonDecode(payload);
+        } catch (_) {}
+      }
+      if (payload is Map<String, dynamic>) return payload;
+      return {'status': 'error', 'message': e.message ?? 'Network error'};
+    }
+  }
+
+  /// Query whether a per-user PPM override exists for [targetUserId].
+  Future<bool> getPpmOverride(int targetUserId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.get(
+        'chat.php',
+        queryParameters: {
+          'action': 'ppm_override_status',
+          'target_user_id': targetUserId,
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      if (payload is Map<String, dynamic>) {
+        final f = payload['force'];
+        return f == 1 || f == '1' || f == true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   Future<bool> updatePayPerMinRate(double rate) async {
     final dio = await _ensureInitializedDio();
     try {

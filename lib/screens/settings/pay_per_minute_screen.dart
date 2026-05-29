@@ -20,6 +20,7 @@ class _PayPerMinuteScreenState extends State<PayPerMinuteScreen> {
   bool _payPerMinEnabled = false;
   double _payPerMinRate = 0.0;
   bool _kycVerified = false;
+  bool _chargeFriends = false;
 
   final TextEditingController _rateController = TextEditingController();
   final ApiService _apiService = ApiService();
@@ -53,14 +54,49 @@ class _PayPerMinuteScreenState extends State<PayPerMinuteScreen> {
     final rate = await _settingsStore!.getPayPerMinRate();
     final kycVerified = await _settingsStore!.getKycVerified();
 
+    // Pull ppm_charge_friends from the server-side profile so we don't drift
+    // out of sync between devices.
+    bool chargeFriendsRemote = false;
+    try {
+      final profile = await _apiService.getMyMatchProfile();
+      final raw = profile['ppm_charge_friends'] ??
+          profile['user']?['ppm_charge_friends'] ??
+          0;
+      chargeFriendsRemote =
+          raw == 1 || raw == true || raw == '1' || raw == 'true';
+    } catch (_) {}
+
     if (mounted) {
       setState(() {
         _payPerMinEnabled = enabled;
         _payPerMinRate = rate;
         _kycVerified = kycVerified;
+        _chargeFriends = chargeFriendsRemote;
         _rateController.text = rate > 0 ? rate.toStringAsFixed(2) : '';
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _toggleChargeFriends(bool value) async {
+    if (!_kycVerified) {
+      _showKycRequiredDialog();
+      return;
+    }
+    _hapticFeedback();
+    final old = _chargeFriends;
+    setState(() => _chargeFriends = value);
+    try {
+      final ok = await _apiService.updatePpmChargeFriends(value);
+      if (!ok && mounted) {
+        setState(() => _chargeFriends = old);
+        NeonToast.error(context, 'Failed to save preference');
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _chargeFriends = old);
+        NeonToast.error(context, 'Failed to sync with server');
+      }
     }
   }
 
@@ -482,6 +518,54 @@ class _PayPerMinuteScreenState extends State<PayPerMinuteScreen> {
               ],
             ),
           ),
+          // ── Charge friends sub-toggle ───────────────────────────────────
+          if (_payPerMinEnabled) ...[
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              height: 1,
+              color: Colors.white.withValues(alpha: 0.06),
+            ),
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Charge friends too',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _chargeFriends
+                              ? 'Mutual friends must also start a paid chat.'
+                              : 'Mutual friends can chat for free. Others pay per minute.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.55),
+                            fontSize: 12.5,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  _buildNeonToggle(
+                    _chargeFriends,
+                    const Color(0xFFFF007F),
+                    _toggleChargeFriends,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

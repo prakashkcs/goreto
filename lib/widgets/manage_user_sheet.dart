@@ -58,6 +58,11 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
   bool _isMuted = false;
   bool _isProposalConnected = false;
   bool _isActionLoading = false;
+  // True when the current user has marked this target as 'paid chat only',
+  // forcing PPM even if they're mutual friends. Loaded from the server so
+  // it survives reinstalls.
+  bool _ppmOverrideOn = false;
+  bool _ppmCheckedRemote = false;
 
   @override
   void initState() {
@@ -66,6 +71,16 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
   }
 
   Future<void> _loadStatus() async {
+    // Kick off override fetch in parallel; doesn't gate the main UI.
+    _api.getPpmOverride(int.tryParse(widget.userId) ?? 0).then((on) {
+      if (mounted) {
+        setState(() {
+          _ppmOverrideOn = on;
+          _ppmCheckedRemote = true;
+        });
+      }
+    }).catchError((_) {});
+
     try {
       final status =
           await _api.getUserActionStatus(targetUserId: widget.userId);
@@ -80,6 +95,37 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
       }
     } catch (_) {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _togglePpmOverride() async {
+    final id = int.tryParse(widget.userId) ?? 0;
+    if (id <= 0) return;
+    final willForce = !_ppmOverrideOn;
+    setState(() {
+      _isActionLoading = true;
+      _ppmOverrideOn = willForce;
+    });
+    final result = await _api.setPpmOverride(
+      targetUserId: id,
+      force: willForce,
+    );
+    if (!mounted) return;
+    setState(() => _isActionLoading = false);
+    if (result['status'] == 'success') {
+      NeonToast.success(
+        context,
+        willForce
+            ? '${widget.userName} must now start a paid chat.'
+            : '${widget.userName} can chat normally.',
+      );
+    } else {
+      // Revert optimistic flip on failure.
+      setState(() => _ppmOverrideOn = !willForce);
+      NeonToast.error(
+        context,
+        result['message']?.toString() ?? 'Could not update setting',
+      );
     }
   }
 
@@ -517,6 +563,22 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
                 color: const Color(0xFFF59E0B),
                 onTap: _isActionLoading ? null : _toggleMute,
               ),
+
+              // PPM override — force this user into paid chat even if friend
+              if (_ppmCheckedRemote)
+                _buildOption(
+                  icon: _ppmOverrideOn
+                      ? Icons.lock_open_rounded
+                      : Icons.paid_rounded,
+                  label: _ppmOverrideOn
+                      ? 'Allow free chat'
+                      : 'Make paid chat only',
+                  subtitle: _ppmOverrideOn
+                      ? 'Drop the paid-chat lock for this user.'
+                      : 'Force this user to pay per minute even if you become friends.',
+                  color: const Color(0xFF22C55E),
+                  onTap: _isActionLoading ? null : _togglePpmOverride,
+                ),
 
               // Disconnect Proposal (only if connected)
               if (_isProposalConnected)
