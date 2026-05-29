@@ -58,11 +58,21 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+    // Scroll + clamp height so multi-plan creators don't overflow the bottom
+    // sheet (was producing the yellow/black overflow stripe). Use 80% of
+    // screen height as the upper bound; the actual height collapses to the
+    // content when fewer plans are present thanks to mainAxisSize.min.
+    final maxHeight = MediaQuery.of(context).size.height * 0.8;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+          24, 24, 24,
+          24 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
           Container(
             width: 40,
             height: 4,
@@ -322,6 +332,7 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
             }),
           const SizedBox(height: 16),
         ],
+        ),
       ),
     );
   }

@@ -577,6 +577,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF111118),
+      // Required for the sheet to size to its scroll-view content and not the
+      // default ~half-screen cap — without it tall plan lists overflow.
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
