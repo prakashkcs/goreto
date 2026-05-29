@@ -67,23 +67,48 @@ class _PostCallScreenState extends State<PostCallScreen>
   }
 
   Future<void> _sendProposal() async {
+    // Guard: random calls used to navigate here with an empty otherUserId in
+    // some edge cases (CallSession receiverId left blank), which then sent
+    // the proposal to user 0 and the backend rejected it silently. Show a
+    // concrete error instead of the generic 'try again' so we can debug.
+    final target = widget.otherUserId.trim();
+    if (target.isEmpty || target == '0') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot send proposal — partner ID missing.'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     try {
-      await ApiService().sendProposal(targetUserId: widget.otherUserId);
+      final result = await ApiService().sendProposal(targetUserId: target);
       if (mounted) {
         setState(() => _proposalSent = true);
+        final matched = result['matched'] == true;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Proposal sent to ${widget.otherName}!'),
+            content: Text(matched
+                ? "It's a Match with ${widget.otherName}! 💕"
+                : 'Proposal sent to ${widget.otherName}!'),
             backgroundColor: const Color(0xFFFF007F),
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
+        // Surface backend error messages so 'already sent', 'invalid target',
+        // etc. are visible instead of a generic retry prompt.
+        final msg = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not send proposal. Try again.'),
+          SnackBar(
+            content: Text(msg.isEmpty
+                ? 'Could not send proposal. Try again.'
+                : msg),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
