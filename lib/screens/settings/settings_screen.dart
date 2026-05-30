@@ -109,12 +109,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ]);
     } catch (_) {}
     if (_settingsStore == null || !mounted) return;
+
+    // Fetch live wallet balance from the API and persist it so every screen
+    // that reads from SettingsStore sees the latest value without having to
+    // open the wallet page first.
+    try {
+      final walletInfo = await ApiService().getWalletBalanceRemote();
+      final liveBalance = walletInfo.coins.toDouble();
+      await _settingsStore!.setWalletBalance(liveBalance);
+      if (mounted) setState(() => _walletBalance = liveBalance);
+    } catch (_) {}
+
     try {
       final fresh = await Future.wait([
         _settingsStore!.getSubscriptionStatus(),
         _settingsStore!.getKycStatus(),
         _settingsStore!.getKycVerified(),
-        _settingsStore!.getWalletBalance(),
         _settingsStore!.getReferralCode(),
       ]);
       if (mounted) {
@@ -122,8 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _subscriptionStatus = fresh[0] as String;
           _kycStatus          = fresh[1] as String;
           _kycVerified        = fresh[2] as bool;
-          _walletBalance      = fresh[3] as double;
-          _referralCode       = fresh[4] as String;
+          _referralCode       = fresh[3] as String;
         });
       }
     } catch (_) {}
