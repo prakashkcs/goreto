@@ -2009,19 +2009,20 @@ class _SoundDetailsScreenState extends State<_SoundDetailsScreen>
       final sn = _soundName;
       List<dynamic> reels;
 
-      // If this reel uses original audio (no custom sound), the server can't
-      // filter by sound — just show the current reel only.
-      if (sn == 'Original Audio') {
+      // Only fetch the sound feed when there is a real, non-empty sound name.
+      // Empty or 'Original Audio' means the reel uses the device mic — show
+      // only this single reel so we don't accidentally return all reels.
+      if (sn.isEmpty || sn == 'Original Audio') {
         reels = [widget.reel];
       } else {
         final all = await ApiService().getReels(type: 'trending', soundName: sn);
         if (!mounted) return;
         // Client-side filter: only keep reels that actually match this sound.
-        // Do NOT pass through reels with an empty sound_name — those are reels
-        // using original audio and should not appear in a sound-specific feed.
+        // A reel with an empty sound_name uses original audio and must NOT
+        // appear in a named-sound feed.
         final filtered = all.where((r) {
           final rSnd = (r['sound_name'] ?? r['audio_name'] ?? r['music_name'] ?? '').toString().trim();
-          return rSnd == sn;
+          return rSnd.isNotEmpty && rSnd == sn;
         }).toList();
         final ids = filtered.map((r) => r['id']?.toString()).toSet();
         reels = [
