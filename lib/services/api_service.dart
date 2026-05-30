@@ -3164,13 +3164,13 @@ class ApiService {
     final dio = await _ensureInitializedDio();
     try {
       final response = await dio.get(
-        'account.php',
+        'api_auth.php',
         queryParameters: {'action': 'sessions'},
         options: Options(responseType: ResponseType.plain),
       );
       final payload = _asJsonMap(response.data);
       if (payload != null) {
-        final data = payload['data'] ?? payload['sessions'] ?? [];
+        final data = payload['sessions'] ?? payload['data'] ?? [];
         if (data is List) return data;
       }
       return [];
@@ -3183,9 +3183,24 @@ class ApiService {
     final dio = await _ensureInitializedDio();
     try {
       final response = await dio.post(
-        'account.php',
+        'api_auth.php',
         queryParameters: {'action': 'terminate_session'},
         data: {'session_id': sessionId},
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      return _isSuccessPayload(payload);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> logoutAllOtherSessions() async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        'api_auth.php',
+        queryParameters: {'action': 'logout_all'},
         options: Options(responseType: ResponseType.plain),
       );
       final payload = _asJsonMap(response.data);

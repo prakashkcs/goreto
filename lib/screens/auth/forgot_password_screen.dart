@@ -5,14 +5,18 @@ import '../../services/api_service.dart';
 import '../../core/theme.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
-  const ForgotPasswordScreen({super.key});
+  /// When provided (e.g. navigating from Account Security while logged in),
+  /// the email field is pre-filled and the flow jumps straight to sending
+  /// the reset code without asking the user to type their email again.
+  final String? prefillEmail;
+  const ForgotPasswordScreen({super.key, this.prefillEmail});
 
   @override
   State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
-  final _emailController = TextEditingController();
+  late final TextEditingController _emailController;
   final _codeController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -24,6 +28,16 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   String? _email;
   Timer? _resendTimer;
   int _resendSeconds = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController = TextEditingController(text: widget.prefillEmail ?? '');
+    if (widget.prefillEmail != null && widget.prefillEmail!.isNotEmpty) {
+      // Auto-send the reset code immediately since we already know the email
+      WidgetsBinding.instance.addPostFrameCallback((_) => _sendCode());
+    }
+  }
 
   @override
   void dispose() {
