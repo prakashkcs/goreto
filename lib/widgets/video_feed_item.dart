@@ -1123,29 +1123,53 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                           stops: const [0.0, 1.0],
                         ),
                       ),
-                      child: Row(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Repost pill
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFFD946EF), Color(0xFF7C3AED)],
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Row(
+                          // Row 1: Resharer → "reposted"
+                          GestureDetector(
+                            onTap: () {
+                              final rid = _resolvePostAuthorId();
+                              if (rid != null && rid.isNotEmpty) {
+                                Navigator.push(context, MaterialPageRoute(
+                                  builder: (_) => ProfileScreen(userId: rid),
+                                ));
+                              }
+                            },
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.repeat_rounded, size: 11, color: Colors.white),
-                                SizedBox(width: 4),
-                                Text('Reposted', style: TextStyle(
-                                    color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                                userAvatar.isNotEmpty && userAvatar.startsWith('http')
+                                    ? CircleAvatar(backgroundImage: CachedNetworkImageProvider(userAvatar), radius: 11)
+                                    : CircleAvatar(
+                                        radius: 11,
+                                        backgroundColor: const Color(0xFF3B82F6),
+                                        child: Text(username.isNotEmpty ? username[0].toUpperCase() : '?',
+                                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                      ),
+                                const SizedBox(width: 5),
+                                Text(username,
+                                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600,
+                                        shadows: [Shadow(color: Colors.black54, blurRadius: 3)])),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(colors: [Color(0xFFD946EF), Color(0xFF7C3AED)]),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                                    Icon(Icons.repeat_rounded, size: 10, color: Colors.white),
+                                    SizedBox(width: 3),
+                                    Text('Reposted', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                                  ]),
+                                ),
                               ],
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          // Original creator tap area
+                          const SizedBox(height: 5),
+                          // Row 2: Original creator
                           GestureDetector(
                             onTap: () {
                               if (originalUserId.isNotEmpty) {
@@ -1157,25 +1181,27 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                const Icon(Icons.subdirectory_arrow_right_rounded,
+                                    size: 13, color: Colors.white38),
+                                const SizedBox(width: 4),
                                 originalAvatar.isNotEmpty && originalAvatar.startsWith('http')
-                                    ? CircleAvatar(
-                                        backgroundImage: CachedNetworkImageProvider(originalAvatar),
-                                        radius: 12)
+                                    ? CircleAvatar(backgroundImage: CachedNetworkImageProvider(originalAvatar), radius: 11)
                                     : CircleAvatar(
-                                        radius: 12,
+                                        radius: 11,
                                         backgroundColor: const Color(0xFF7C3AED),
                                         child: Text(
                                           originalFirstName.isNotEmpty ? originalFirstName[0].toUpperCase() : '?',
-                                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
                                         ),
                                       ),
-                                const SizedBox(width: 6),
+                                const SizedBox(width: 5),
                                 Text(
                                   '@$originalFirstName',
-                                  style: const TextStyle(
-                                      color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600,
+                                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700,
                                       shadows: [Shadow(color: Colors.black54, blurRadius: 4)]),
                                 ),
+                                const SizedBox(width: 4),
+                                const Text('· Original', style: TextStyle(color: Colors.white38, fontSize: 11)),
                               ],
                             ),
                           ),
