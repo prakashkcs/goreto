@@ -1823,7 +1823,12 @@ class ApiService {
       final raw = response.data is String
           ? jsonDecode(response.data)
           : response.data;
-      if (raw is Map && raw['status'] == true) return Map<String, dynamic>.from(raw);
+      if (raw is Map &&
+          (raw['status'] == true ||
+              raw['status'] == 'success' ||
+              raw['status'] == 1)) {
+        return Map<String, dynamic>.from(raw);
+      }
       return null;
     } catch (_) {
       return null;
