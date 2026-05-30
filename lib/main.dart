@@ -31,6 +31,16 @@ void main() {
       // cold-start notification isn't dropped before the 5s deferred init.
       CallChannelService.init();
 
+      // Deep link handler must be initialised as early as possible — before
+      // the first frame — so the initial link from a cold-start browser tap is
+      // still in the AppLinks queue when we call getInitialLink(). Deferring
+      // this (e.g. with a 4-second delay) causes the link to expire, and the
+      // app opens to the home screen instead of the target post/profile.
+      // The navigator key is registered here even though the navigator isn't
+      // mounted yet; DeepLinkService queues the URI and retries each frame
+      // until currentState is non-null.
+      DeepLinkService.instance.init(navigatorKey);
+
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
       SystemChrome.setSystemUIOverlayStyle(
@@ -114,11 +124,8 @@ void _deferBackgroundInit() {
 }
 
 void _initServices() async {
-  // Register native call channel listener (accept/decline from lock screen)
-  CallChannelService.init();
-
-  // Deep link handler — must run before anything that checks navigator
-  DeepLinkService.instance.init(navigatorKey);
+  // Note: CallChannelService and DeepLinkService are already initialised in
+  // main() before the first frame to avoid cold-start race conditions.
 
   try {
     final settings = await SettingsStore.getInstance();
