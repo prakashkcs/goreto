@@ -59,9 +59,20 @@ class IncomingCallActivity : Activity() {
     }
 
     private fun dismissAndFinish() {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.cancel(CallFirebaseMessagingService.CALL_NOTIFICATION_ID)
-        finish()
+        // Cancel the tray notification and the Telecom connection so neither
+        // the system call indicator nor the lock-screen overlay lingers.
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.cancel(CallFirebaseMessagingService.CALL_NOTIFICATION_ID)
+        } catch (_: Exception) {}
+        try {
+            EkloConnectionService.activeIncoming?.let { conn ->
+                conn.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.REMOTE))
+                conn.destroy()
+            }
+            EkloConnectionService.activeIncoming = null
+        } catch (_: Exception) {}
+        if (!isFinishing) finish()
     }
 
     // Polls the server every 2 s so we self-dismiss if the broadcast was missed
@@ -106,7 +117,13 @@ class IncomingCallActivity : Activity() {
     }
 
     private fun scheduleNextPoll() {
-        if (!isFinishing) handler.postDelayed(statusPoller, 2_000)
+        if (!isFinishing) handler.postDelayed(statusPoller, 3_000)
+    }
+
+    private fun scheduleFirstPoll() {
+        // Check immediately after 1 s on first display so a caller who already
+        // hung up before the activity even opened causes instant dismissal.
+        if (!isFinishing) handler.postDelayed(statusPoller, 1_000)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -217,10 +234,11 @@ class IncomingCallActivity : Activity() {
         }
 
         // Auto-dismiss after 60 seconds (call timeout)
-        handler.postDelayed({ finish() }, 60_000)
+        handler.postDelayed({ if (!isFinishing) dismissAndFinish() }, 60_000)
 
-        // Start status polling so we self-dismiss if the caller cancels
-        scheduleNextPoll()
+        // Fast first check (1s) catches already-cancelled calls; subsequent
+        // polls every 3s keep us in sync if the broadcast is lost (Doze etc.).
+        scheduleFirstPoll()
     }
 
     override fun onResume() {

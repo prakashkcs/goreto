@@ -19,25 +19,31 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
   bool _isLoading = true;
   bool _applying = false;
 
-  // ── Existing toggles ──
-  bool _privacyAllowFindId = true;
-  bool _privacyAllowDirectCall = true;
-  bool _privacyAllowRepost = true;
-  bool _privacyAllowUnknownInbox = true;
+  // ── Discovery ──
+  bool _privacyAllowFindId = true;         // ON by default
 
-  // ── Feed action preference (local only) ──
+  // ── Nearby / Location ──
+  bool _privacyNearbyVisible = true;        // ON by default
+  bool _privacyNearbyAlert = true;          // ON by default
+  bool _privacyShareDistance = false;       // OFF by default
+
+  // ── Communication ──
+  bool _subscriberOnlyDm = false;           // OFF by default
+  bool _privacyDirectRandomCall = false;    // OFF by default
+  bool _privacyAllowDirectCall = false;     // "show name on random call" — OFF by default
+  bool _privacyAllowUnknownInbox = true;    // ON by default
+
+  // ── Visibility ──
+  bool _privacyShowOnline = true;           // ON by default
+  bool _privacyShowLastSeen = true;         // ON by default
+  bool _privacyShowProfileViews = true;     // ON by default
+
+  // ── Content ──
+  bool _privacyAllowRepost = true;          // ON by default
+
+  // ── Feed Experience (local pref) ──
   bool _feedActionSubscribe = false;
   bool _kycVerified = false;
-
-  // ── New toggles (default ON) ──
-  bool _privacyShowOnline = true;
-  bool _privacyShowLastSeen = true;
-  bool _privacyShowProfileViews = true;
-  bool _privacyShareDistance = true;
-  bool _privacyNearbyVisible = true;
-  bool _privacyNearbyAlert = true;
-  bool _subscriberOnlyDm = false;
-  bool _privacyDirectRandomCall = true;
 
   @override
   void initState() {
@@ -143,26 +149,7 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
       if (mounted) {
         _applying = true;
         setState(() {
-          _privacyAllowFindId = _asBool(user['privacy_allow_find_id']);
-          _privacyAllowDirectCall = _asBool(user['privacy_allow_direct_call']);
-          _cacheDirectCallPref(_privacyAllowDirectCall);
-          _privacyAllowRepost = _asBool(user['privacy_allow_repost']);
-          _privacyAllowUnknownInbox = _asBool(
-            user['privacy_allow_unknown_inbox'],
-          );
-          _privacyShowOnline = _asBool(user['privacy_show_online']);
-          _privacyShowLastSeen = _asBool(user['privacy_show_last_seen']);
-          _privacyShowProfileViews = _asBool(
-            user['privacy_show_profile_views'],
-          );
-          _privacyShareDistance = _asBool(user['privacy_share_distance']);
-          _privacyNearbyVisible = _asBool(user['privacy_nearby_visible']);
-          _privacyNearbyAlert =
-              _asBool(user['privacy_nearby_alert'], defaultValue: true);
-          _subscriberOnlyDm =
-              _asBool(user['subscriber_only_dm'], defaultValue: false);
-          _privacyDirectRandomCall =
-              _asBool(user['privacy_direct_random_call'], defaultValue: true);
+          _applyFromMap(user);
           _isLoading = false;
         });
         _applying = false;
@@ -176,24 +163,24 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
   void _applyServerValues(Map<String, dynamic> response) {
     final user = _unwrap(response);
     _applying = true;
-    setState(() {
-      _privacyAllowFindId = _asBool(user['privacy_allow_find_id']);
-      _privacyAllowDirectCall = _asBool(user['privacy_allow_direct_call']);
-      _privacyAllowRepost = _asBool(user['privacy_allow_repost']);
-      _privacyAllowUnknownInbox = _asBool(user['privacy_allow_unknown_inbox']);
-      _privacyShowOnline = _asBool(user['privacy_show_online']);
-      _privacyShowLastSeen = _asBool(user['privacy_show_last_seen']);
-      _privacyShowProfileViews = _asBool(user['privacy_show_profile_views']);
-      _privacyShareDistance = _asBool(user['privacy_share_distance']);
-      _privacyNearbyVisible = _asBool(user['privacy_nearby_visible']);
-      _privacyNearbyAlert =
-          _asBool(user['privacy_nearby_alert'], defaultValue: true);
-      _subscriberOnlyDm =
-          _asBool(user['subscriber_only_dm'], defaultValue: false);
-      _privacyDirectRandomCall =
-          _asBool(user['privacy_direct_random_call'], defaultValue: true);
-    });
+    setState(() => _applyFromMap(user));
     _applying = false;
+  }
+
+  void _applyFromMap(Map<String, dynamic> user) {
+    _privacyAllowFindId    = _asBool(user['privacy_allow_find_id'],    defaultValue: true);
+    _privacyNearbyVisible  = _asBool(user['privacy_nearby_visible'],   defaultValue: true);
+    _privacyNearbyAlert    = _asBool(user['privacy_nearby_alert'],     defaultValue: true);
+    _privacyShareDistance  = _asBool(user['privacy_share_distance'],   defaultValue: false);
+    _subscriberOnlyDm      = _asBool(user['subscriber_only_dm'],       defaultValue: false);
+    _privacyDirectRandomCall = _asBool(user['privacy_direct_random_call'], defaultValue: false);
+    _privacyAllowDirectCall  = _asBool(user['privacy_allow_direct_call'],  defaultValue: false);
+    _privacyAllowUnknownInbox = _asBool(user['privacy_allow_unknown_inbox'], defaultValue: true);
+    _privacyShowOnline     = _asBool(user['privacy_show_online'],      defaultValue: true);
+    _privacyShowLastSeen   = _asBool(user['privacy_show_last_seen'],   defaultValue: true);
+    _privacyShowProfileViews = _asBool(user['privacy_show_profile_views'], defaultValue: true);
+    _privacyAllowRepost    = _asBool(user['privacy_allow_repost'],     defaultValue: true);
+    _cacheDirectCallPref(_privacyAllowDirectCall);
   }
 
   Future<void> _cacheDirectCallPref(bool value) async {
@@ -268,255 +255,149 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
   }
 
   List<Widget> _buildPrivacyItems() {
+    // Helper to avoid repeating the same 5-line pattern for each toggle.
+    Widget tog(String key, String label, String subtitle, IconData icon,
+        Color color, bool current, bool defaultVal,
+        [void Function(bool)? extraEffect]) {
+      return _buildToggle(
+        icon: icon,
+        label: label,
+        subtitle: subtitle,
+        value: current,
+        color: color,
+        onChanged: (v) {
+          if (_applying) return;
+          final old = current;
+          setState(() {
+            switch (key) {
+              case 'privacy_allow_find_id':     _privacyAllowFindId = v;
+              case 'privacy_nearby_visible':    _privacyNearbyVisible = v;
+              case 'privacy_nearby_alert':      _privacyNearbyAlert = v;
+              case 'privacy_share_distance':    _privacyShareDistance = v;
+              case 'subscriber_only_dm':        _subscriberOnlyDm = v;
+              case 'privacy_direct_random_call':_privacyDirectRandomCall = v;
+              case 'privacy_allow_direct_call': _privacyAllowDirectCall = v;
+              case 'privacy_allow_unknown_inbox':_privacyAllowUnknownInbox = v;
+              case 'privacy_show_online':       _privacyShowOnline = v;
+              case 'privacy_show_last_seen':    _privacyShowLastSeen = v;
+              case 'privacy_show_profile_views':_privacyShowProfileViews = v;
+              case 'privacy_allow_repost':      _privacyAllowRepost = v;
+            }
+            extraEffect?.call(v);
+          });
+          _updateSetting(key, v, old, (r) {
+            setState(() {
+              switch (key) {
+                case 'privacy_allow_find_id':     _privacyAllowFindId = r;
+                case 'privacy_nearby_visible':    _privacyNearbyVisible = r;
+                case 'privacy_nearby_alert':      _privacyNearbyAlert = r;
+                case 'privacy_share_distance':    _privacyShareDistance = r;
+                case 'subscriber_only_dm':        _subscriberOnlyDm = r;
+                case 'privacy_direct_random_call':_privacyDirectRandomCall = r;
+                case 'privacy_allow_direct_call': _privacyAllowDirectCall = r;
+                case 'privacy_allow_unknown_inbox':_privacyAllowUnknownInbox = r;
+                case 'privacy_show_online':       _privacyShowOnline = r;
+                case 'privacy_show_last_seen':    _privacyShowLastSeen = r;
+                case 'privacy_show_profile_views':_privacyShowProfileViews = r;
+                case 'privacy_allow_repost':      _privacyAllowRepost = r;
+              }
+              extraEffect?.call(r);
+            });
+          });
+        },
+      );
+    }
+
     return [
       // ── DISCOVERY ──────────────────────────────────────────────
       _buildSectionHeader('Discovery', Icons.search),
-      _buildToggle(
-        icon: Icons.fingerprint,
-        label: 'Allow find by ID',
-        subtitle: 'Others can find your profile using your ID',
-        value: _privacyAllowFindId,
-        color: const Color(0xFF06B6D4),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyAllowFindId;
-          setState(() => _privacyAllowFindId = v);
-          _updateSetting(
-            'privacy_allow_find_id',
-            v,
-            old,
-            (r) => _privacyAllowFindId = r,
-          );
-        },
-      ),
+      tog('privacy_allow_find_id',
+          'Allow find by ID',
+          'ON — people can find your profile by searching your user ID.',
+          Icons.fingerprint, const Color(0xFF06B6D4),
+          _privacyAllowFindId, true),
 
       // ── LOCATION & NEARBY ──────────────────────────────────────
       const SizedBox(height: 20),
       _buildSectionHeader('Location & Nearby', Icons.location_on),
-      _buildToggle(
-        icon: Icons.near_me,
-        label: 'Appear in Nearby',
-        subtitle: 'Show your profile to people near your location',
-        value: _privacyNearbyVisible,
-        color: const Color(0xFF22C55E),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyNearbyVisible;
-          setState(() => _privacyNearbyVisible = v);
-          _updateSetting(
-            'privacy_nearby_visible',
-            v,
-            old,
-            (r) => _privacyNearbyVisible = r,
-          );
-        },
-      ),
-      _buildToggle(
-        icon: Icons.notifications_active,
-        label: 'Nearby alerts as call',
-        subtitle:
-            'Full-screen ringing alert when someone is near you. Turn off to stop receiving these.',
-        value: _privacyNearbyAlert,
-        color: const Color(0xFFFF6B9D),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyNearbyAlert;
-          setState(() => _privacyNearbyAlert = v);
-          _updateSetting(
-            'privacy_nearby_alert',
-            v,
-            old,
-            (r) => _privacyNearbyAlert = r,
-          );
-        },
-      ),
-      _buildToggle(
-        icon: Icons.lock_outline,
-        label: 'Subscriber-only messages',
-        subtitle:
-            'Only your subscribers can message you. Others see a Subscribe prompt instead of the chat input.',
-        value: _subscriberOnlyDm,
-        color: const Color(0xFFFF007F),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _subscriberOnlyDm;
-          setState(() => _subscriberOnlyDm = v);
-          _updateSetting(
-            'subscriber_only_dm',
-            v,
-            old,
-            (r) => _subscriberOnlyDm = r,
-          );
-        },
-      ),
-      _buildToggle(
-        icon: Icons.videocam_outlined,
-        label: 'Direct random video calls',
-        subtitle:
-            'When ON, random matches connect straight to the call. Turn OFF to require both sides to tap Start after the match.',
-        value: _privacyDirectRandomCall,
-        color: const Color(0xFF00E5FF),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyDirectRandomCall;
-          setState(() => _privacyDirectRandomCall = v);
-          _updateSetting(
-            'privacy_direct_random_call',
-            v,
-            old,
-            (r) => _privacyDirectRandomCall = r,
-          );
-        },
-      ),
-      _buildToggle(
-        icon: Icons.social_distance,
-        label: 'Share my distance',
-        subtitle: 'Others can see how far you are from them',
-        value: _privacyShareDistance,
-        color: const Color(0xFF84CC16),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyShareDistance;
-          setState(() => _privacyShareDistance = v);
-          _updateSetting(
-            'privacy_share_distance',
-            v,
-            old,
-            (r) => _privacyShareDistance = r,
-          );
-        },
-      ),
+      tog('privacy_nearby_visible',
+          'Appear in Nearby',
+          'ON — your profile appears in the Nearby tab for people around you.',
+          Icons.near_me, const Color(0xFF22C55E),
+          _privacyNearbyVisible, true),
+      tog('privacy_nearby_alert',
+          'Nearby alerts as call',
+          'ON — someone being nearby triggers a full-screen ringing alert.',
+          Icons.notifications_active, const Color(0xFFFF6B9D),
+          _privacyNearbyAlert, true),
+      tog('privacy_share_distance',
+          'Share my distance',
+          'OFF — turn ON to let others see exactly how far you are from them.',
+          Icons.social_distance, const Color(0xFF84CC16),
+          _privacyShareDistance, false),
 
       // ── COMMUNICATION ──────────────────────────────────────────
       const SizedBox(height: 20),
       _buildSectionHeader('Communication', Icons.chat_bubble_outline),
-      _buildToggle(
-        icon: Icons.phone_in_talk,
-        label: 'Show name on random video call',
-        subtitle: 'When OFF, people from random video who call you appear as "Stranger" until connected',
-        value: _privacyAllowDirectCall,
-        color: const Color(0xFF8B5CF6),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyAllowDirectCall;
-          setState(() => _privacyAllowDirectCall = v);
-          _updateSetting(
-            'privacy_allow_direct_call',
-            v,
-            old,
-            (r) {
-              _privacyAllowDirectCall = r;
-              _cacheDirectCallPref(r);
-            },
-          );
-        },
-      ),
-      _buildToggle(
-        icon: Icons.message_outlined,
-        label: 'Allow messages from strangers',
-        subtitle: 'People who don\'t follow you can send messages',
-        value: _privacyAllowUnknownInbox,
-        color: const Color(0xFF22C55E),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyAllowUnknownInbox;
-          setState(() => _privacyAllowUnknownInbox = v);
-          _updateSetting(
-            'privacy_allow_unknown_inbox',
-            v,
-            old,
-            (r) => _privacyAllowUnknownInbox = r,
-          );
-        },
-      ),
+      tog('subscriber_only_dm',
+          'Subscriber-only messages',
+          'OFF — turn ON so only your subscribers can send you messages.',
+          Icons.lock_outline, const Color(0xFFFF007F),
+          _subscriberOnlyDm, false),
+      tog('privacy_direct_random_call',
+          'Direct random video calls',
+          'OFF — turn ON so random matches connect straight to video without a confirm step.',
+          Icons.videocam_outlined, const Color(0xFF00E5FF),
+          _privacyDirectRandomCall, false),
+      tog('privacy_allow_direct_call',
+          'Show name on random video call',
+          'OFF — turn ON to show your name during random video calls (otherwise shown as Stranger).',
+          Icons.badge_outlined, const Color(0xFF8B5CF6),
+          _privacyAllowDirectCall, false,
+          (r) => _cacheDirectCallPref(r)),
+      tog('privacy_allow_unknown_inbox',
+          'Allow messages from strangers',
+          'ON — people who don\'t follow you can still send you a message request.',
+          Icons.message_outlined, const Color(0xFF22C55E),
+          _privacyAllowUnknownInbox, true),
 
       // ── VISIBILITY ─────────────────────────────────────────────
       const SizedBox(height: 20),
       _buildSectionHeader('Visibility', Icons.visibility),
-      _buildToggle(
-        icon: Icons.circle,
-        label: 'Show online status',
-        subtitle: 'Others can see when you\'re active',
-        value: _privacyShowOnline,
-        color: const Color(0xFF10B981),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyShowOnline;
-          setState(() => _privacyShowOnline = v);
-          _updateSetting(
-            'privacy_show_online',
-            v,
-            old,
-            (r) => _privacyShowOnline = r,
-          );
-        },
-      ),
-      _buildToggle(
-        icon: Icons.access_time,
-        label: 'Show last seen',
-        subtitle: 'Others can see when you were last active',
-        value: _privacyShowLastSeen,
-        color: const Color(0xFF6366F1),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyShowLastSeen;
-          setState(() => _privacyShowLastSeen = v);
-          _updateSetting(
-            'privacy_show_last_seen',
-            v,
-            old,
-            (r) => _privacyShowLastSeen = r,
-          );
-        },
-      ),
-      _buildToggle(
-        icon: Icons.bar_chart,
-        label: 'Show profile views',
-        subtitle: 'Track and view who visited your profile',
-        value: _privacyShowProfileViews,
-        color: const Color(0xFFEC4899),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyShowProfileViews;
-          setState(() => _privacyShowProfileViews = v);
-          _updateSetting(
-            'privacy_show_profile_views',
-            v,
-            old,
-            (r) => _privacyShowProfileViews = r,
-          );
-        },
-      ),
+      tog('privacy_show_online',
+          'Show online status',
+          'ON — others see a green dot or "Online" label when you\'re active.',
+          Icons.circle, const Color(0xFF10B981),
+          _privacyShowOnline, true),
+      tog('privacy_show_last_seen',
+          'Show last seen',
+          'ON — others see when you were last active in the app.',
+          Icons.access_time, const Color(0xFF6366F1),
+          _privacyShowLastSeen, true),
+      tog('privacy_show_profile_views',
+          'Show profile views',
+          'ON — track who visited your profile and let them know you can see it.',
+          Icons.bar_chart, const Color(0xFFEC4899),
+          _privacyShowProfileViews, true),
       if (_privacyShowProfileViews)
         GestureDetector(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) => const ProfileViewersScreen()),
-          ),
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const ProfileViewersScreen())),
           child: Container(
             margin: const EdgeInsets.only(bottom: 10),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFFEC4899).withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                  color: const Color(0xFFEC4899).withValues(alpha: 0.25)),
+              border: Border.all(color: const Color(0xFFEC4899).withValues(alpha: 0.25)),
             ),
             child: const Row(
               children: [
-                Icon(Icons.remove_red_eye_outlined,
-                    color: Color(0xFFEC4899), size: 20),
+                Icon(Icons.remove_red_eye_outlined, color: Color(0xFFEC4899), size: 20),
                 SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    'See who viewed your profile',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14),
-                  ),
+                  child: Text('See who viewed your profile',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
                 ),
                 Icon(Icons.chevron_right, color: Colors.white38),
               ],
@@ -527,24 +408,11 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
       // ── CONTENT ────────────────────────────────────────────────
       const SizedBox(height: 20),
       _buildSectionHeader('Content', Icons.photo_library_outlined),
-      _buildToggle(
-        icon: Icons.repeat,
-        label: 'Allow reposts of my content',
-        subtitle: 'Others can repost your posts and reels',
-        value: _privacyAllowRepost,
-        color: const Color(0xFFD946EF),
-        onChanged: (v) {
-          if (_applying) return;
-          final old = _privacyAllowRepost;
-          setState(() => _privacyAllowRepost = v);
-          _updateSetting(
-            'privacy_allow_repost',
-            v,
-            old,
-            (r) => _privacyAllowRepost = r,
-          );
-        },
-      ),
+      tog('privacy_allow_repost',
+          'Allow reposts of my content',
+          'ON — others can repost or share your posts and reels. Turn OFF to block reposts.',
+          Icons.repeat, const Color(0xFFD946EF),
+          _privacyAllowRepost, true),
 
       // ── FEED EXPERIENCE ────────────────────────────────────────
       const SizedBox(height: 20),
@@ -553,8 +421,8 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
         icon: Icons.star_outline_rounded,
         label: 'Show Subscribe button on posts',
         subtitle: _kycVerified
-            ? 'When ON, posts show a purple "Subscribe" button instead of "Follow"'
-            : 'KYC verification required to enable this option',
+            ? 'ON — posts show a Subscribe button. Requires an active subscription plan to be useful.'
+            : 'KYC verification required to enable Subscribe button on your posts.',
         value: _feedActionSubscribe,
         color: const Color(0xFFD946EF),
         isLocked: !_kycVerified,

@@ -1074,11 +1074,18 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                               NeonSubscribeButton(
                                 isSubscribed: isSubscribed || _isFollowing,
                                 isOwnPost: _isOwnPost,
-                                showSubscribeMode: (widget
-                                            .post['author_subscription_status']
-                                            ?.toString() ??
-                                        'inactive') ==
-                                    'active',
+                                // Only show Subscribe style when the creator has
+                                // an active plan AND explicitly turned on the
+                                // feed-subscribe toggle. Otherwise show Follow.
+                                showSubscribeMode:
+                                    (widget.post['author_subscription_status']
+                                                ?.toString() ??
+                                            'inactive') ==
+                                        'active' &&
+                                    (widget.post['author_feed_action_subscribe'] ==
+                                            1 ||
+                                        widget.post['author_feed_action_subscribe'] ==
+                                            true),
                                 onTap: _handleFollow,
                               ),
                               const SizedBox(height: 4),
@@ -1343,11 +1350,14 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                       NeonSubscribeButton(
                         isSubscribed: isSubscribed || _isFollowing,
                         isOwnPost: _isOwnPost,
-                        showSubscribeMode: (widget
-                                    .post['author_subscription_status']
-                                    ?.toString() ??
-                                'inactive') ==
-                            'active',
+                        showSubscribeMode:
+                            (widget.post['author_subscription_status']
+                                        ?.toString() ??
+                                    'inactive') ==
+                                'active' &&
+                            (widget.post['author_feed_action_subscribe'] == 1 ||
+                                widget.post['author_feed_action_subscribe'] ==
+                                    true),
                         onTap: _handleFollow,
                       ),
                       const SizedBox(height: 4),

@@ -1339,7 +1339,13 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                         NeonSubscribeButton(
                           isSubscribed: isSubscribed || _isFollowing,
                           isOwnPost: _isOwnPost,
-                          showSubscribeMode: _feedActionSubscribe,
+                          // Show Subscribe only when author has an active plan
+                          // AND enabled the feed-subscribe toggle. Otherwise Follow.
+                          showSubscribeMode: _feedActionSubscribe &&
+                              (widget.post['author_subscription_status']
+                                      ?.toString() ??
+                                  'inactive') ==
+                                  'active',
                           onTap: _handleFollow,
                         ),
                       ],
