@@ -23,7 +23,9 @@ import 'package:love_vibe_pro/config/app_env.dart';
 import 'package:love_vibe_pro/widgets/manage_user_sheet.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/socket_service.dart';
-import 'package:love_vibe_pro/services/ppm_session_service.dart';
+import 'package:love_vibe_pro/services/chat_package_service.dart';
+import 'package:love_vibe_pro/widgets/chat_timer_bar.dart';
+import 'package:love_vibe_pro/widgets/coin_icon.dart';
 import 'package:love_vibe_pro/screens/profile_screen.dart';
 import 'package:dio/dio.dart';
 import 'package:gal/gal.dart';
@@ -94,9 +96,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Timer? _typingResetTimer;
   final List<StreamSubscription<dynamic>> _socketSubs = [];
 
-  // Pay-per-minute target settings — fetched once on init from profile.
-  bool _targetPpmEnabled = false;
-  int _targetPpmRate = 0;
+  // Chat time-package state for this conversation.
+  List<ChatPackage> _targetPackages = [];
+  int _freeMinLeft = 0;
 
   @override
   void initState() {
@@ -111,29 +113,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> _loadTargetPpmSettings() async {
     try {
-      // Hit profile_v19.php directly so we can read raw pay_per_min_* fields
-      // without piping them through the typed UserProfile model.
-      final dio = await ApiService().getDioClient();
-      final res = await dio.get(
-        'profile_v19.php',
-        queryParameters: {'user_id': widget.userId},
-      );
-      dynamic body = res.data;
-      if (body is String) body = body.isEmpty ? null : null;
-      // dio normally decodes JSON automatically; fall back to res.data direct.
-      final data = res.data is Map ? res.data as Map : <String, dynamic>{};
-      final user = data['user'] is Map ? data['user'] as Map : data;
-      final enabledRaw = user['pay_per_min_enabled'];
-      final rateRaw = user['pay_per_min_rate'];
+      final sellerId = int.tryParse(widget.userId) ?? 0;
+      if (sellerId <= 0) return;
+
+      // Load packages + check active session in parallel.
+      final results = await Future.wait([
+        ChatPackageService.instance.listPackages(sellerId),
+        ChatPackageService.instance.checkSession(sellerId),
+      ]);
+
+      final pkgResult = results[0]
+          as ({List<ChatPackage> packages, int freeMinLeft});
+
       if (!mounted) return;
       setState(() {
-        _targetPpmEnabled = enabledRaw == 1 || enabledRaw == '1' ||
-            enabledRaw == true || enabledRaw == 'true';
-        _targetPpmRate = int.tryParse(rateRaw?.toString() ?? '') ?? 0;
+        _targetPackages = pkgResult.packages;
+        _freeMinLeft = pkgResult.freeMinLeft;
       });
-    } catch (_) {
-      // Profile fetch failures don't gate chat — PPM CTA just won't show.
-    }
+    } catch (_) {}
   }
 
   void _startLiveSync() {
@@ -1939,114 +1936,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Pay-per-minute banner shown above the composer. Three states:
-  ///   - target has PPM off → nothing
-  ///   - target has PPM on, no session → "Start paid chat (X coins/min)"
-  ///   - session active → running minutes + balance + Stop button
+  /// Timer bar above the composer — shows package countdown when active
+  /// or a "Buy / Start free" prompt when the creator has packages.
   Widget _buildPpmBar() {
-    return ValueListenableBuilder<PpmSessionState?>(
-      valueListenable: PpmSessionService.instance.stateNotifier,
-      builder: (_, session, __) {
-        final isMineActive = session != null &&
-            session.active &&
-            session.sellerId.toString() == widget.userId;
-        if (isMineActive) {
-          return Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF00E5FF), Color(0xFFD946EF)],
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.timer_outlined,
-                    color: Colors.white, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Paid chat ${session.minutesCharged}m  •  ${session.totalCoinsCharged} coins  •  Balance ${session.balance}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    backgroundColor: Colors.white.withValues(alpha: 0.2),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                  ),
-                  onPressed: () async {
-                    await PpmSessionService.instance.stop();
-                    if (mounted) NeonToast.info(context, 'Paid chat ended');
-                  },
-                  child: const Text('Stop',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-          );
-        }
-        if (!_targetPpmEnabled || _targetPpmRate <= 0) {
-          return const SizedBox.shrink();
-        }
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFF007F).withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-                color: const Color(0xFFFF007F).withValues(alpha: 0.3)),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.monetization_on_outlined,
-                  color: Color(0xFFFF007F), size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Paid chat: $_targetPpmRate coins/min',
-                  style: const TextStyle(
-                      color: Colors.white, fontSize: 12),
-                ),
-              ),
-              TextButton(
-                style: TextButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF007F),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 4),
-                ),
-                onPressed: _startPpmSession,
-                child: const Text('Start',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
-        );
-      },
+    final sellerId = int.tryParse(widget.userId) ?? 0;
+    return ChatTimerBar(
+      sellerId: sellerId,
+      targetPkgCount: _targetPackages.length,
+      freeMinLeft: _freeMinLeft,
+      onBuyPackage: () => _showBuyPackageSheet(sellerId),
     );
   }
 
-  Future<void> _startPpmSession() async {
-    final sellerId = int.tryParse(widget.userId);
-    if (sellerId == null) return;
-    try {
-      await PpmSessionService.instance.start(sellerId);
-      if (mounted) NeonToast.success(context, 'Paid chat started');
-    } catch (e) {
-      if (mounted) {
-        NeonToast.error(
-            context, e.toString().replaceAll('Exception: ', ''));
-      }
-    }
+  Future<void> _showBuyPackageSheet(int sellerId) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _BuyPackageSheet(
+        sellerId: sellerId,
+        packages: _targetPackages,
+        freeMinLeft: _freeMinLeft,
+        onBought: (state) {
+          if (mounted) {
+            setState(() {
+              _freeMinLeft = 0;
+            });
+            NeonToast.success(
+                context, '${state.minutesTotal}-min chat started!');
+          }
+        },
+      ),
+    );
   }
 
   Widget _buildNormalInputUI() {
@@ -2277,6 +2198,199 @@ class _WaveformPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _WaveformPainter old) =>
       progress != old.progress || color != old.color;
+}
+
+// ── Buy-package bottom sheet ──────────────────────────────────────────────────
+class _BuyPackageSheet extends StatefulWidget {
+  final int sellerId;
+  final List<ChatPackage> packages;
+  final int freeMinLeft;
+  final void Function(ChatSessionState state) onBought;
+
+  const _BuyPackageSheet({
+    required this.sellerId,
+    required this.packages,
+    required this.freeMinLeft,
+    required this.onBought,
+  });
+
+  @override
+  State<_BuyPackageSheet> createState() => _BuyPackageSheetState();
+}
+
+class _BuyPackageSheetState extends State<_BuyPackageSheet> {
+  int _loadingId = -1;
+
+  Future<void> _buy(int pkgId) async {
+    if (_loadingId >= 0) return;
+    setState(() => _loadingId = pkgId);
+    try {
+      final state = await ChatPackageService.instance.buyPackage(
+        sellerId: widget.sellerId,
+        packageId: pkgId,
+      );
+      if (mounted) {
+        Navigator.pop(context);
+        widget.onBought(state);
+      }
+    } catch (e) {
+      if (mounted) {
+        NeonToast.error(context, e.toString().replaceAll('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _loadingId = -1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final hasFree = widget.freeMinLeft > 0;
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF12121E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + mq.viewInsets.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 18),
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const Text('Start Chat Session',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text('Choose a time package to unlock messaging',
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    fontSize: 13)),
+            const SizedBox(height: 20),
+            if (hasFree)
+              _tile(
+                id: 0,
+                label: '5 min Free',
+                subtitle: 'One-time per creator',
+                coins: 0,
+                minutes: widget.freeMinLeft,
+                isFree: true,
+              ),
+            ...widget.packages.map((p) => _tile(
+                  id: p.id,
+                  label: p.name,
+                  subtitle: '${p.minutes} minutes',
+                  coins: p.priceCoins,
+                  minutes: p.minutes,
+                  isFree: p.isFree,
+                )),
+            if (!hasFree && widget.packages.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Text('No packages available',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.4),
+                        fontSize: 14)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tile({
+    required int id,
+    required String label,
+    required String subtitle,
+    required int coins,
+    required int minutes,
+    required bool isFree,
+  }) {
+    final loading = _loadingId == id;
+    return GestureDetector(
+      onTap: () => _buy(id),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: isFree
+              ? [const Color(0xFF22C55E).withValues(alpha: 0.2),
+                 const Color(0xFF06B6D4).withValues(alpha: 0.1)]
+              : [const Color(0xFFFF007F).withValues(alpha: 0.12),
+                 const Color(0xFFD946EF).withValues(alpha: 0.08)]),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isFree
+                ? const Color(0xFF22C55E).withValues(alpha: 0.4)
+                : const Color(0xFFFF007F).withValues(alpha: 0.3),
+          ),
+        ),
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(colors: isFree
+                  ? [const Color(0xFF22C55E), const Color(0xFF06B6D4)]
+                  : [const Color(0xFFFF007F), const Color(0xFFD946EF)]),
+            ),
+            child: Icon(
+              isFree ? Icons.card_giftcard_rounded : Icons.timer_rounded,
+              color: Colors.white, size: 18,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700)),
+                Text(subtitle,
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        fontSize: 12)),
+              ],
+            ),
+          ),
+          if (loading)
+            const SizedBox(
+                width: 22, height: 22,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Color(0xFFFF007F)))
+          else if (isFree || coins == 0)
+            const Text('FREE',
+                style: TextStyle(
+                    color: Color(0xFF22C55E),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13))
+          else
+            Row(children: [
+              const CoinIcon(size: 16, color: Colors.amber),
+              const SizedBox(width: 4),
+              Text('$coins',
+                  style: const TextStyle(
+                      color: Colors.amber,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15)),
+            ]),
+        ]),
+      ),
+    );
+  }
 }
 
 class _ChatMediaViewerScreen extends StatefulWidget {
