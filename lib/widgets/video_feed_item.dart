@@ -101,11 +101,6 @@ class _VideoFeedItemState extends State<VideoFeedItem>
     shadows: [Shadow(color: Colors.black, blurRadius: 6)],
   );
 
-  static const _kReshareBadgeTextStyle = TextStyle(
-    color: Color(0xFF00E5FF),
-    fontSize: 11,
-    fontWeight: FontWeight.w600,
-  );
   // ────────────────────────────────────────────────────────────────────────
 
   VideoPlayerController? _controller;
@@ -1109,74 +1104,82 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                       ),
                     ),
                   ),
-                // "Reshare post from" badge with original owner info
+                // ── Repost attribution banner (top of video, full-width) ──
                 if (isReposted)
                   Positioned(
-                    top: 15,
-                    left: 15,
-                    child: GestureDetector(
-                      onTap: () {
-                        if (originalUserId.isNotEmpty) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (p8_0) =>
-                                  ProfileScreen(userId: originalUserId),
-                            ),
-                          );
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.only(
-                          left: 4,
-                          right: 10,
-                          top: 4,
-                          bottom: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: const Color(
-                              0xFF00E5FF,
-                            ).withValues(alpha: 0.5),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Original owner avatar
-                            originalAvatar.isNotEmpty &&
-                                    originalAvatar.startsWith('http')
-                                ? CircleAvatar(
-                                    backgroundImage: NetworkImage(
-                                      originalAvatar,
-                                    ),
-                                    radius: 10,
-                                  )
-                                : CircleAvatar(
-                                    radius: 10,
-                                    backgroundColor: const Color(0xFF3B82F6),
-                                    child: Text(
-                                      originalFirstName.isNotEmpty &&
-                                              originalFirstName !=
-                                                  'Original Creator'
-                                          ? originalFirstName[0].toUpperCase()
-                                          : '?',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Reshare post from $originalFirstName',
-                              style: _kReshareBadgeTextStyle,
-                            ),
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.82),
+                            Colors.transparent,
                           ],
+                          stops: const [0.0, 1.0],
                         ),
+                      ),
+                      child: Row(
+                        children: [
+                          // Repost pill
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFD946EF), Color(0xFF7C3AED)],
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.repeat_rounded, size: 11, color: Colors.white),
+                                SizedBox(width: 4),
+                                Text('Reposted', style: TextStyle(
+                                    color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Original creator tap area
+                          GestureDetector(
+                            onTap: () {
+                              if (originalUserId.isNotEmpty) {
+                                Navigator.push(context, MaterialPageRoute(
+                                  builder: (_) => ProfileScreen(userId: originalUserId),
+                                ));
+                              }
+                            },
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                originalAvatar.isNotEmpty && originalAvatar.startsWith('http')
+                                    ? CircleAvatar(
+                                        backgroundImage: CachedNetworkImageProvider(originalAvatar),
+                                        radius: 12)
+                                    : CircleAvatar(
+                                        radius: 12,
+                                        backgroundColor: const Color(0xFF7C3AED),
+                                        child: Text(
+                                          originalFirstName.isNotEmpty ? originalFirstName[0].toUpperCase() : '?',
+                                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '@$originalFirstName',
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600,
+                                      shadows: [Shadow(color: Colors.black54, blurRadius: 4)]),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -1223,11 +1226,13 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                   ),
                 ),
 
-                // â”€â”€ Top: profile info row â”€â”€
+                // ── Resharer profile row (hidden on reposts — attribution
+                //    banner at top already shows all needed context) ──
+                if (!isReposted)
                 Positioned(
                   left: 40,
                   right: 40,
-                  top: isReposted ? 65 : 20,
+                  top: 20,
                   child: Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
