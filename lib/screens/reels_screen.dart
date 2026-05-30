@@ -2017,9 +2017,11 @@ class _SoundDetailsScreenState extends State<_SoundDetailsScreen>
         final all = await ApiService().getReels(type: 'trending', soundName: sn);
         if (!mounted) return;
         // Client-side filter: only keep reels that actually match this sound.
+        // Do NOT pass through reels with an empty sound_name — those are reels
+        // using original audio and should not appear in a sound-specific feed.
         final filtered = all.where((r) {
-          final rSnd = (r['sound_name'] ?? r['audio_name'] ?? r['music_name'] ?? '').toString();
-          return rSnd == sn || rSnd.isEmpty;
+          final rSnd = (r['sound_name'] ?? r['audio_name'] ?? r['music_name'] ?? '').toString().trim();
+          return rSnd == sn;
         }).toList();
         final ids = filtered.map((r) => r['id']?.toString()).toSet();
         reels = [
