@@ -41,6 +41,22 @@ class DeepLinkService {
     _sub = null;
   }
 
+  /// Called by StartScreen after it has pushed the home/guest screen so the
+  /// navigation stack is ready. Fires any URI that was stored on cold start
+  /// but couldn't be routed because the navigator wasn't mounted yet.
+  void fireInitialLink() {
+    final uri = _pendingUri;
+    if (uri == null) return;
+    final nav = _navigatorKey?.currentState;
+    if (nav == null) {
+      // Still not ready — retry on next frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) => fireInitialLink());
+      return;
+    }
+    _pendingUri = null;
+    _route(nav, uri);
+  }
+
   Future<void> _handleInitialLink() async {
     try {
       final uri = await _appLinks.getInitialLink();

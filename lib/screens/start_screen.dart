@@ -11,6 +11,7 @@ import 'package:love_vibe_pro/screens/splash_screen.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/fcm_service.dart';
 import 'package:love_vibe_pro/main.dart' show navigatorKey;
+import 'package:love_vibe_pro/services/deep_link_service.dart';
 
 /// Start Screen - shows animated splash, runs auth check in parallel,
 /// then routes to the correct destination.
@@ -124,6 +125,16 @@ class _StartScreenState extends State<StartScreen> {
         transitionDuration: const Duration(milliseconds: 400),
       ),
     );
+
+    // After the destination is on screen, fire any pending deep-link
+    // navigation. We must do this AFTER pushReplacement so the home/guest
+    // screen is already the base of the stack; pushing PostDetailScreen on
+    // top then works correctly. The 450ms matches the fade transition duration.
+    if (auth.isAuthenticated || auth.isGuest) {
+      Future.delayed(const Duration(milliseconds: 450), () {
+        DeepLinkService.instance.fireInitialLink();
+      });
+    }
   }
 
   void _onTermsAccepted() {
