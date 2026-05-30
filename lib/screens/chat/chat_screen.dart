@@ -1072,8 +1072,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildRestrictedInput() {
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottomInset),
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A1A),
         border: Border(
@@ -1114,10 +1115,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             width: double.infinity,
             height: 48,
             child: ElevatedButton(
-              onPressed: () {
-                // Show subscription plans
-                _showPlansSheet();
-              },
+              onPressed: _showPlansSheet,
               style: ElevatedButton.styleFrom(
                 backgroundColor: GalacticTheme.laserPink,
                 foregroundColor: Colors.white,
@@ -1131,7 +1129,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
-          const SizedBox(height: 10),
         ],
       ),
     );

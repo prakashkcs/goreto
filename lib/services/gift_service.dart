@@ -10,12 +10,13 @@ class GiftService {
 
   Future<List<GiftItem>> getGifts() async {
     final dio = await _apiService.getDioClient();
-    final actions = <String>['gifts', 'list_gifts', 'gift_list'];
+    // 'list' is the correct action on gifts.php; fallbacks for legacy names.
+    final actions = <String>['list', 'gifts', 'list_gifts', 'gift_list'];
 
     for (final action in actions) {
       try {
         final response = await dio.get(
-          '/wallet.php',
+          '/gifts.php',
           queryParameters: {'action': action},
           options: Options(responseType: ResponseType.plain),
         );
