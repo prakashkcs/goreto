@@ -88,12 +88,27 @@ List<GiftTx> _fakeTestGifts() => [
 ];
 
 /// Animated gift overlay that cycles through the top 3 gifts on a post/reel.
-/// Sorted by coin_price desc then newest first. Each banner fades+slides in,
-/// stays 2s, then auto-disappears after 5s total cycle.
+/// Shows sender avatar, name, gift, coin price — and optionally a Follow button.
 class GiftOverlayWidget extends StatefulWidget {
   final List<GiftTx> gifts;
 
-  const GiftOverlayWidget({super.key, required this.gifts});
+  /// Called when the viewer taps Follow on the overlay. Receives the senderId.
+  final Future<void> Function(String senderId)? onFollow;
+
+  /// A set of user IDs that the viewer already follows — used to hide the
+  /// Follow button for senders the viewer is already following.
+  final Set<String> followingIds;
+
+  /// The current viewer's own user ID — Follow is hidden for the post owner.
+  final String? viewerUserId;
+
+  const GiftOverlayWidget({
+    super.key,
+    required this.gifts,
+    this.onFollow,
+    this.followingIds = const {},
+    this.viewerUserId,
+  });
 
   @override
   State<GiftOverlayWidget> createState() => _GiftOverlayWidgetState();
@@ -203,6 +218,10 @@ class _GiftOverlayWidgetState extends State<GiftOverlayWidget>
     if (_sorted.isEmpty || !_visible) return const SizedBox.shrink();
 
     final gift = _sorted[_currentIndex];
+    final alreadyFollowing = widget.followingIds.contains(gift.senderId);
+    final isOwnGift = widget.viewerUserId != null &&
+        widget.viewerUserId == gift.senderId;
+    final showFollow = widget.onFollow != null && !alreadyFollowing && !isOwnGift;
 
     return SlideTransition(
       position: _slideAnim,
@@ -210,11 +229,17 @@ class _GiftOverlayWidgetState extends State<GiftOverlayWidget>
         opacity: _fadeAnim,
         child: Container(
           margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.55),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFD946EF).withValues(alpha: 0.4)),
+            color: Colors.black.withValues(alpha: 0.68),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xFFD946EF).withValues(alpha: 0.5)),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFD946EF).withValues(alpha: 0.18),
+                blurRadius: 10,
+              ),
+            ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -229,17 +254,25 @@ class _GiftOverlayWidgetState extends State<GiftOverlayWidget>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '${gift.senderName} sent ${gift.giftName}',
+                      gift.senderName,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w700,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
+                        Text(
+                          'sent ${gift.giftName} · ',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 11,
+                          ),
+                        ),
                         Text(
                           '${gift.coinPrice}',
                           style: const TextStyle(
@@ -248,7 +281,7 @@ class _GiftOverlayWidgetState extends State<GiftOverlayWidget>
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 2),
                         const CoinIcon(size: 10, color: Colors.amber),
                       ],
                     ),
@@ -258,6 +291,30 @@ class _GiftOverlayWidgetState extends State<GiftOverlayWidget>
               const SizedBox(width: 6),
               // Gift thumbnail
               _buildGiftThumb(gift.gifUrl, emoji: gift.emoji),
+              // Follow button — shown only when not already following
+              if (showFollow) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => widget.onFollow!(gift.senderId),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFD946EF), Color(0xFF7C3AED)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Text(
+                      'Follow',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

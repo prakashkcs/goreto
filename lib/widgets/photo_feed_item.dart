@@ -1590,7 +1590,16 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
     if (_giftOverlayData == null || _giftOverlayData!.isEmpty) {
       return const SizedBox.shrink();
     }
-    return GiftOverlayWidget(gifts: _giftOverlayData!);
+    return GiftOverlayWidget(
+      gifts: _giftOverlayData!,
+      viewerUserId: _currentUserId,
+      followingIds: _isFollowing ? {_resolvePostAuthorId() ?? ''} : {},
+      onFollow: (senderId) async {
+        await _api.followUser(senderId);
+        // Update local follow state so the button disappears immediately
+        if (mounted) setState(() {});
+      },
+    );
   }
 
   /// Horizontal auto-scrolling ticker strip showing gifters sorted by value
