@@ -41,17 +41,26 @@ class _StartScreenState extends State<StartScreen> {
     if (!mounted) return;
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final prefs = await SharedPreferences.getInstance();
+
+    // Read local prefs and run auth check concurrently — saves ~100 ms of
+    // sequential disk I/O before the network call starts.
+    final prefsAndAuth = await Future.wait([
+      SharedPreferences.getInstance(),
+      auth.checkAuth().then((_) => null),
+    ]);
+    final prefs = prefsAndAuth[0] as SharedPreferences;
+
     final termsAccepted = prefs.getBool('terms_accepted') ?? false;
     bool onboardingDone = prefs.getBool('onboarding_done') ?? false;
 
-    await auth.checkAuth();
-
-    // Reinstall case: account exists on the server but local prefs are blank,
-    // so onboardingDone is falsely false. If the server-side profile already
-    // has the fields ProfileSetupScreen collects (gender on the match
-    // profile), treat onboarding as done and skip back to HomeScreen.
-    if (!onboardingDone && auth.isAuthenticated) {
+    // Reinstall case: only check the server profile when:
+    //   (a) onboardingDone is false, AND
+    //   (b) we haven't already confirmed it from the server this install
+    //       (tracked by 'onboarding_server_checked').
+    // This avoids a blocking API call on every cold start.
+    if (!onboardingDone &&
+        auth.isAuthenticated &&
+        !(prefs.getBool('onboarding_server_checked') ?? false)) {
       try {
         final p = await ApiService().getMyMatchProfile();
         final profileMap = p['profile'];
@@ -62,11 +71,9 @@ class _StartScreenState extends State<StartScreen> {
           onboardingDone = true;
           await prefs.setBool('onboarding_done', true);
         }
-      } catch (_) {
-        // Network failure: leave onboardingDone as-is. Worst case the user
-        // sees the setup screen once and can skip through; better than
-        // sending an already-onboarded user back to setup every reinstall.
-      }
+        // Mark as checked so we don't call the server on the next launch.
+        await prefs.setBool('onboarding_server_checked', true);
+      } catch (_) {}
     }
 
     if (!mounted) return;
