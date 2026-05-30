@@ -75,7 +75,10 @@ class DeepLinkService {
     }
   }
 
-  /// goreto://post/{postId}  or  https://goreto.org/{username}/{postId}
+  /// goreto://post/{postId}
+  /// https://goreto.org/{username}/{postId}
+  /// https://goreto.org/ekloadmin/view_post.php?id={postId}
+  /// https://goreto.org/ekloadmin/api/v1/...?post_id={postId}
   String? _extractPostId(Uri uri) {
     final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
 
@@ -84,7 +87,18 @@ class DeepLinkService {
       return null;
     }
 
-    if (_isGoretoHost(uri) && segments.length >= 2) {
+    if (!_isGoretoHost(uri)) return null;
+
+    // view_post.php?id=123 or any page with ?post_id=
+    final qId = uri.queryParameters['id'] ?? uri.queryParameters['post_id'];
+    final lastSegment = segments.isNotEmpty ? segments.last : '';
+    if (qId != null && qId.isNotEmpty &&
+        (lastSegment.contains('post') || lastSegment.contains('view') || lastSegment.contains('share'))) {
+      return qId;
+    }
+
+    // goreto.org/{username}/{postId}
+    if (segments.length >= 2) {
       const skip = {'ekloadmin', 'profile', 'u', 'post', 'api'};
       if (!skip.contains(segments[0])) return segments[1];
     }

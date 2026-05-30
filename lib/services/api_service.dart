@@ -3930,6 +3930,11 @@ class ApiService {
           m['media_url'] = fileUrl;
           m['thumbnail_url'] =
               thumb.isNotEmpty ? thumb : (isVideo ? '' : fileUrl);
+          // Normalise avatar URL returned by collections.php
+          final avatarRaw = (m['author_avatar'] ?? '').toString().trim();
+          if (avatarRaw.isNotEmpty && !avatarRaw.startsWith('http')) {
+            m['author_avatar'] = normalizeMediaUrl(avatarRaw, baseUrl: baseUrl);
+          }
           return m;
         }).toList();
       }
