@@ -133,8 +133,11 @@ class _ShareBottomSheetState extends State<ShareBottomSheet> {
       );
       if (mounted) setState(() => _sentTo.add(id));
       if (ctx.mounted) NeonToast.success(ctx, 'Sent!');
-    } catch (_) {
-      if (ctx.mounted) NeonToast.error(ctx, 'Failed to send');
+    } catch (e) {
+      if (ctx.mounted) {
+        final msg = e.toString().replaceAll('Exception: ', '');
+        NeonToast.error(ctx, msg.isNotEmpty ? msg : 'Failed to send');
+      }
     }
   }
 
