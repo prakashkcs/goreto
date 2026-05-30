@@ -63,13 +63,6 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
     borderRadius: BorderRadius.all(Radius.circular(2)),
   );
 
-  static const _kThoughtsButtonDecoration = BoxDecoration(
-    gradient: LinearGradient(
-      colors: [Color(0xFFD946EF), Color(0xFF06B6D4)],
-    ),
-    borderRadius: BorderRadius.all(Radius.circular(16)),
-  );
-
   static const _kFullscreenCloseBtnDecoration = BoxDecoration(
     color: Colors.black54,
     shape: BoxShape.circle,
@@ -83,12 +76,6 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
       Shadow(color: Colors.black, offset: Offset(0, 1), blurRadius: 6),
       Shadow(color: Color(0xFFEC4899), blurRadius: 14),
     ],
-  );
-
-  static const _kReshareBadgeTextStyle = TextStyle(
-    color: Color(0xFF00E5FF),
-    fontSize: 11,
-    fontWeight: FontWeight.w600,
   );
 
   static const _kActionLabelStyle = TextStyle(
@@ -1207,7 +1194,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
         ? (originalPost['user'] as Map<String, dynamic>?)
         : null;
 
-    // Original author info â€” from original_post.user, then fallbacks
+    // Original author info
     final originalUsername = (widget.post['original_user_name'] ??
             widget.post['original_username'] ??
             origUser?['name'] ??
@@ -1220,513 +1207,400 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
           origUser?['avatar_url'] ??
           origUser?['avatar'] ??
           widget.post['original_avatar'] ??
-          // Fallback: use the resharer's own avatar
           userAvatar,
     );
     final originalUserId = (origUser?['id'] ??
             origUser?['user_id'] ??
             origUser?['uid'] ??
             widget.post['original_user_id'])
-        ?.toString(); // DO NOT fallback to _resolvePostAuthorId() — that returns the resharer's ID
+        ?.toString();
 
-    // Image url for fullscreen viewer
     final viewerImageUrl =
         _resolveMediaUrl(originalPost ?? widget.post) ?? imageUrl;
+
+    // Resharer's comment / caption on the repost
+    final reshareCaption =
+        (widget.post['repost_caption'] ?? '').toString().trim();
+
+    // Helper to navigate to a profile
+    void goToProfile(String? id) {
+      if (id == null || id.isEmpty || id == '0') return;
+      Navigator.push(context,
+          MaterialPageRoute(builder: (_) => ProfileScreen(userId: id)));
+    }
+
+    final resharerId = _resolvePostAuthorId();
 
     return GestureDetector(
       onLongPress: _handleLongPress,
       child: Container(
-        height: MediaQuery.of(context).size.width * 5 / 4,
-        margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
+        margin: const EdgeInsets.symmetric(vertical: 6),
         decoration: BoxDecoration(
-          color: const Color(0xFF0D0D0D),
+          color: const Color(0xFF0D0D14),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: const Color(0xFF00E5FF).withValues(alpha: 0.5),
-            width: 1.5,
-          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // â”€â”€ 1. Profile header â”€â”€
-              Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── 1. Resharer header (same style as normal post header) ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              child: Row(
                 children: [
                   GestureDetector(
-                    onTap: () {
-                      final profileId = (originalUserId != null &&
-                              originalUserId.isNotEmpty &&
-                              originalUserId != '0')
-                          ? originalUserId
-                          : _resolvePostAuthorId();
-                      if (profileId == null ||
-                          profileId.isEmpty ||
-                          profileId == '0') {
-                        return;
-                      }
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ProfileScreen(userId: profileId),
-                        ),
-                      );
-                    },
-                    child:
-                        userAvatar.isNotEmpty && userAvatar.startsWith('http')
-                            ? CircleAvatar(
-                                backgroundImage: CachedNetworkImageProvider(
-                                  userAvatar,
-                                ),
-                                radius: 20,
-                              )
-                            : CircleAvatar(
-                                radius: 20,
-                                backgroundColor: const Color(0xFF3B82F6),
-                                child: Text(
-                                  (username.toString().isNotEmpty
-                                          ? username.toString()[0]
-                                          : '?')
-                                      .toUpperCase(),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
+                    onTap: () => goToProfile(resharerId),
+                    child: CircleAvatar(
+                      radius: 19,
+                      backgroundColor: const Color(0xFF3B82F6),
+                      backgroundImage: userAvatar.isNotEmpty &&
+                              userAvatar.startsWith('http')
+                          ? CachedNetworkImageProvider(userAvatar)
+                          : null,
+                      child: userAvatar.isEmpty || !userAvatar.startsWith('http')
+                          ? Text(
+                              username.isNotEmpty
+                                  ? username[0].toUpperCase()
+                                  : '?',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14),
+                            )
+                          : null,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () {
-                        final profileId = (originalUserId != null &&
-                                originalUserId.isNotEmpty &&
-                                originalUserId != '0')
-                            ? originalUserId
-                            : _resolvePostAuthorId();
-                        if (profileId == null ||
-                            profileId.isEmpty ||
-                            profileId == '0') {
-                          return;
-                        }
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ProfileScreen(userId: profileId),
-                          ),
-                        );
-                      },
+                      onTap: () => goToProfile(resharerId),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            username,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            location.isNotEmpty
-                                ? '$location · Reshare'
-                                : 'Reshare',
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      NeonSubscribeButton(
-                        isSubscribed: isSubscribed || _isFollowing,
-                        isOwnPost: _isOwnPost,
-                        showSubscribeMode:
-                            (widget.post['author_subscription_status']
-                                        ?.toString() ??
-                                    'inactive') ==
-                                'active' &&
-                            (widget.post['author_feed_action_subscribe'] == 1 ||
-                                widget.post['author_feed_action_subscribe'] ==
-                                    true),
-                        onTap: _handleFollow,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${widget.post['views_unique'] ?? widget.post['views_total'] ?? widget.post['view_count'] ?? widget.post['views_count'] ?? widget.post['views'] ?? 0} Views',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // â”€â”€ 2. Inner image card with white border â”€â”€
-              Expanded(
-                child: Stack(
-                  children: [
-                    // Photo card â€” tap opens fullscreen viewer
-                    GestureDetector(
-                      onDoubleTap: _handleDoubleTap,
-                      onTap: () {
-                        final url = viewerImageUrl;
-                        if (url.isNotEmpty) {
-                          showDialog(
-                            context: context,
-                            barrierColor: Colors.black87,
-                            builder: (p4_0) => GestureDetector(
-                              onTap: () => Navigator.pop(context),
-                              child: Scaffold(
-                                backgroundColor: Colors.transparent,
-                                body: Stack(
-                                  children: [
-                                    Center(
-                                      child: InteractiveViewer(
-                                        minScale: 0.5,
-                                        maxScale: 4.0,
-                                        child: CachedNetworkImage(
-                                          imageUrl: url,
-                                          fit: BoxFit.contain,
-                                          placeholder: (p5_0, p5_1) =>
-                                              const Center(
-                                            child: CircularProgressIndicator(
-                                              color: Color(0xFF00E5FF),
-                                            ),
-                                          ),
-                                          errorWidget: (_, __, ___) =>
-                                              const Icon(
-                                            Icons.broken_image,
-                                            color: Colors.white54,
-                                            size: 48,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    // Close button
-                                    Positioned(
-                                      top: MediaQuery.of(context).padding.top +
-                                          10,
-                                      right: 16,
-                                      child: GestureDetector(
-                                        onTap: () => Navigator.pop(context),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: _kFullscreenCloseBtnDecoration,
-                                          child: const Icon(
-                                            Icons.close,
-                                            color: Colors.white,
-                                            size: 22,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                      child: Container(
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.25),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: isTextPost
-                              ? Container(
-                                  decoration: _kTextPostInnerGradient,
-                                  child: Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(24),
-                                      child: Text(
-                                        caption,
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.w700,
-                                          shadows: [
-                                            Shadow(color: Colors.black54, offset: Offset(0, 1), blurRadius: 6),
-                                            Shadow(color: Color(0xFFEC4899), blurRadius: 16),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              : imageUrl.isEmpty
-                                  ? _buildImageError(
-                                      'empty media url', imageUrl)
-                                  : (widget.post['is_locked'] == 1 ||
-                                          widget.post['is_locked'] == true)
-                                      ? ImageFiltered(
-                                          imageFilter: ImageFilter.blur(
-                                            sigmaX: 8.0,
-                                            sigmaY: 8.0,
-                                          ),
-                                          child: CachedNetworkImage(
-                                            imageUrl: imageUrl,
-                                            fit: BoxFit.cover,
-                                            width: double.infinity,
-                                            height: double.infinity,
-                                            memCacheWidth: 600,
-                                            memCacheHeight: 800,
-                                            errorWidget: (_, __, error) =>
-                                                _buildImageError(
-                                                    error, imageUrl),
-                                          ),
-                                        )
-                                      : CachedNetworkImage(
-                                          imageUrl: imageUrl,
-                                          fit: BoxFit.cover,
-                                          width: double.infinity,
-                                          height: double.infinity,
-                                          memCacheWidth: 600,
-                                          memCacheHeight: 800,
-                                          placeholder: (p6_0, p6_1) =>
-                                              Container(
-                                                  color:
-                                                      const Color(0xFF1E1E1E)),
-                                          errorWidget: (_, __, error) =>
-                                              _buildImageError(error, imageUrl),
-                                        ),
-                        ),
-                      ),
-                    ),
-
-                    // "Reshared from" badge â€” tap navigates to original user profile
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: GestureDetector(
-                        onTap: () {
-                          final profileId =
-                              originalUserId ?? _resolvePostAuthorId();
-                          if (profileId != null && profileId.isNotEmpty) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (p7_0) =>
-                                    ProfileScreen(userId: profileId),
-                              ),
-                            );
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.only(
-                            left: 4,
-                            right: 10,
-                            top: 4,
-                            bottom: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.7),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: const Color(
-                                0xFF00E5FF,
-                              ).withValues(alpha: 0.5),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                          Text(username,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                          Row(
                             children: [
-                              // Original user avatar
-                              originalAvatar.isNotEmpty &&
-                                      originalAvatar.startsWith('http')
-                                  ? CircleAvatar(
-                                      backgroundImage:
-                                          CachedNetworkImageProvider(
-                                        originalAvatar,
-                                      ),
-                                      radius: 10,
-                                    )
-                                  : CircleAvatar(
-                                      radius: 10,
-                                      backgroundColor: const Color(0xFF3B82F6),
-                                      child: Text(
-                                        originalFirstName.isNotEmpty
-                                            ? originalFirstName[0].toUpperCase()
-                                            : '?',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                              const SizedBox(width: 6),
+                              const Icon(Icons.repeat_rounded,
+                                  size: 11,
+                                  color: Color(0xFFD946EF)),
+                              const SizedBox(width: 3),
                               Text(
-                                'Reshared from $originalFirstName',
-                                style: _kReshareBadgeTextStyle,
+                                location.isNotEmpty
+                                    ? '$location · Reposted'
+                                    : 'Reposted',
+                                style: const TextStyle(
+                                    color: Color(0xFFD946EF), fontSize: 11),
                               ),
                             ],
                           ),
-                        ),
-                      ),
-                    ),
-
-                    // Heart animation overlay
-                    if (_showHeartOverlay)
-                      Center(
-                        child: ScaleTransition(
-                          scale: CurvedAnimation(
-                            parent: _heartController,
-                            curve: Curves.elasticOut,
-                          ),
-                          child: const Icon(
-                            Icons.favorite,
-                            color: Color(0xFFFF007F),
-                            size: 80,
-                          ),
-                        ),
-                      ),
-
-                    // Subscribe lock overlay
-                    if (widget.post['is_locked'] == 1 ||
-                        widget.post['is_locked'] == true)
-                      Positioned.fill(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: SubscriberLockOverlay(
-                            creatorId:
-                                int.tryParse(_resolvePostAuthorId() ?? '0') ??
-                                    0,
-                            creatorName:
-                                widget.post['author_name']?.toString() ?? '',
-                            creatorSubscriptionStatus:
-                                (widget.post['author_subscription_status'] ??
-                                        'inactive')
-                                    .toString(),
-                            onSubscribed: () {
-                              final ownerId = _resolvePostAuthorId();
-                              if (ownerId != null) {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (p8_0) =>
-                                        ProfileScreen(userId: ownerId),
-                                  ),
-                                );
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-
-                    // Right action column â€” compact TikTok-style
-                    Positioned(
-                      right: 6,
-                      bottom: 12,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildActionBtn(
-                            _isLiked ? Icons.favorite : Icons.favorite_border,
-                            '$_likesCount',
-                            _isLiked ? const Color(0xFFFF007F) : Colors.white,
-                            _handleLike,
-                          ),
-                          const SizedBox(height: 14),
-                          _buildActionBtn(
-                            Icons.chat_bubble_outline_rounded,
-                            '${widget.post['comments_count'] ?? 0}',
-                            Colors.white,
-                            _showCommentsSheet,
-                          ),
-                          const SizedBox(height: 14),
-                          _buildActionBtn(
-                            Icons.near_me_outlined,
-                            'Share',
-                            Colors.white,
-                            _showShareSheet,
-                          ),
-                          if (!_isOwnPost) ...[
-                            const SizedBox(height: 14),
-                            _buildActionBtn(
-                              Icons.card_giftcard_rounded,
-                              'Gift',
-                              const Color(0xFFFFD700),
-                              _openGiftsSheet,
-                            ),
-                          ],
                         ],
                       ),
                     ),
+                  ),
+                  NeonSubscribeButton(
+                    isSubscribed: isSubscribed || _isFollowing,
+                    isOwnPost: _isOwnPost,
+                    showSubscribeMode:
+                        (widget.post['author_subscription_status']
+                                    ?.toString() ??
+                                'inactive') ==
+                            'active' &&
+                        (widget.post['author_feed_action_subscribe'] == 1 ||
+                            widget.post['author_feed_action_subscribe'] == true),
+                    onTap: _handleFollow,
+                  ),
+                ],
+              ),
+            ),
 
-                    // Gift overlay
-                    Positioned(
-                      left: 10,
-                      bottom: 10,
-                      right: 60,
-                      child: _buildGiftOverlay(),
+            // ── 2. Resharer's comment (if any) ──
+            if (reshareCaption.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                child: Text(reshareCaption,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis),
+              ),
+
+            const SizedBox(height: 10),
+
+            // ── 3. Original post card (quoted-tweet style) ──
+            GestureDetector(
+              onDoubleTap: _handleDoubleTap,
+              onTap: () {
+                final url = viewerImageUrl;
+                if (url.isEmpty) return;
+                showDialog(
+                  context: context,
+                  barrierColor: Colors.black87,
+                  builder: (_) => GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Scaffold(
+                      backgroundColor: Colors.transparent,
+                      body: Stack(children: [
+                        Center(
+                          child: InteractiveViewer(
+                            minScale: 0.5,
+                            maxScale: 4.0,
+                            child: CachedNetworkImage(
+                              imageUrl: url,
+                              fit: BoxFit.contain,
+                              placeholder: (_, __) => const Center(
+                                  child: CircularProgressIndicator(
+                                      color: Color(0xFF00E5FF))),
+                              errorWidget: (_, __, ___) => const Icon(
+                                  Icons.broken_image,
+                                  color: Colors.white54,
+                                  size: 48),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: MediaQuery.of(context).padding.top + 10,
+                          right: 16,
+                          child: GestureDetector(
+                            onTap: () => Navigator.pop(context),
+                            child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: _kFullscreenCloseBtnDecoration,
+                                child: const Icon(Icons.close,
+                                    color: Colors.white, size: 22)),
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ),
+                );
+              },
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                  color: const Color(0xFF141420),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Original author strip inside the quoted card
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+                      child: GestureDetector(
+                        onTap: () => goToProfile(originalUserId),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundColor: const Color(0xFF7C3AED),
+                              backgroundImage: originalAvatar.isNotEmpty &&
+                                      originalAvatar.startsWith('http')
+                                  ? CachedNetworkImageProvider(originalAvatar)
+                                  : null,
+                              child: originalAvatar.isEmpty ||
+                                      !originalAvatar.startsWith('http')
+                                  ? Text(
+                                      originalFirstName.isNotEmpty
+                                          ? originalFirstName[0].toUpperCase()
+                                          : '?',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold),
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                originalUsername.isNotEmpty
+                                    ? originalUsername
+                                    : 'Original post',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const Icon(Icons.verified_rounded,
+                                size: 13, color: Color(0xFFD946EF)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // Image / text content
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                          bottom: Radius.circular(14)),
+                      child: AspectRatio(
+                        aspectRatio: 4 / 3,
+                        child: isTextPost
+                            ? Container(
+                                decoration: _kTextPostInnerGradient,
+                                child: Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(20),
+                                    child: Text(caption,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                          shadows: [
+                                            Shadow(
+                                                color: Colors.black54,
+                                                offset: Offset(0, 1),
+                                                blurRadius: 6),
+                                          ],
+                                        )),
+                                  ),
+                                ),
+                              )
+                            : imageUrl.isEmpty
+                                ? _buildImageError('empty media url', imageUrl)
+                                : (widget.post['is_locked'] == 1 ||
+                                        widget.post['is_locked'] == true)
+                                    ? Stack(fit: StackFit.expand, children: [
+                                        ImageFiltered(
+                                          imageFilter: ImageFilter.blur(
+                                              sigmaX: 8, sigmaY: 8),
+                                          child: CachedNetworkImage(
+                                              imageUrl: imageUrl,
+                                              fit: BoxFit.cover,
+                                              memCacheWidth: 600,
+                                              memCacheHeight: 600,
+                                              errorWidget: (_, __, e) =>
+                                                  _buildImageError(e, imageUrl)),
+                                        ),
+                                        Positioned.fill(
+                                          child: SubscriberLockOverlay(
+                                            creatorId: int.tryParse(
+                                                    _resolvePostAuthorId() ??
+                                                        '0') ??
+                                                0,
+                                            creatorName:
+                                                widget.post['author_name']
+                                                        ?.toString() ??
+                                                    '',
+                                            creatorSubscriptionStatus:
+                                                (widget.post[
+                                                            'author_subscription_status'] ??
+                                                        'inactive')
+                                                    .toString(),
+                                            onSubscribed: () => goToProfile(
+                                                _resolvePostAuthorId()),
+                                          ),
+                                        ),
+                                      ])
+                                    : CachedNetworkImage(
+                                        imageUrl: imageUrl,
+                                        fit: BoxFit.cover,
+                                        width: double.infinity,
+                                        memCacheWidth: 600,
+                                        memCacheHeight: 600,
+                                        placeholder: (_, __) =>
+                                            Container(color: const Color(0xFF1E1E1E)),
+                                        errorWidget: (_, __, e) =>
+                                            _buildImageError(e, imageUrl),
+                                      ),
+                      ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
+            ),
 
-              // â”€â”€ 3. "Add your thoughts..." input â”€â”€
-              Container(
-                height: 42,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A1A),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.1),
+            const SizedBox(height: 10),
+
+            // ── 4. Action bar (like · comment · share · gift) ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: Row(
+                children: [
+                  // Heart
+                  GestureDetector(
+                    onTap: _handleLike,
+                    child: Row(children: [
+                      Icon(
+                        _isLiked ? Icons.favorite : Icons.favorite_border,
+                        color: _isLiked
+                            ? const Color(0xFFFF007F)
+                            : Colors.white54,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 4),
+                      Text('$_likesCount',
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 12)),
+                    ]),
+                  ),
+                  const SizedBox(width: 20),
+                  // Comment
+                  GestureDetector(
+                    onTap: _showCommentsSheet,
+                    child: Row(children: [
+                      const Icon(Icons.chat_bubble_outline_rounded,
+                          color: Colors.white54, size: 18),
+                      const SizedBox(width: 4),
+                      Text('${widget.post['comments_count'] ?? 0}',
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 12)),
+                    ]),
+                  ),
+                  const SizedBox(width: 20),
+                  // Share
+                  GestureDetector(
+                    onTap: _showShareSheet,
+                    child: const Row(children: [
+                      Icon(Icons.near_me_outlined,
+                          color: Colors.white54, size: 18),
+                      SizedBox(width: 4),
+                      Text('Share',
+                          style:
+                              TextStyle(color: Colors.white54, fontSize: 12)),
+                    ]),
+                  ),
+                  const Spacer(),
+                  // Views
+                  Text(
+                    '${widget.post['views_unique'] ?? widget.post['views_total'] ?? widget.post['view_count'] ?? 0} views',
+                    style: const TextStyle(color: Colors.white30, fontSize: 11),
+                  ),
+                  if (!_isOwnPost) ...[
+                    const SizedBox(width: 14),
+                    GestureDetector(
+                      onTap: _openGiftsSheet,
+                      child: const Icon(Icons.card_giftcard_rounded,
+                          color: Color(0xFFFFD700), size: 20),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // Heart animation overlay
+            if (_showHeartOverlay)
+              Positioned.fill(
+                child: Center(
+                  child: ScaleTransition(
+                    scale: CurvedAnimation(
+                        parent: _heartController, curve: Curves.elasticOut),
+                    child: const Icon(Icons.favorite,
+                        color: Color(0xFFFF007F), size: 80),
                   ),
                 ),
-                child: Row(
-                  children: [
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _showCommentsSheet,
-                        child: const Text(
-                          'Add your thoughts...',
-                          style: TextStyle(color: Colors.white38, fontSize: 13),
-                        ),
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: _showCommentsSheet,
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        margin: const EdgeInsets.only(right: 5),
-                        decoration: _kThoughtsButtonDecoration,
-                        child: const Icon(
-                          Icons.auto_awesome,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );
