@@ -1104,106 +1104,111 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                       ),
                     ),
                   ),
-                // ── Repost attribution banner (top of video, full-width) ──
+                // ── Repost header — top gradient with both users ──────────
                 if (isReposted)
                   Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
+                    top: 0, left: 0, right: 0,
                     child: Container(
-                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.black.withValues(alpha: 0.82),
-                            Colors.transparent,
-                          ],
-                          stops: const [0.0, 1.0],
+                          colors: [Colors.black.withValues(alpha: 0.9), Colors.transparent],
                         ),
                       ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          // Row 1: Resharer → "reposted"
-                          GestureDetector(
-                            onTap: () {
-                              final rid = _resolvePostAuthorId();
-                              if (rid != null && rid.isNotEmpty) {
-                                Navigator.push(context, MaterialPageRoute(
-                                  builder: (_) => ProfileScreen(userId: rid),
-                                ));
-                              }
-                            },
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
+                          // Reposter avatar with original stacked behind
+                          SizedBox(
+                            width: 44,
+                            height: 36,
+                            child: Stack(
                               children: [
-                                userAvatar.isNotEmpty && userAvatar.startsWith('http')
-                                    ? CircleAvatar(backgroundImage: CachedNetworkImageProvider(userAvatar), radius: 11)
-                                    : CircleAvatar(
-                                        radius: 11,
-                                        backgroundColor: const Color(0xFF3B82F6),
-                                        child: Text(username.isNotEmpty ? username[0].toUpperCase() : '?',
-                                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                                      ),
-                                const SizedBox(width: 5),
-                                Text(username,
-                                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600,
-                                        shadows: [Shadow(color: Colors.black54, blurRadius: 3)])),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(colors: [Color(0xFFD946EF), Color(0xFF7C3AED)]),
-                                    borderRadius: BorderRadius.circular(20),
+                                Positioned(
+                                  right: 0, bottom: 0,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: const Color(0xFF7C3AED), width: 1.5),
+                                    ),
+                                    child: originalAvatar.isNotEmpty && originalAvatar.startsWith('http')
+                                        ? CircleAvatar(backgroundImage: CachedNetworkImageProvider(originalAvatar), radius: 13)
+                                        : CircleAvatar(radius: 13, backgroundColor: const Color(0xFF7C3AED),
+                                            child: Text(originalFirstName.isNotEmpty ? originalFirstName[0].toUpperCase() : '?',
+                                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))),
                                   ),
-                                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                                    Icon(Icons.repeat_rounded, size: 10, color: Colors.white),
-                                    SizedBox(width: 3),
-                                    Text('Reposted', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
-                                  ]),
+                                ),
+                                Positioned(
+                                  left: 0, top: 0,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: const Color(0xFF3B82F6), width: 1.5),
+                                    ),
+                                    child: userAvatar.isNotEmpty && userAvatar.startsWith('http')
+                                        ? CircleAvatar(backgroundImage: CachedNetworkImageProvider(userAvatar), radius: 13)
+                                        : CircleAvatar(radius: 13, backgroundColor: const Color(0xFF3B82F6),
+                                            child: Text(username.isNotEmpty ? username[0].toUpperCase() : '?',
+                                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))),
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(height: 5),
-                          // Row 2: Original creator
-                          GestureDetector(
-                            onTap: () {
-                              if (originalUserId.isNotEmpty) {
-                                Navigator.push(context, MaterialPageRoute(
-                                  builder: (_) => ProfileScreen(userId: originalUserId),
-                                ));
-                              }
-                            },
-                            child: Row(
+                          const SizedBox(width: 10),
+                          // Text column
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.subdirectory_arrow_right_rounded,
-                                    size: 13, color: Colors.white38),
-                                const SizedBox(width: 4),
-                                originalAvatar.isNotEmpty && originalAvatar.startsWith('http')
-                                    ? CircleAvatar(backgroundImage: CachedNetworkImageProvider(originalAvatar), radius: 11)
-                                    : CircleAvatar(
-                                        radius: 11,
-                                        backgroundColor: const Color(0xFF7C3AED),
-                                        child: Text(
-                                          originalFirstName.isNotEmpty ? originalFirstName[0].toUpperCase() : '?',
-                                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
-                                        ),
-                                      ),
-                                const SizedBox(width: 5),
-                                Text(
-                                  '@$originalFirstName',
-                                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700,
-                                      shadows: [Shadow(color: Colors.black54, blurRadius: 4)]),
+                                GestureDetector(
+                                  onTap: () {
+                                    final rid = _resolvePostAuthorId();
+                                    if (rid != null && rid.isNotEmpty) Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: rid)));
+                                  },
+                                  child: RichText(
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    text: TextSpan(style: const TextStyle(fontSize: 12), children: [
+                                      TextSpan(text: username, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                                      const TextSpan(text: ' reposted', style: TextStyle(color: Colors.white54)),
+                                    ]),
+                                  ),
                                 ),
-                                const SizedBox(width: 4),
-                                const Text('· Original', style: TextStyle(color: Colors.white38, fontSize: 11)),
+                                const SizedBox(height: 2),
+                                GestureDetector(
+                                  onTap: () {
+                                    if (originalUserId.isNotEmpty) Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: originalUserId)));
+                                  },
+                                  child: RichText(
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    text: TextSpan(style: const TextStyle(fontSize: 11), children: [
+                                      const TextSpan(text: 'by ', style: TextStyle(color: Colors.white38)),
+                                      TextSpan(
+                                        text: originalUsername.isNotEmpty ? originalUsername : 'Original creator',
+                                        style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+                                      ),
+                                    ]),
+                                  ),
+                                ),
                               ],
                             ),
+                          ),
+                          // Repost pill
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFFD946EF), Color(0xFF7C3AED)]),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.repeat_rounded, size: 11, color: Colors.white),
+                              SizedBox(width: 3),
+                              Text('Repost', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                            ]),
                           ),
                         ],
                       ),

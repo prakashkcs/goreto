@@ -1283,72 +1283,77 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(20),
           color: const Color(0xFF0C0C14),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFD946EF).withValues(alpha: 0.08),
-              blurRadius: 20,
-              offset: const Offset(0, 6),
-            ),
-          ],
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── TOP: Resharer "who reposted" strip ──────────────────────
+            // ── TOP HEADER: Reposter → Original creator ──────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 12, 8),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Repost icon pill
+                  // Reposter avatar
+                  GestureDetector(
+                    onTap: () => goToProfile(resharerId),
+                    child: buildAvatar(userAvatar, username, 18, const Color(0xFF3B82F6)),
+                  ),
+                  const SizedBox(width: 8),
+                  // Names: "username reposted"
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => goToProfile(resharerId),
+                      child: RichText(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        text: TextSpan(
+                          style: const TextStyle(fontSize: 13),
+                          children: [
+                            TextSpan(
+                              text: username,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const TextSpan(
+                              text: ' reposted',
+                              style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w400),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Repost badge
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
                         colors: [Color(0xFFD946EF), Color(0xFF7C3AED)],
                       ),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.repeat_rounded, size: 12, color: Colors.white),
-                        SizedBox(width: 4),
-                        Text('Reposted', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                        Icon(Icons.repeat_rounded, size: 11, color: Colors.white),
+                        SizedBox(width: 3),
+                        Text('Repost',
+                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () => goToProfile(resharerId),
-                    child: buildAvatar(userAvatar, username, 15, const Color(0xFF3B82F6)),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => goToProfile(resharerId),
-                      child: Text(username,
-                          style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                  ),
-                  NeonSubscribeButton(
-                    isSubscribed: isSubscribed || _isFollowing,
-                    isOwnPost: _isOwnPost,
-                    showSubscribeMode:
-                        (widget.post['author_subscription_status']?.toString() ?? 'inactive') == 'active' &&
-                        (widget.post['author_feed_action_subscribe'] == 1 ||
-                            widget.post['author_feed_action_subscribe'] == true),
-                    onTap: _handleFollow,
                   ),
                 ],
               ),
             ),
 
-            // Resharer's caption (if any)
+            // Resharer's comment/caption (if any)
             if (reshareCaption.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
@@ -1432,26 +1437,40 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                         ),
                       ),
 
-                      // Original author pill — bottom-left
+                      // Original author attribution — bottom
                       Positioned(
-                        left: 12, bottom: 12,
-                        child: GestureDetector(
-                          onTap: () => goToProfile(originalUserId),
-                          child: Container(
-                            padding: const EdgeInsets.fromLTRB(5, 4, 10, 4),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.65),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                        left: 0, right: 0, bottom: 0,
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [Colors.black.withValues(alpha: 0.88), Colors.transparent],
                             ),
+                          ),
+                          child: GestureDetector(
+                            onTap: () => goToProfile(originalUserId),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                buildAvatar(originalAvatar, originalFirstName, 13, const Color(0xFF7C3AED)),
-                                const SizedBox(width: 6),
-                                Text(
-                                  originalUsername.isNotEmpty ? '@$originalFirstName' : 'Original',
-                                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                buildAvatar(originalAvatar, originalFirstName, 15, const Color(0xFF7C3AED)),
+                                const SizedBox(width: 8),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text('Original post by',
+                                        style: TextStyle(color: Colors.white54, fontSize: 10)),
+                                    Text(
+                                      originalUsername.isNotEmpty ? originalUsername : 'Creator',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
