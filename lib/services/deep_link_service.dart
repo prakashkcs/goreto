@@ -41,15 +41,14 @@ class DeepLinkService {
     _sub = null;
   }
 
-  /// Called by StartScreen after it has pushed the home/guest screen so the
-  /// navigation stack is ready. Fires any URI that was stored on cold start
-  /// but couldn't be routed because the navigator wasn't mounted yet.
+  /// Called by StartScreen once the home/guest screen is on screen.
+  /// Routes any URI captured during cold start that couldn't be handled yet.
   void fireInitialLink() {
     final uri = _pendingUri;
     if (uri == null) return;
     final nav = _navigatorKey?.currentState;
     if (nav == null) {
-      // Still not ready — retry on next frame.
+      // Home screen transition hasn't finished yet — retry next frame.
       WidgetsBinding.instance.addPostFrameCallback((_) => fireInitialLink());
       return;
     }
@@ -67,25 +66,14 @@ class DeepLinkService {
   void _handleUri(Uri uri) {
     final nav = _navigatorKey?.currentState;
     if (nav == null) {
-      // Navigator not ready — store and retry every frame until it is.
+      // Cold start: navigator not mounted yet. Store the URI and wait for
+      // StartScreen to call fireInitialLink() after the auth flow completes.
+      // Do NOT auto-retry here — StartScreen.pushReplacement() would wipe any
+      // screen we push now anyway.
       _pendingUri = uri;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _retryPending());
       return;
     }
-    _pendingUri = null;
-    _route(nav, uri);
-  }
-
-  void _retryPending() {
-    final uri = _pendingUri;
-    if (uri == null) return;
-    final nav = _navigatorKey?.currentState;
-    if (nav == null) {
-      // Still not ready — keep retrying once per frame up to ~5 s
-      WidgetsBinding.instance.addPostFrameCallback((_) => _retryPending());
-      return;
-    }
-    _pendingUri = null;
+    // Warm/hot link (app already running): route immediately.
     _route(nav, uri);
   }
 
