@@ -810,6 +810,25 @@ class FCMService {
           return;
         }
 
+        // Handle chat_session_started — receiver sees a coin animation toast.
+        if (type == 'chat_session' ||
+            action == 'chat_session_started' ||
+            data['action'] == 'chat_session_started') {
+          final coinsPaid = data['coins_paid']?.toString() ?? '0';
+          final buyerName = data['buyer_name']?.toString() ?? 'Someone';
+          final mins = data['minutes']?.toString() ?? '?';
+          final ctx = navigatorKey.currentState?.context;
+          if (ctx != null && ctx.mounted) {
+            NeonToast.success(
+              ctx,
+              coinsPaid != '0'
+                  ? '$buyerName started a $mins-min chat • +$coinsPaid coins'
+                  : '$buyerName started a $mins-min free chat',
+            );
+          }
+          return;
+        }
+
         // Skip generic toast for types that are handled specifically in _handleNotificationData
         if (type == 'nearby' ||
             type == 'incoming_call' ||
