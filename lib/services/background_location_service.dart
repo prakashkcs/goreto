@@ -155,7 +155,7 @@ void onStart(ServiceInstance service) async {
 Future<void> _performBackgroundLocationPingWithPos(Position pos) async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
+    final token = prefs.getString('app_token') ?? prefs.getString('auth_token');
     if (token == null || token.isEmpty) return; // Not logged in
 
     final dio = Dio();

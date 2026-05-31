@@ -125,10 +125,12 @@ class MatchProvider extends ChangeNotifier {
       // Always strip own profile from results (safety net in case server slips)
       var filtered = fetched.where((u) => u.id != userId).toList();
 
-      // Filter by gender client-side as well (in case server doesn't filter)
-      if (targetGender != null) {
+      // Gender filter: only apply client-side when we have enough results.
+      // If the server already filtered (and returned < 3), skip to avoid
+      // showing an empty screen when the user's own gender isn't set yet.
+      if (targetGender != null && filtered.length >= 3) {
         final genderFiltered = filtered
-            .where((u) => u.gender.toLowerCase() == targetGender)
+            .where((u) => u.gender.isEmpty || u.gender.toLowerCase() == targetGender)
             .toList();
         if (genderFiltered.isNotEmpty) {
           filtered = genderFiltered;
