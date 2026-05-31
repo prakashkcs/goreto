@@ -50,6 +50,7 @@ import 'package:love_vibe_pro/screens/search_screen.dart';
 import 'package:love_vibe_pro/screens/video_recorder_screen.dart';
 import 'package:love_vibe_pro/services/ad_service.dart';
 import 'package:love_vibe_pro/widgets/ads/feed_ad_card.dart';
+import 'package:love_vibe_pro/widgets/discovery_strip.dart';
 import 'package:love_vibe_pro/services/eye_blink_service.dart';
 import 'package:love_vibe_pro/services/settings_store.dart';
 
@@ -1679,6 +1680,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // 2b. Live Strip (only shown when someone is live)
           SliverToBoxAdapter(child: _buildLiveStrip()),
+
+          // 2c. People you may know
+          SliverToBoxAdapter(
+            child: DiscoveryStrip(
+              type: 'users',
+              title: 'People you may know',
+              icon: Icons.people_alt_outlined,
+              accentColor: const Color(0xFFD946EF),
+            ),
+          ),
+
+          // 2d. Nearby friends
+          SliverToBoxAdapter(
+            child: DiscoveryStrip(
+              type: 'nearby',
+              title: 'Nearby friends',
+              icon: Icons.near_me_outlined,
+              accentColor: const Color(0xFF22C55E),
+            ),
+          ),
 
           // 3. Main Feed — pre-filtered, with RepaintBoundary + ad slots
           SliverList(

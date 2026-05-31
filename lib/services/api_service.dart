@@ -3776,6 +3776,22 @@ class ApiService {
     }
   }
 
+  /// GET /api_recommendations.php?action=nearby — nearby users to follow
+  Future<List<dynamic>> getRecommendedNearby({int limit = 15}) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.get(
+        'api_recommendations.php',
+        queryParameters: {'action': 'nearby', 'limit': limit},
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      return (payload?['users'] as List?) ?? [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   /// GET /api_recommendations.php?action=creators — top creators to follow
   Future<List<dynamic>> getRecommendedCreators({int limit = 20}) async {
     final dio = await _ensureInitializedDio();
@@ -3786,7 +3802,7 @@ class ApiService {
         options: Options(responseType: ResponseType.plain),
       );
       final payload = _asJsonMap(response.data);
-      return (payload?['creators'] as List?) ?? [];
+      return (payload?['users'] as List? ?? payload?['creators'] as List?) ?? [];
     } catch (e) {
       return [];
     }
