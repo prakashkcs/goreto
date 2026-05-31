@@ -9,6 +9,7 @@ import 'package:love_vibe_pro/screens/onboarding/terms_acceptance_screen.dart';
 import 'package:love_vibe_pro/screens/onboarding/profile_setup_screen.dart';
 import 'package:love_vibe_pro/screens/splash_screen.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
+import 'package:love_vibe_pro/services/settings_store.dart';
 import 'package:love_vibe_pro/services/fcm_service.dart';
 import 'package:love_vibe_pro/main.dart' show navigatorKey;
 import 'package:love_vibe_pro/services/deep_link_service.dart';
@@ -178,6 +179,19 @@ class _StartScreenState extends State<StartScreen> {
     Future.delayed(const Duration(milliseconds: 600), () async {
       try {
         await FCMService.instance.init();
+      } catch (_) {}
+    });
+
+    // Pre-fetch wallet balance so Settings and other screens that read
+    // from SettingsStore show the real balance immediately without the
+    // user having to open the Wallet page first.
+    Future.delayed(const Duration(milliseconds: 800), () async {
+      final auth = Provider.of<AuthProvider>(navigatorKey.currentContext!, listen: false);
+      if (!auth.isAuthenticated) return;
+      try {
+        final walletInfo = await ApiService().getWalletBalanceRemote();
+        final store = await SettingsStore.getInstance();
+        await store.setWalletBalance(walletInfo.coins.toDouble());
       } catch (_) {}
     });
   }
