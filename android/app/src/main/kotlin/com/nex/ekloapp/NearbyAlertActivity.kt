@@ -13,7 +13,7 @@ import android.os.Looper
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.WindowManager
-import android.widget.ImageButton
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import android.app.Activity
@@ -27,6 +27,8 @@ class NearbyAlertActivity : Activity() {
         const val EXTRA_SENDER_NAME   = "sender_name"
         const val EXTRA_SENDER_AVATAR = "sender_avatar"
 
+        const val EXTRA_DISTANCE = "sender_distance"
+
         fun createIntent(context: Context, data: Map<String, String>): Intent {
             return Intent(context, NearbyAlertActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -35,6 +37,7 @@ class NearbyAlertActivity : Activity() {
                 putExtra(EXTRA_SENDER_ID,     data["sender_id"]     ?: "")
                 putExtra(EXTRA_SENDER_NAME,   data["sender_name"]   ?: "Someone")
                 putExtra(EXTRA_SENDER_AVATAR, data["sender_avatar"] ?: "")
+                putExtra(EXTRA_DISTANCE,      data["distance"]      ?: data["sender_distance"] ?: "")
             }
         }
     }
@@ -64,8 +67,16 @@ class NearbyAlertActivity : Activity() {
         val senderId     = intent.getStringExtra(EXTRA_SENDER_ID)     ?: ""
         val senderName   = intent.getStringExtra(EXTRA_SENDER_NAME)   ?: "Someone"
         val senderAvatar = intent.getStringExtra(EXTRA_SENDER_AVATAR) ?: ""
+        val distance     = intent.getStringExtra(EXTRA_DISTANCE)      ?: ""
 
         findViewById<TextView>(R.id.tvSenderName).text = senderName
+
+        // Show distance in subtitle when available
+        val distView = findViewById<TextView>(R.id.tvDistance)
+        distView.text = when {
+            distance.isNotEmpty() -> "is $distance away from you"
+            else                  -> "is near you right now"
+        }
 
         // Load avatar in background
         if (senderAvatar.isNotEmpty()) {
@@ -80,8 +91,8 @@ class NearbyAlertActivity : Activity() {
             }
         }
 
-        // "Say Hi" → open app and navigate to NearbyAlertScreen (was btnConnect)
-        findViewById<ImageButton>(R.id.btnConnect).setOnClickListener {
+        // "Say Hi" — full-width green pill button
+        findViewById<Button>(R.id.btnConnect).setOnClickListener {
             stopRing()
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -97,8 +108,8 @@ class NearbyAlertActivity : Activity() {
             finish()
         }
 
-        // "Ignore" → dismiss
-        findViewById<ImageButton>(R.id.btnIgnore).setOnClickListener {
+        // "Not now" — outlined secondary pill
+        findViewById<Button>(R.id.btnIgnore).setOnClickListener {
             stopRing()
             dismissNotification()
             finish()
