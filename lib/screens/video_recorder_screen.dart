@@ -14,8 +14,10 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 class VideoRecorderScreen extends StatefulWidget {
   /// Sound name pre-selected (e.g. from "Use This Sound" flow).
   final String? initialSoundName;
+  /// Direct audio URL for the pre-selected sound — avoids a lookup.
+  final String? initialSoundUrl;
 
-  const VideoRecorderScreen({super.key, this.initialSoundName});
+  const VideoRecorderScreen({super.key, this.initialSoundName, this.initialSoundUrl});
 
   @override
   State<VideoRecorderScreen> createState() => _VideoRecorderScreenState();
@@ -762,9 +764,11 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
   bool _showSoundPicker = false;
 
   // ── Audio players ─────────────────────────────────────────────────────────
-  final AudioPlayer _bgSoundPlayer = AudioPlayer(); // plays selected sound
-  final AudioPlayer _tickPlayer    = AudioPlayer(); // countdown tick
-  String? _selectedSoundUrl;                        // URL to stream during rec
+  final AudioPlayer _bgSoundPlayer      = AudioPlayer(); // plays selected sound
+  final AudioPlayer _tickPlayer         = AudioPlayer(); // countdown tick
+  final AudioPlayer _previewPlayer      = AudioPlayer(); // preview in picker
+  String? _selectedSoundUrl;                             // URL to stream during rec
+  String? _previewingName;                               // which sound is previewing
 
   // ── Countdown timer ───────────────────────────────────────────────────────
   int _timerSeconds = 0; // 0 = off, 3 = 3s, 10 = 10s
@@ -780,6 +784,8 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _selectedSoundName = widget.initialSoundName;
+    // Pre-populate URL if provided directly (avoids async lookup)
+    _selectedSoundUrl = widget.initialSoundUrl;
     // Start with front (selfie) camera for reels creation
     _initCamera(cameraIndex: 1);
     _loadTrendingSounds();
@@ -793,6 +799,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
     _controller?.dispose();
     _bgSoundPlayer.dispose();
     _tickPlayer.dispose();
+    _previewPlayer.dispose();
     super.dispose();
   }
 
@@ -1124,26 +1131,27 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
               ),
             ),
 
-          // Sound picker overlay
-          if (_showSoundPicker) Positioned.fill(child: _buildSoundPicker()),
-
           // Countdown overlay
           if (_isCountingDown) _buildCountdownOverlay(),
 
-          // Filter strip + record button at bottom
-          Positioned(
-            bottom: MediaQuery.of(context).padding.bottom + 20,
-            left: 0,
-            right: 0,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildFilterStrip(),
-                const SizedBox(height: 24),
-                _buildRecordRow(),
-              ],
+          // Filter strip + record button at bottom — hidden when sound picker open
+          if (!_showSoundPicker)
+            Positioned(
+              bottom: MediaQuery.of(context).padding.bottom + 20,
+              left: 0,
+              right: 0,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildFilterStrip(),
+                  const SizedBox(height: 24),
+                  _buildRecordRow(),
+                ],
+              ),
             ),
-          ),
+
+          // Sound picker overlay — on top of everything including filters
+          if (_showSoundPicker) Positioned.fill(child: _buildSoundPicker()),
         ],
       ),
     );
@@ -1547,9 +1555,37 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
 
   // ── Sound picker ───────────────────────────────────────────────────────────
 
+  Future<void> _togglePreview(String name) async {
+    if (_previewingName == name) {
+      // Already previewing — stop
+      await _previewPlayer.stop();
+      if (mounted) setState(() => _previewingName = null);
+      return;
+    }
+    final url = _soundItems.where((e) => e['name'] == name).map((e) => e['url']).firstOrNull;
+    if (url == null || !url.startsWith('http')) return;
+    await _previewPlayer.stop();
+    if (mounted) setState(() => _previewingName = name);
+    try {
+      await _previewPlayer.play(UrlSource(url));
+      // Auto-stop preview after 15 s so it doesn't keep playing
+      Future.delayed(const Duration(seconds: 15), () async {
+        if (mounted && _previewingName == name) {
+          await _previewPlayer.stop();
+          if (mounted) setState(() => _previewingName = null);
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _previewingName = null);
+    }
+  }
+
   Widget _buildSoundPicker() {
     return GestureDetector(
-      onTap: () => setState(() => _showSoundPicker = false),
+      onTap: () async {
+        await _previewPlayer.stop();
+        setState(() { _showSoundPicker = false; _previewingName = null; });
+      },
       child: Container(
         color: Colors.black54,
         child: GestureDetector(
@@ -1719,9 +1755,39 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
                 ],
               ),
             ),
-            if (selected)
-              const Icon(Icons.check_circle,
-                  color: Color(0xFFFF007F), size: 20),
+            // Preview play/stop button — only for non-original sounds
+            if (!isOriginal) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _togglePreview(name),
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _previewingName == name
+                        ? const Color(0xFFFF007F).withValues(alpha: 0.2)
+                        : Colors.white.withValues(alpha: 0.08),
+                    border: Border.all(
+                      color: _previewingName == name
+                          ? const Color(0xFFFF007F).withValues(alpha: 0.6)
+                          : Colors.white12,
+                    ),
+                  ),
+                  child: Icon(
+                    _previewingName == name ? Icons.stop : Icons.play_arrow,
+                    color: _previewingName == name
+                        ? const Color(0xFFFF007F)
+                        : Colors.white54,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
+            if (selected) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.check_circle, color: Color(0xFFFF007F), size: 20),
+            ],
           ],
         ),
       ),
