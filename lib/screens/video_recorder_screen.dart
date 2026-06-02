@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:camera/camera.dart' hide ImageFormat;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -754,9 +755,15 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
   ];
 
   // ── Trending sounds (loaded from reels) ───────────────────────────────────
+  List<Map<String, String>> _soundItems = []; // {name, url}
   List<String> _sounds = [];
   bool _loadingSounds = false;
   bool _showSoundPicker = false;
+
+  // ── Audio players ─────────────────────────────────────────────────────────
+  final AudioPlayer _bgSoundPlayer = AudioPlayer(); // plays selected sound
+  final AudioPlayer _tickPlayer    = AudioPlayer(); // countdown tick
+  String? _selectedSoundUrl;                        // URL to stream during rec
 
   // ── Countdown timer ───────────────────────────────────────────────────────
   int _timerSeconds = 0; // 0 = off, 3 = 3s, 10 = 10s
@@ -783,6 +790,8 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
     _recordingTimer?.cancel();
     _countdownTimer?.cancel();
     _controller?.dispose();
+    _bgSoundPlayer.dispose();
+    _tickPlayer.dispose();
     super.dispose();
   }
 
@@ -910,6 +919,8 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
 
   void _startCountdown() {
     HapticFeedback.lightImpact();
+    // First tick immediately
+    _tickPlayer.play(AssetSource('notify.mp3'), volume: 0.5);
     setState(() {
       _isCountingDown = true;
       _countdownRemaining = _timerSeconds;
@@ -928,6 +939,8 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
         _startRecording();
       } else {
         HapticFeedback.selectionClick();
+        // Tick sound on each countdown second
+        _tickPlayer.play(AssetSource('notify.mp3'), volume: 0.5);
         setState(() => _countdownRemaining--);
       }
     });
@@ -959,11 +972,21 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
         setState(() => _recordingSeconds++);
         if (_recordingSeconds >= _maxSeconds) _stopRecording();
       });
+      // Play selected background sound looped during recording
+      final url = _selectedSoundUrl;
+      if (url != null && url.startsWith('http')) {
+        try {
+          await _bgSoundPlayer.setReleaseMode(ReleaseMode.loop);
+          await _bgSoundPlayer.play(UrlSource(url));
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
   Future<void> _stopRecording() async {
     _recordingTimer?.cancel();
+    // Stop background sound
+    try { await _bgSoundPlayer.stop(); } catch (_) {}
     final ctrl = _controller;
     if (ctrl == null || !_isRecording) return;
     HapticFeedback.mediumImpact();
@@ -1016,18 +1039,29 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
     setState(() => _loadingSounds = true);
     try {
       final reels = await ApiService().getReels(type: 'trending');
-      final Set<String> names = {};
+      final seen = <String>{};
+      final items = <Map<String, String>>[];
       for (final r in reels) {
-        final name =
-            (r['sound_name'] ?? r['audio_name'] ?? r['music_name'] ?? '')
-                .toString();
-        if (name.isNotEmpty && name != 'Original Audio') names.add(name);
+        final name = (r['sound_name'] ?? r['audio_name'] ?? r['music_name'] ?? '').toString();
+        if (name.isEmpty || name == 'Original Audio' || seen.contains(name)) continue;
+        seen.add(name);
+        // Try to find a playable audio URL in the reel data
+        final url = (r['sound_url'] ?? r['audio_url'] ?? r['music_url'] ?? '').toString();
+        items.add({'name': name, 'url': url});
       }
       if (mounted) {
         setState(() {
-          _sounds = names.take(30).toList();
+          _soundItems = items.take(30).toList();
+          _sounds = _soundItems.map((e) => e['name']!).toList();
           _loadingSounds = false;
         });
+        // If a sound was pre-selected (from "Use This Sound"), set its URL now
+        if (_selectedSoundName != null) {
+          _selectedSoundUrl = _soundItems
+              .where((e) => e['name'] == _selectedSoundName)
+              .map((e) => e['url'])
+              .firstOrNull;
+        }
       }
     } catch (_) {
       if (mounted) setState(() => _loadingSounds = false);
@@ -1609,6 +1643,12 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
         HapticFeedback.selectionClick();
         setState(() {
           _selectedSoundName = isOriginal ? null : name;
+          _selectedSoundUrl = isOriginal
+              ? null
+              : _soundItems
+                  .where((e) => e['name'] == name)
+                  .map((e) => e['url'])
+                  .firstOrNull;
           _showSoundPicker = false;
         });
       },
