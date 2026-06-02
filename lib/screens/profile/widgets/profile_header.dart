@@ -404,6 +404,10 @@ class ProfileHeader extends StatelessWidget {
         const SizedBox(height: 10),
         SocialLinksRow(links: profile.socialLinks),
 
+        // Mutual friends row (only on others' profiles)
+        if (!profile.isOwnProfile && profile.mutualCount > 0)
+          _buildMutualFriendsRow(context, profile),
+
         const SizedBox(height: 30),
 
         // Action Buttons - Using Wrap to prevent overflow
@@ -616,6 +620,90 @@ class ProfileHeader extends StatelessWidget {
       return '${(count / 1000).toStringAsFixed(1)}K';
     }
     return count.toString();
+  }
+
+  Widget _buildMutualFriendsRow(BuildContext context, UserProfile profile) {
+    final friends = profile.mutualFriends;
+    final count = profile.mutualCount;
+    final extra = count - friends.length; // extra count beyond shown avatars
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Row(
+        children: [
+          // Stacked avatars (max 4)
+          SizedBox(
+            height: 28,
+            width: (friends.take(4).length * 20 + 8).toDouble().clamp(28, 92),
+            child: Stack(
+              children: [
+                for (int i = 0; i < friends.take(4).length; i++)
+                  Positioned(
+                    left: i * 20.0,
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFF0D0D1A), width: 1.5),
+                      ),
+                      child: ClipOval(
+                        child: () {
+                          final av = (friends[i]['avatar'] ?? '').toString();
+                          final nm = (friends[i]['name'] ?? '').toString();
+                          return av.isNotEmpty && av.startsWith('http')
+                              ? CachedNetworkImage(imageUrl: av, fit: BoxFit.cover)
+                              : Container(
+                                  color: const Color(0xFF3B82F6),
+                                  alignment: Alignment.center,
+                                  child: Text(nm.isNotEmpty ? nm[0].toUpperCase() : '?',
+                                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                );
+                        }(),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                // Could navigate to a mutual friends list screen
+              },
+              child: RichText(
+                text: TextSpan(
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 12),
+                  children: [
+                    if (friends.isNotEmpty)
+                      TextSpan(
+                        text: (friends[0]['name'] ?? '').toString().split(' ').first,
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontWeight: FontWeight.w600),
+                      ),
+                    if (friends.length >= 2) ...[
+                      const TextSpan(text: ', '),
+                      TextSpan(
+                        text: (friends[1]['name'] ?? '').toString().split(' ').first,
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                    TextSpan(
+                      text: extra > 0
+                          ? ' and $extra other${extra == 1 ? '' : 's'} follow them too'
+                          : count == 1
+                              ? ' follows them too'
+                              : ' follow them too',
+                    ),
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildStatItem(String value, String label, Color accent) {

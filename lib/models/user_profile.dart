@@ -17,6 +17,10 @@ class UserProfile {
   // True when the user being viewed already follows the current user — drives
   // the 'Follow Back' label on profile screens.
   final bool isFollowedBy;
+
+  // Mutual friends shared between viewer and this profile.
+  final List<Map<String, dynamic>> mutualFriends;
+  final int mutualCount;
   final bool isSubscribed;
   final bool isOwnProfile;
   final String gender;
@@ -70,6 +74,8 @@ class UserProfile {
     this.publicPartner,
     this.gifterLevel = 0,
     this.totalCoinsSent = 0,
+    this.mutualFriends = const [],
+    this.mutualCount = 0,
   });
 
   static int _computeGifterLevel(int coins) {
@@ -160,6 +166,13 @@ class UserProfile {
           ? Map<String, dynamic>.from(json["public_partner"] as Map)
           : null,
       totalCoinsSent: _asInt(json["total_coins_sent"]),
+      mutualCount: _asInt(json["mutual_count"]),
+      mutualFriends: json["mutual_friends"] is List
+          ? (json["mutual_friends"] as List)
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList()
+          : const [],
       gifterLevel: json["gifter_level"] != null
           ? _asInt(json["gifter_level"])
           : _computeGifterLevel(_asInt(json["total_coins_sent"])),
@@ -215,6 +228,8 @@ class UserProfile {
       if (publicPartner != null) "public_partner": publicPartner,
       "total_coins_sent": totalCoinsSent,
       "gifter_level": gifterLevel,
+      "mutual_count": mutualCount,
+      "mutual_friends": mutualFriends,
     };
   }
 
@@ -281,6 +296,8 @@ class UserProfile {
       lookingFor: lookingFor ?? this.lookingFor,
       qualities: qualities ?? this.qualities,
       publicPartner: publicPartner ?? this.publicPartner,
+      mutualFriends: this.mutualFriends,
+      mutualCount: this.mutualCount,
     );
   }
 
