@@ -114,6 +114,17 @@
             </intent-filter>
         </service>
 
+        <!-- Broadcast receiver for notification Accept/Decline actions.
+             Using a receiver means Decline works silently without opening the app. -->
+        <receiver
+            android:name=".CallActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.nex.ekloapp.DECLINE_CALL" />
+                <action android:name="com.nex.ekloapp.ACCEPT_CALL" />
+            </intent-filter>
+        </receiver>
+
         <!-- Boot receiver: touch Firebase on boot so the app process is in
              a state where FCM can deliver the first call notification after
              phone restart without requiring the user to launch the app. -->

@@ -225,42 +225,28 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
         )
 
         val flags = pendingIntentFlags()
-        val fullScreenPi  = PendingIntent.getActivity(this, CALL_NOTIFICATION_ID,     callIntent, flags)
-        val contentPi     = PendingIntent.getActivity(this, CALL_NOTIFICATION_ID + 1, callIntent, flags)
+        val fullScreenPi = PendingIntent.getActivity(this, CALL_NOTIFICATION_ID,     callIntent, flags)
+        val contentPi    = PendingIntent.getActivity(this, CALL_NOTIFICATION_ID + 1, callIntent, flags)
 
-        val declineIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            putExtra("action",  "decline_call")
-            putExtra("call_id", callId)
-        } ?: Intent(this, MainActivity::class.java).apply {
-            putExtra("action",  "decline_call")
-            putExtra("call_id", callId)
+        // Decline: BroadcastReceiver so it fires without opening the app.
+        val declineIntent = Intent(CallActionReceiver.ACTION_DECLINE).apply {
+            setPackage(packageName)
+            putExtra(CallActionReceiver.EXTRA_CALL_ID, callId)
         }
-        val declinePi = PendingIntent.getActivity(this, CALL_NOTIFICATION_ID + 2, declineIntent, flags)
+        val declinePi = PendingIntent.getBroadcast(this, CALL_NOTIFICATION_ID + 2, declineIntent, flags)
 
-        // Accept action: route directly to MainActivity with the accept_call
-        // payload so a single tap on the notification's Accept button connects
-        // the call immediately — without bouncing through IncomingCallActivity
-        // (which would force the user to tap Accept a second time).
-        val acceptIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            putExtra("action",       "accept_call")
-            putExtra("call_id",      callId)
-            putExtra("call_uuid",    callUuid)
-            putExtra("caller_id",    callerId)
-            putExtra("caller_name",  callerName)
-            putExtra("caller_avatar", callerAvatar)
-            putExtra("type",         callType)
-            putExtra("is_random",    isRandom)
-        } ?: Intent(this, MainActivity::class.java).apply {
-            putExtra("action",       "accept_call")
-            putExtra("call_id",      callId)
-            putExtra("call_uuid",    callUuid)
-            putExtra("caller_id",    callerId)
-            putExtra("caller_name",  callerName)
-            putExtra("caller_avatar", callerAvatar)
-            putExtra("type",         callType)
-            putExtra("is_random",    isRandom)
+        // Accept: BroadcastReceiver that opens MainActivity only for the active-answer path.
+        val acceptIntent = Intent(CallActionReceiver.ACTION_ACCEPT).apply {
+            setPackage(packageName)
+            putExtra(CallActionReceiver.EXTRA_CALL_ID,      callId)
+            putExtra(CallActionReceiver.EXTRA_CALL_UUID,    callUuid)
+            putExtra(CallActionReceiver.EXTRA_CALLER_ID,    callerId)
+            putExtra(CallActionReceiver.EXTRA_CALLER_NAME,  callerName)
+            putExtra(CallActionReceiver.EXTRA_CALLER_AVATAR, callerAvatar)
+            putExtra(CallActionReceiver.EXTRA_CALL_TYPE,    callType)
+            putExtra(CallActionReceiver.EXTRA_IS_RANDOM,    isRandom)
         }
-        val acceptPi = PendingIntent.getActivity(this, CALL_NOTIFICATION_ID + 3, acceptIntent, flags)
+        val acceptPi = PendingIntent.getBroadcast(this, CALL_NOTIFICATION_ID + 3, acceptIntent, flags)
 
         val builder = NotificationCompat.Builder(this, CALL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_goreto)

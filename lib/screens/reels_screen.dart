@@ -2278,7 +2278,11 @@ class _SoundDetailsScreenState extends State<_SoundDetailsScreen>
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(10),
-                        child: thumbWidget,
+                        // Enforce 9:16 aspect ratio so thumbnails never stretch
+                        child: AspectRatio(
+                          aspectRatio: 9 / 16,
+                          child: thumbWidget,
+                        ),
                       ),
                     );
                   },
