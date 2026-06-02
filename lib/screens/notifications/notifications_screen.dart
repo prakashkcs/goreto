@@ -43,18 +43,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _load();
   }
 
+  /// Keep only the latest nearby notification per sender.
+  List<AppNotification> _deduplicateNearby(List<AppNotification> list) {
+    final seen = <int>{};
+    final result = <AppNotification>[];
+    for (final n in list) {
+      if (n.type == 'nearby') {
+        final sid = n.senderId ?? 0;
+        if (seen.contains(sid)) continue; // older duplicate — skip
+        seen.add(sid);
+      }
+      result.add(n);
+    }
+    return result;
+  }
+
   Future<void> _load({bool forceRefresh = false}) async {
     // Show cached data immediately so the screen never shows a blank spinner
     final cached = _svc.getCached();
     if (cached.isNotEmpty && !forceRefresh) {
       setState(() {
-        _notifications = cached;
+        _notifications = _deduplicateNearby(cached);
         _isLoading = false;
       });
       // Refresh in background; update UI if fresh data differs
       _svc.getNotifications().then((fresh) {
         if (mounted && fresh.isNotEmpty) {
-          setState(() => _notifications = fresh);
+          setState(() => _notifications = _deduplicateNearby(fresh));
           _svc.markAsRead();
         }
       });
@@ -62,10 +77,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
 
     setState(() => _isLoading = cached.isEmpty);
-    final list = await _svc.getNotifications();
+    final raw = await _svc.getNotifications();
     if (!mounted) return;
     setState(() {
-      _notifications = list;
+      _notifications = _deduplicateNearby(raw);
       _isLoading = false;
     });
     _svc.markAsRead();

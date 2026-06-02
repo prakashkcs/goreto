@@ -326,12 +326,17 @@ void _showNearbyAlert(String senderId, String senderName, String senderAvatar,
     [int attempts = 0]) {
   final now = DateTime.now();
   final last = _lastNearbyAlerts[senderId];
-  if (last != null && now.difference(last).inHours < 12) return;
+  // Allow a new alert from the same sender if the previous one is still on
+  // screen (we'll replace it) OR if at least 5 minutes have passed.
+  // This prevents stacking while ensuring fresh updates are always shown.
+  final isOnScreen = _currentNearbyRoute != null;
+  if (!isOnScreen && last != null && now.difference(last).inMinutes < 5) return;
 
   if (navigatorKey.currentState != null) {
     _lastNearbyAlerts[senderId] = now;
 
-    // Remove the previous nearby alert if one is still on screen
+    // Remove any previous nearby alert — same sender or different sender.
+    // Only ONE nearby alert should be visible at a time.
     if (_currentNearbyRoute != null) {
       navigatorKey.currentState!.removeRoute(_currentNearbyRoute!);
       _currentNearbyRoute = null;
