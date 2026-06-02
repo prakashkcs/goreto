@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:camera/camera.dart' hide ImageFormat;
@@ -1038,24 +1039,33 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
   Future<void> _loadTrendingSounds() async {
     setState(() => _loadingSounds = true);
     try {
-      final reels = await ApiService().getReels(type: 'trending');
-      final seen = <String>{};
-      final items = <Map<String, String>>[];
-      for (final r in reels) {
-        final name = (r['sound_name'] ?? r['audio_name'] ?? r['music_name'] ?? '').toString();
-        if (name.isEmpty || name == 'Original Audio' || seen.contains(name)) continue;
-        seen.add(name);
-        // Try to find a playable audio URL in the reel data
-        final url = (r['sound_url'] ?? r['audio_url'] ?? r['music_url'] ?? '').toString();
-        items.add({'name': name, 'url': url});
-      }
+      // Use the dedicated sounds API instead of scraping reel metadata.
+      // api_sounds.php auto-seeds 30 viral tracks on first run.
+      final dio = await ApiService().getDioClient();
+      final response = await dio.get(
+        'api_sounds.php',
+        queryParameters: {'action': 'trending', 'limit': '50'},
+      );
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      final list = (payload is Map ? (payload['sounds'] as List? ?? []) : <dynamic>[]);
+      final items = list
+          .whereType<Map>()
+          .map((s) => {
+                'name': (s['title'] ?? s['name'] ?? '').toString(),
+                'url':  (s['audio_url'] ?? s['url'] ?? '').toString(),
+                'cat':  (s['category'] ?? '').toString(),
+              })
+          .where((e) => e['name']!.isNotEmpty && e['url']!.startsWith('http'))
+          .toList();
+
       if (mounted) {
         setState(() {
-          _soundItems = items.take(30).toList();
+          _soundItems = items.cast<Map<String, String>>();
           _sounds = _soundItems.map((e) => e['name']!).toList();
           _loadingSounds = false;
         });
-        // If a sound was pre-selected (from "Use This Sound"), set its URL now
+        // If a sound was pre-selected (from "Use This Sound"), wire its URL
         if (_selectedSoundName != null) {
           _selectedSoundUrl = _soundItems
               .where((e) => e['name'] == _selectedSoundName)
