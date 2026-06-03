@@ -387,7 +387,28 @@ class ChatService {
     dynamic payload = response.data;
     if (payload is String) payload = jsonDecode(payload);
 
-    final Message message = _parseMessage(payload['message']);
+    // Surface backend errors (gate blocks, etc.)
+    if (payload is Map &&
+        payload['status'] != null &&
+        payload['status'] != 'success' &&
+        payload['status'] != true) {
+      final msg = payload['message']?.toString() ?? 'Could not send voice message';
+      throw Exception(msg);
+    }
+
+    final Message message = _parseMessage(
+      payload['message'] ??
+          {
+            'sender_id': _currentUserId,
+            'receiver_id': receiverId,
+            'type': 'voice',
+            'content': '',
+            'media_url': '',
+            'voice_duration': duration.inSeconds,
+            'status': 'sent',
+            'created_at': DateTime.now().toIso8601String(),
+          },
+    );
 
     final convId = _getConversationId(receiverId);
     if (!_messages.containsKey(convId)) _messages[convId] = [];
