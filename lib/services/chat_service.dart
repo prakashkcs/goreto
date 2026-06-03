@@ -383,7 +383,17 @@ class ChatService {
       'file': await MultipartFile.fromFile(audioPath, filename: fileName),
     });
 
-    final response = await dio.post('chat.php', data: formData);
+    // Voice file uploads need a longer timeout than regular text messages.
+    // The default 8s receive timeout fires before even small audio files
+    // finish uploading on a slow mobile connection.
+    final response = await dio.post(
+      'chat.php',
+      data: formData,
+      options: Options(
+        sendTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 60),
+      ),
+    );
     dynamic payload = response.data;
     if (payload is String) payload = jsonDecode(payload);
 

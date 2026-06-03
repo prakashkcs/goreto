@@ -574,7 +574,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _isSending = false;
         _recordDuration = Duration.zero;
       });
-      NeonToast.error(context, 'Failed to send voice message: $e');
+      // Extract a user-friendly message from DioException
+      String errMsg = e.toString().replaceAll('Exception: ', '');
+      if (e is DioException) {
+        if (e.response?.data != null) {
+          final d = e.response!.data;
+          if (d is Map && d['message'] != null) {
+            errMsg = d['message'].toString();
+          } else {
+            errMsg = 'Server error ${e.response?.statusCode}';
+          }
+        } else if (e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.sendTimeout) {
+          errMsg = 'Connection timed out. Check your internet.';
+        } else if (e.type == DioExceptionType.connectionError) {
+          errMsg = 'Could not connect to server.';
+        }
+      }
+      NeonToast.error(context, errMsg);
     }
   }
 
