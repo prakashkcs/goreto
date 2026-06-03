@@ -16,7 +16,6 @@ import 'package:love_vibe_pro/models/call_session.dart';
 import 'package:love_vibe_pro/screens/chat/call/webrtc_call_screen.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/services/subscription_plan_service.dart';
-import 'package:love_vibe_pro/screens/profile/widgets/profile_plans_sheet.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -1122,7 +1121,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 8),
           Text(
-            'Only subscribers can initiate a conversation with ${widget.userName}.',
+            'Buy a chat time package to start messaging ${widget.userName}.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.6),
@@ -1143,7 +1142,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
               ),
               child: const Text(
-                'Subscribe to Message',
+                'Buy Chat Package',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
@@ -1154,22 +1153,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _showPlansSheet() {
-    final targetId = int.tryParse(widget.userId);
-    if (targetId == null) return;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ProfilePlansSheet(
-        creatorId: targetId,
-        creatorName: widget.userName,
-        onSubscribed: () {
-          // Refresh restriction status after subscribing
-          setState(() => _isRestricted = false);
-          NeonToast.success(context, 'Subscribed! You can now message ${widget.userName}.');
-        },
-      ),
-    );
+    final sellerId = int.tryParse(widget.userId);
+    if (sellerId == null) return;
+    if (_targetPackages.isEmpty && _freeMinLeft == 0) {
+      _loadTargetPpmSettings().then((_) {
+        if (mounted) _showBuyPackageSheet(sellerId);
+      });
+    } else {
+      _showBuyPackageSheet(sellerId);
+    }
   }
 
   PreferredSizeWidget _buildAppBar() {
@@ -1983,6 +1975,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         onBought: (state) {
           if (mounted) {
             setState(() {
+              _isRestricted = false;
               _freeMinLeft = 0;
             });
             NeonToast.success(
