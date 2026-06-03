@@ -575,7 +575,7 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
                       : 'Make paid chat only',
                   subtitle: _ppmOverrideOn
                       ? 'Drop the paid-chat lock for this user.'
-                      : 'Force this user to pay per minute even if you become friends.',
+                      : 'Force this user to buy a time package even if you become friends.',
                   color: const Color(0xFF22C55E),
                   onTap: _isActionLoading ? null : _togglePpmOverride,
                 ),

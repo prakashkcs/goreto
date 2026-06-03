@@ -357,9 +357,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _buildNavigationTile(
                           icon:
                               null, // Signals _buildNavigationTile to use CoinIcon or similar
-                          label: 'Pay-per-minute Chat',
+                          label: 'Chat Time Packages',
                           subtitle: _kycVerified
-                              ? 'Set your chat rate'
+                              ? 'Manage your time packages'
                               : 'KYC verification required',
                           color: const Color(0xFF22C55E),
                           isLocked:
@@ -368,7 +368,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             if (!_kycVerified) {
                               _showKycRequiredDialog();
                             } else if (_subscriptionStatus != 'active') {
-                              _showStatusInactiveDialog('Pay-per-minute Chat');
+                              _showStatusInactiveDialog('Chat Time Packages');
                             } else {
                               await Navigator.push(
                                 context,

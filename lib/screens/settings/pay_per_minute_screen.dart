@@ -134,13 +134,8 @@ class _ChatPackagesScreenState extends State<ChatPackagesScreen> {
 
   Future<void> _toggleChargeFriends(bool v) async {
     setState(() => _chargeFriends = v);
-    try {
-      final dio = await _api.getDioClient();
-      await dio.post('update_profile.php',
-          data: {'ppm_charge_friends': v ? 1 : 0});
-    } catch (_) {
-      if (mounted) setState(() => _chargeFriends = !v);
-    }
+    final ok = await _api.updatePpmChargeFriends(v);
+    if (!ok && mounted) setState(() => _chargeFriends = !v);
   }
 
   @override
