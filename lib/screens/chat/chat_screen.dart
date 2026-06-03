@@ -16,6 +16,7 @@ import 'package:love_vibe_pro/models/call_session.dart';
 import 'package:love_vibe_pro/screens/chat/call/webrtc_call_screen.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/services/subscription_plan_service.dart';
+import 'package:love_vibe_pro/screens/profile/widgets/profile_plans_sheet.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -1153,14 +1154,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _showPlansSheet() {
-    // We can use the existing _ProfilePlansSheet from ProfileScreen if available,
-    // or redirect to profile screen.
-    // For now, let's just show a simple bottom sheet or redirect.
-    Navigator.pop(context); // Close chat
-    // The user likely came from profile or search, so popping might take them back.
-    NeonToast.info(
-      context,
-      'Please subscribe from the user\'s profile to message them.',
+    final targetId = int.tryParse(widget.userId);
+    if (targetId == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ProfilePlansSheet(
+        creatorId: targetId,
+        creatorName: widget.userName,
+        onSubscribed: () {
+          // Refresh restriction status after subscribing
+          setState(() => _isRestricted = false);
+          NeonToast.success(context, 'Subscribed! You can now message ${widget.userName}.');
+        },
+      ),
     );
   }
 
