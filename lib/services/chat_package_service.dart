@@ -155,8 +155,11 @@ class ChatPackageService {
 
     final coinsPaid = int.tryParse(body['coins_paid']?.toString() ?? '') ?? 0;
     final minutes = int.tryParse(body['minutes']?.toString() ?? '') ?? 5;
-    final expiresAt = DateTime.parse(body['expires_at'].toString());
     final sessionId = int.tryParse(body['session_id']?.toString() ?? '') ?? 0;
+    // Use server-provided seconds_left to avoid timezone mismatch between
+    // the server (UTC) and the device local time.
+    final secondsLeft = int.tryParse(body['seconds_left']?.toString() ?? '') ?? (minutes * 60);
+    final expiresAt = DateTime.now().add(Duration(seconds: secondsLeft));
 
     final state = ChatSessionState(
       sessionId: sessionId,
@@ -164,7 +167,7 @@ class ChatPackageService {
       minutesTotal: minutes,
       coinsPaid: coinsPaid,
       expiresAt: expiresAt,
-      secondsLeft: expiresAt.difference(DateTime.now()).inSeconds.clamp(0, minutes * 60),
+      secondsLeft: secondsLeft,
       active: true,
     );
     _setState(state);
@@ -215,14 +218,23 @@ class ChatPackageService {
 
   ChatSessionState? _sessionFromBody(Map<String, dynamic> body, int sellerId) {
     try {
-      final expiresAt = DateTime.parse(body['expires_at'].toString());
+      // Prefer server-computed seconds_left to avoid timezone skew.
+      final rawSec = int.tryParse(body['seconds_left']?.toString() ?? '');
+      final secondsLeft = (rawSec != null && rawSec > 0)
+          ? rawSec
+          : DateTime.parse(body['expires_at'].toString())
+              .toUtc()
+              .difference(DateTime.now().toUtc())
+              .inSeconds
+              .clamp(0, 9999);
+      final expiresAt = DateTime.now().add(Duration(seconds: secondsLeft));
       return ChatSessionState(
         sessionId: int.tryParse(body['session_id']?.toString() ?? '') ?? 0,
         sellerId: sellerId,
         minutesTotal: int.tryParse(body['minutes_total']?.toString() ?? '') ?? 5,
         coinsPaid: int.tryParse(body['coins_paid']?.toString() ?? '') ?? 0,
         expiresAt: expiresAt,
-        secondsLeft: expiresAt.difference(DateTime.now()).inSeconds.clamp(0, 9999),
+        secondsLeft: secondsLeft,
         active: true,
       );
     } catch (_) {
