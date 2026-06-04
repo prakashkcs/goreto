@@ -1417,7 +1417,6 @@ class ApiService {
   }
 
   /// Edit/update a post caption (must be own post)
-  /// TODO: Backend endpoint needed - POST /posts.php?action=edit
   Future<bool> editPost(dynamic postId, String newCaption) async {
     final dio = await _ensureInitializedDio();
     try {
@@ -1440,7 +1439,6 @@ class ApiService {
   }
 
   /// Report a post with reason
-  /// TODO: Backend endpoint needed - POST /reports.php or /posts.php?action=report
   Future<bool> reportPost(
     dynamic postId,
     String reason, {
