@@ -521,7 +521,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           dir.path,
           'voice_${DateTime.now().millisecondsSinceEpoch}.m4a',
         );
-        await _audioRecorder.start(const RecordConfig(), path: path);
+        await _audioRecorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            bitRate: 32000,
+            sampleRate: 16000,
+            numChannels: 1,
+          ),
+          path: path,
+        );
 
         setState(() {
           _isRecording = true;

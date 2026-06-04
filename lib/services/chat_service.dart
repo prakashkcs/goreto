@@ -376,8 +376,10 @@ class ChatService {
     final dio = await _ensureInitializedDio();
 
     final file = File(audioPath);
-    if (!await file.exists() || await file.length() == 0) {
-      throw Exception('Voice recording file not found or empty. Please try again.');
+    final fileSize = await file.exists() ? await file.length() : 0;
+    if (fileSize < 1024) {
+      // Files under 1 KB are empty container headers — recording failed silently.
+      throw Exception('Recording failed. Check microphone access and try again.');
     }
 
     String fileName = audioPath.split('/').last;
