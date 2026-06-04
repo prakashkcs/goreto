@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
+import 'package:love_vibe_pro/services/chat_service.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:http/http.dart' as http;
@@ -34,6 +35,11 @@ class _StoryViewScreenState extends State<StoryViewScreen>
 
   /// Actively animating flying emojis
   final List<_FlyingEmojiEntry> _flyingEmojis = [];
+
+  // Reply bar
+  final TextEditingController _replyController = TextEditingController();
+  final FocusNode _replyFocus = FocusNode();
+  bool _isSendingReply = false;
 
   // Music
   AudioPlayer? _musicPlayer;
@@ -84,6 +90,13 @@ class _StoryViewScreenState extends State<StoryViewScreen>
             if (status == AnimationStatus.completed) _nextStory();
           });
     _loadCurrentStory();
+    _replyFocus.addListener(() {
+      if (_replyFocus.hasFocus) {
+        _progressController?.stop();
+      } else {
+        _progressController?.forward();
+      }
+    });
   }
 
   void _loadCurrentStory() {
@@ -214,7 +227,36 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     _videoController?.dispose();
     _musicPlayer?.stop();
     _musicPlayer?.dispose();
+    _replyController.dispose();
+    _replyFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _sendReply() async {
+    final text = _replyController.text.trim();
+    if (text.isEmpty || _isSendingReply) return;
+    final ownerId = (_currentStory['user_id'] ?? _currentStory['userId'] ?? '').toString();
+    if (ownerId.isEmpty) return;
+
+    setState(() => _isSendingReply = true);
+    _replyFocus.unfocus();
+    try {
+      await ChatService.instance.sendMessage(receiverId: ownerId, content: text);
+      _replyController.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Reply sent'), duration: Duration(seconds: 2)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send: $e'), duration: const Duration(seconds: 3)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSendingReply = false);
+    }
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
@@ -560,19 +602,23 @@ class _StoryViewScreenState extends State<StoryViewScreen>
             child: Row(
               children: [
                 const SizedBox(width: 20),
-                const Expanded(
+                Expanded(
                   child: TextField(
-                    style: TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
+                    controller: _replyController,
+                    focusNode: _replyFocus,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
                       hintText: 'Send a reply...',
                       hintStyle: TextStyle(color: Colors.white54),
                       border: InputBorder.none,
                       isDense: true,
                     ),
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _sendReply(),
                   ),
                 ),
                 GestureDetector(
-                  onTap: () {}, // TODO: wire up send
+                  onTap: _sendReply,
                   child: Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: Container(
