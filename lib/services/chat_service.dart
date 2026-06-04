@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:love_vibe_pro/models/message.dart';
 import 'package:love_vibe_pro/utils/date_util.dart';
 import 'package:dio/dio.dart';
@@ -376,13 +375,8 @@ class ChatService {
   }) async {
     final dio = await _ensureInitializedDio();
 
-    // Verify file exists before uploading
     final file = File(audioPath);
-    final fileExists = await file.exists();
-    final fileSize = fileExists ? await file.length() : 0;
-    debugPrint('[Voice] path=$audioPath exists=$fileExists size=$fileSize duration=${duration.inSeconds}s');
-
-    if (!fileExists || fileSize == 0) {
+    if (!await file.exists() || await file.length() == 0) {
       throw Exception('Voice recording file not found or empty. Please try again.');
     }
 
@@ -409,15 +403,12 @@ class ChatService {
     dynamic payload = response.data;
     if (payload is String) payload = jsonDecode(payload);
 
-    debugPrint('[Voice] Server response: ${response.statusCode} payload=$payload');
-
     // Surface backend errors (gate blocks, etc.)
     if (payload is Map &&
         payload['status'] != null &&
         payload['status'] != 'success' &&
         payload['status'] != true) {
       final msg = payload['message']?.toString() ?? 'Could not send voice message';
-      debugPrint('[Voice] ERROR from server: $msg');
       throw Exception(msg);
     }
 
