@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderAbstractViewport, RenderBox;
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -112,6 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final AudioPlayer _preloadPlayer = AudioPlayer();
   final ScrollController _feedScrollController = ScrollController();
+  double _feedHeaderHeight = 0;  // set once by the header-end marker
   int _currentIndex = 0;
   List<dynamic> _stories = [];
   List<dynamic> _homeLiveUsers = [];
@@ -759,11 +761,17 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  double _cardHeight(BuildContext context) =>
+      MediaQuery.sizeOf(context).height - 80;
+
   Map<String, dynamic>? _currentFeedPost() {
     if (_feed.isEmpty) return null;
-    final offset =
-        _feedScrollController.hasClients ? _feedScrollController.offset : 0.0;
-    final index = ((offset / 560).round()).clamp(0, _feed.length - 1).toInt();
+    if (!_feedScrollController.hasClients) return _feed.first;
+    final offset = _feedScrollController.offset;
+    final feedOffset = (offset - _feedHeaderHeight).clamp(0.0, double.infinity);
+    // use a safe fallback height if context unavailable
+    final cardH = 700.0;
+    final index = (feedOffset / cardH).round().clamp(0, _feed.length - 1);
     return _feed[index];
   }
 
@@ -782,14 +790,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _scrollFeedNext() async {
     if (!_feedScrollController.hasClients) return;
     final position = _feedScrollController.position;
-    final screenHeight = MediaQuery.of(context).size.height;
-    // Estimate each post card height (including margins)
-    final postHeight = screenHeight * 0.72;
-    // Calculate current post index
-    final currentIndex = (position.pixels / postHeight).round();
+    final cardH = _cardHeight(context);
+    final feedOffset = (position.pixels - _feedHeaderHeight).clamp(0.0, double.infinity);
+    final currentIndex = (feedOffset / cardH).round();
     final nextIndex = currentIndex + 1;
-    // Target: center the next post in the viewport
-    final target = (nextIndex * postHeight).clamp(
+    final target = (_feedHeaderHeight + nextIndex * cardH).clamp(
       0.0,
       position.maxScrollExtent,
     );
@@ -797,6 +802,24 @@ class _HomeScreenState extends State<HomeScreen> {
     await _feedScrollController.animateTo(
       target,
       duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _snapToNearestCard() {
+    if (!_feedScrollController.hasClients || _feed.isEmpty) return;
+    final position = _feedScrollController.position;
+    final cardH = _cardHeight(context);
+    final feedOffset = (position.pixels - _feedHeaderHeight).clamp(0.0, double.infinity);
+    final nearest = (feedOffset / cardH).round();
+    final target = (_feedHeaderHeight + nearest * cardH).clamp(
+      0.0,
+      position.maxScrollExtent,
+    );
+    if ((target - position.pixels).abs() < 2) return;
+    _feedScrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 320),
       curve: Curves.easeOutCubic,
     );
   }
@@ -1582,7 +1605,12 @@ class _HomeScreenState extends State<HomeScreen> {
       color: const Color(0xFFD946EF),
       backgroundColor: const Color(0xFF1A1A2E),
       displacement: 60,
-      child: CustomScrollView(
+      child: NotificationListener<ScrollEndNotification>(
+        onNotification: (_) {
+          _snapToNearestCard();
+          return false;
+        },
+        child: CustomScrollView(
         controller: _feedScrollController,
         cacheExtent: 500,
         physics: const AlwaysScrollableScrollPhysics(
@@ -1701,8 +1729,24 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // 3. Main Feed — pre-filtered, with RepaintBoundary + ad slots
-          SliverList(
+          // Marker to measure where the feed starts for snap calculations
+          SliverToBoxAdapter(
+            child: Builder(builder: (ctx) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!ctx.mounted) return;
+                final ro = ctx.findRenderObject();
+                if (ro == null) return;
+                final viewport = RenderAbstractViewport.of(ro);
+                final h = viewport.getOffsetToReveal(ro as RenderBox, 0).offset;
+                if (h != _feedHeaderHeight) setState(() => _feedHeaderHeight = h);
+              });
+              return const SizedBox.shrink();
+            }),
+          ),
+
+          // 3. Main Feed — snapping cards, each fills the viewport
+          SliverFixedExtentList(
+            itemExtent: _cardHeight(context),
             delegate: SliverChildBuilderDelegate(
               (context, index) {
                 final adService = AdService.instance;
@@ -1783,17 +1827,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         onDeleted: () => _removePost(post),
                       );
 
-                // Attractive card wrapper with neon accent border + shadow
+                // Each card fills its fixed-extent slot; 8px gap top+bottom
                 return RepaintBoundary(
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: isVideo ? _videoCardDecoration : _photoCardDecoration,
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.all(Radius.circular(20)),
-                      child: feedCard,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Container(
+                      decoration: isVideo ? _videoCardDecoration : _photoCardDecoration,
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.all(Radius.circular(20)),
+                        child: feedCard,
+                      ),
                     ),
                   ),
                 );
@@ -1816,6 +1859,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ), // end CustomScrollView
+      ), // end NotificationListener
     ); // end RefreshIndicator
   }
 
