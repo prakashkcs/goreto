@@ -218,7 +218,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         return;
       }
 
-      // 3. User has restriction and no messages, check if current user is subscribed
+      // 3. Check if user has an active chat package session — that also bypasses restriction.
+      final session = ChatPackageService.instance.current;
+      final hasActiveSession =
+          session != null && session.active && session.sellerId == creatorId;
+      if (hasActiveSession) {
+        if (mounted) setState(() => _isCheckedRestriction = true);
+        return;
+      }
+
+      // 4. No session — check subscription
       final isSubscribed = await SubscriptionPlanService().isSubscribedTo(
         creatorId,
       );

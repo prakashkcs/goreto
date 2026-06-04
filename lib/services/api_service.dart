@@ -2559,8 +2559,12 @@ class ApiService {
     );
 
     final payload = _asJsonMap(response.data);
-    final data = _extractDataMap(payload);
-    return WalletInfo.fromJson(data ?? payload ?? <String, dynamic>{});
+    // Response nests balance under 'wallet': { balance_coins: N }
+    final walletMap = payload?['wallet'];
+    final data = (walletMap is Map)
+        ? Map<String, dynamic>.from(walletMap)
+        : (_extractDataMap(payload) ?? payload ?? <String, dynamic>{});
+    return WalletInfo.fromJson(data);
   }
 
   Future<List<WalletTransaction>> getWalletTransactionsRemote() async {
