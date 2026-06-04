@@ -26,6 +26,7 @@ import 'package:love_vibe_pro/services/socket_service.dart';
 import 'package:love_vibe_pro/services/chat_package_service.dart';
 import 'package:love_vibe_pro/widgets/chat_timer_bar.dart';
 import 'package:love_vibe_pro/widgets/coin_icon.dart';
+import 'package:love_vibe_pro/services/wallet_service.dart';
 import 'package:love_vibe_pro/screens/profile_screen.dart';
 import 'package:dio/dio.dart';
 import 'package:gal/gal.dart';
@@ -2244,6 +2245,20 @@ class _BuyPackageSheet extends StatefulWidget {
 
 class _BuyPackageSheetState extends State<_BuyPackageSheet> {
   int _loadingId = -1;
+  int? _coinBalance;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBalance();
+  }
+
+  Future<void> _loadBalance() async {
+    try {
+      final info = await WalletService().getWalletBalance();
+      if (mounted) setState(() => _coinBalance = info.coins);
+    } catch (_) {}
+  }
 
   Future<void> _buy(int pkgId) async {
     if (_loadingId >= 0) return;
@@ -2254,6 +2269,9 @@ class _BuyPackageSheetState extends State<_BuyPackageSheet> {
         packageId: pkgId,
       );
       if (mounted) {
+        if (state.coinsPaid > 0 && _coinBalance != null) {
+          setState(() => _coinBalance = (_coinBalance! - state.coinsPaid).clamp(0, 999999));
+        }
         Navigator.pop(context);
         widget.onBought(state);
       }
@@ -2289,11 +2307,30 @@ class _BuyPackageSheetState extends State<_BuyPackageSheet> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const Text('Start Chat Session',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Start Chat Session',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800)),
+                if (_coinBalance != null)
+                  Row(
+                    children: [
+                      const CoinIcon(size: 16, color: Colors.amber),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$_coinBalance',
+                        style: const TextStyle(
+                            color: Colors.amber,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
             const SizedBox(height: 6),
             Text('Choose a time package to unlock messaging',
                 style: TextStyle(
