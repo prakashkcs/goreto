@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
+import 'package:love_vibe_pro/services/settings_store.dart';
 
 class ChatPackage {
   final int id;
@@ -175,10 +176,17 @@ class ChatPackageService {
     if (coinsPaid > 0) {
       // Notify listeners for coin-fly animation.
       coinDeductedNotifier.value = coinsPaid;
-      // Reset after one frame so the animation can re-trigger next time.
       Future.delayed(const Duration(milliseconds: 100), () {
         coinDeductedNotifier.value = 0;
       });
+    }
+
+    // Persist the new balance so all screens reading SettingsStore stay current.
+    final newBalance = int.tryParse(body['balance']?.toString() ?? '');
+    if (newBalance != null) {
+      SettingsStore.getInstance()
+          .then((s) => s.setWalletBalance(newBalance.toDouble()))
+          .ignore();
     }
 
     return state;
