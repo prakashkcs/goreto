@@ -230,6 +230,9 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     } else if (state == AppLifecycleState.resumed && _durationTimer == null) {
       _durationTimer = Timer.periodic(
           const Duration(seconds: 1), (_) { _durationNotifier.value++; });
+    } else if (state == AppLifecycleState.detached) {
+      // App is being killed — end the live so viewers aren't stuck in a ghost room.
+      if (_isHost && !_hasEndedLive) { _hasEndedLive = true; _api.endLive(); }
     }
   }
 

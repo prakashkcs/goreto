@@ -47,6 +47,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // Data
   UserProfile? _profile;
+  bool _liveRatingLoaded = false; // true once server data (not cache) has arrived
   List<Map<String, dynamic>> _posts = [];
   List<Map<String, dynamic>> _profileGifts = [];
   List<Collection> _collections = [];
@@ -278,6 +279,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _profileGifts = gifts;
           _collections = collections;
           _errorMessage = null;
+          _liveRatingLoaded = true;
         });
       }
 
@@ -1094,6 +1096,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 SliverToBoxAdapter(
                   child: ProfileHeader(
                     profile: profile,
+                    ratingReady: _liveRatingLoaded,
                     onEditCover: _handleUpdateCover,
                     onEditAvatar: _handleUpdateAvatar,
                     onEditBio: _openEditScreen,

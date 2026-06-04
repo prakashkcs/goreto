@@ -24,6 +24,7 @@ class ProfileHeader extends StatelessWidget {
   final VoidCallback? onFollowingTap;
   final bool isFollowLoading;
   final bool isSubscribeLoading;
+  final bool ratingReady;
 
   const ProfileHeader({
     super.key,
@@ -39,6 +40,7 @@ class ProfileHeader extends StatelessWidget {
     this.onFollowingTap,
     this.isFollowLoading = false,
     this.isSubscribeLoading = false,
+    this.ratingReady = true,
   });
 
   @override
@@ -296,7 +298,7 @@ class ProfileHeader extends StatelessWidget {
                 ),
               _buildCompactBadge(
                 Icons.star_rounded,
-                profile.rating.toStringAsFixed(1),
+                ratingReady ? profile.rating.toStringAsFixed(1) : '--',
                 const Color(0xFFFFD700),
               ),
               if (profile.isOwnProfile)

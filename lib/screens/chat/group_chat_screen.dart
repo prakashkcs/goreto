@@ -219,30 +219,70 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _loadMessages(showLoading: false);
   }
 
-  Future<void> _pickImage() async {
+  Future<void> _pickImage() => _pickMedia('image');
+  Future<void> _pickVideo() => _pickMedia('video');
+
+  Future<void> _pickMedia(String type) async {
     if (!_permissions.canSendMedia) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Media sharing is disabled in this group'),
-        backgroundColor: Colors.orange,
-      ));
+      NeonToast.error(context, 'Media sharing is disabled in this group');
       return;
     }
-
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
-    if (pickedFile != null) {
-      setState(() => _isSending = true);
-      final result = await _service.sendMedia(widget.group.id, pickedFile.path, 'image');
-      if (mounted) {
-        setState(() => _isSending = false);
-        if (result['success'] == true) {
-          NeonToast.success(context, 'Media sent');
-          _loadMessages(showLoading: false);
-        } else {
-          NeonToast.error(context, result['msg'] ?? 'Failed to send media');
-        }
+    XFile? file;
+    if (type == 'video') {
+      file = await picker.pickVideo(source: ImageSource.gallery);
+    } else {
+      file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    }
+    if (file == null) return;
+    if (!mounted) return;
+    setState(() => _isSending = true);
+    final result = await _service.sendMedia(widget.group.id, file.path, type);
+    if (mounted) {
+      setState(() => _isSending = false);
+      if (result['success'] == true) {
+        NeonToast.success(context, 'Media sent');
+        _loadMessages(showLoading: false);
+      } else {
+        NeonToast.error(context, result['msg'] ?? 'Failed to send media');
       }
     }
+  }
+
+  void _showMediaPicker() {
+    if (!_permissions.canSendMedia) {
+      NeonToast.error(context, 'Media sharing is disabled in this group');
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF12121E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(width: 36, height: 4,
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded, color: Color(0xFFD946EF)),
+              title: const Text('Photo', style: TextStyle(color: Colors.white)),
+              onTap: () { Navigator.pop(context); _pickImage(); },
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam_rounded, color: Color(0xFF06B6D4)),
+              title: const Text('Video', style: TextStyle(color: Colors.white)),
+              onTap: () { Navigator.pop(context); _pickVideo(); },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   // ── Voice recording ────────────────────────────────────────────────────────
@@ -860,9 +900,22 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               future: _getVideoThumbnail(url),
               builder: (ctx, snap) {
                 if (snap.connectionState == ConnectionState.done &&
-                    snap.data != null) {
-                  return Image.memory(snap.data!,
-                      width: maxW, height: maxW * 0.65, fit: BoxFit.cover);
+                    snap.data != null &&
+                    snap.data!.isNotEmpty) {
+                  return Image.memory(
+                    snap.data!,
+                    width: maxW,
+                    height: maxW * 0.65,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: maxW,
+                      height: maxW * 0.65,
+                      color: const Color(0xFF12121E),
+                      child: const Center(
+                          child: Icon(Icons.broken_image_outlined,
+                              color: Colors.white24, size: 40)),
+                    ),
+                  );
                 }
                 return Container(
                   width: maxW,
@@ -985,7 +1038,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
               IconButton(
                 icon: Icon(Icons.attach_file,
                     color: canSendMedia ? GalacticTheme.laserPink : Colors.grey),
-                onPressed: canSendMedia ? _pickImage : null,
+                onPressed: canSendMedia ? _showMediaPicker : null,
               ),
               Expanded(
                 child: Container(
