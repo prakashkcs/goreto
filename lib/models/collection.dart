@@ -1,5 +1,3 @@
-/// Data model for user collections
-/// TODO: Replace mock data with API response from server
 class Collection {
   final String id;
   final String title;
@@ -52,37 +50,4 @@ class Collection {
     );
   }
 
-  /// Generate mock collections for testing
-  static List<Collection> mockList() {
-    return [
-      Collection(
-        id: '1',
-        title: 'Travel Memories',
-        itemCount: 24,
-        coverThumb: 'https://picsum.photos/seed/c1/200/200',
-        createdAt: DateTime.now().subtract(const Duration(days: 30)),
-      ),
-      Collection(
-        id: '2',
-        title: 'Photography',
-        itemCount: 56,
-        coverThumb: 'https://picsum.photos/seed/c2/200/200',
-        createdAt: DateTime.now().subtract(const Duration(days: 60)),
-      ),
-      Collection(
-        id: '3',
-        title: 'Favorites',
-        itemCount: 12,
-        coverThumb: 'https://picsum.photos/seed/c3/200/200',
-        createdAt: DateTime.now().subtract(const Duration(days: 90)),
-      ),
-      Collection(
-        id: '4',
-        title: 'Inspiration',
-        itemCount: 38,
-        coverThumb: 'https://picsum.photos/seed/c4/200/200',
-        createdAt: DateTime.now().subtract(const Duration(days: 120)),
-      ),
-    ];
-  }
 }
