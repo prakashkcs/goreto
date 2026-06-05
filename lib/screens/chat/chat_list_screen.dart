@@ -32,6 +32,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
   final FocusNode _searchFocus = FocusNode();
   Timer? _pollTimer;
   StreamSubscription<dynamic>? _newMsgSub;
+  StreamSubscription<dynamic>? _statusSub;
+  final Map<String, bool> _onlineMap = {};
+  final Map<String, DateTime?> _lastSeenMap = {};
+  final List<String> _subscribedIds = [];
 
   @override
   void initState() {
@@ -46,6 +50,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
     _startPolling();
     _newMsgSub = _socket.onNewMessage.listen((_) {
       if (mounted) _loadConversations(isPolling: true);
+    });
+    _statusSub = _socket.onOnlineStatus.listen((data) {
+      final uid = data['user_id']?.toString();
+      if (uid == null || !mounted) return;
+      final online = data['is_online'] == true;
+      final rawLastSeen = data['last_seen']?.toString();
+      setState(() {
+        _onlineMap[uid] = online;
+        if (!online && rawLastSeen != null) {
+          _lastSeenMap[uid] = DateTime.tryParse(rawLastSeen);
+        }
+      });
     });
   }
 
@@ -63,6 +79,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
   void dispose() {
     _pollTimer?.cancel();
     _newMsgSub?.cancel();
+    _statusSub?.cancel();
+    for (final id in _subscribedIds) {
+      _socket.unsubscribeStatus(id);
+    }
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -81,6 +101,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           _direct   = filtered.where((c) => !c.showInRequests).toList();
           if (!isPolling) _isLoading = false;
         });
+        _subscribeToStatuses();
       }
     } catch (e) {
       if (mounted && !isPolling) {
@@ -88,6 +109,30 @@ class _ChatListScreenState extends State<ChatListScreen> {
         NeonToast.error(context, 'Error loading conversations: $e');
       }
     }
+  }
+
+  void _subscribeToStatuses() {
+    final allIds = [..._direct, ..._requests].map((c) => c.otherUserId).toList();
+    final newIds = allIds.where((id) => !_subscribedIds.contains(id)).toList();
+    for (final id in newIds) {
+      _socket.subscribeStatus(id);
+      _subscribedIds.add(id);
+    }
+    if (allIds.isNotEmpty) {
+      _socket.getOnlineStatuses(allIds).then((statuses) {
+        if (!mounted) return;
+        setState(() => statuses.forEach((uid, online) => _onlineMap[uid] = online));
+      });
+    }
+  }
+
+  String _formatLastSeen(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return DateFormat.Md().format(time);
   }
 
   void _openConversation(Conversation conv) {
@@ -508,7 +553,41 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 2),
+                  Builder(builder: (context) {
+                    final isOnline = _onlineMap[conv.otherUserId] ?? false;
+                    final lastSeen = _lastSeenMap[conv.otherUserId];
+                    if (!isOnline && lastSeen == null) return const SizedBox(height: 3);
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: isOnline
+                                  ? const Color(0xFF22C55E)
+                                  : Colors.white30,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isOnline
+                                ? 'Online'
+                                : 'Last seen ${_formatLastSeen(lastSeen!)}',
+                            style: TextStyle(
+                              color: isOnline
+                                  ? const Color(0xFF22C55E)
+                                  : Colors.white38,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
                   Row(
                     children: [
                       if (isMyMessage) ...[

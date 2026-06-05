@@ -14,6 +14,7 @@ import 'package:love_vibe_pro/services/profile_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
+import 'package:love_vibe_pro/services/socket_service.dart';
 
 class WebRTCCallScreen extends StatefulWidget {
   final CallSession callSession;
@@ -38,6 +39,7 @@ class WebRTCCallScreen extends StatefulWidget {
 class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
   final SignalingService _signaling = SignalingService.instance;
   final VideoCallManager _videoManager = VideoCallManager();
+  final SocketService _socket = SocketService.instance;
 
   CallState _callState = CallState.idle;
   int? _serverCallId;
@@ -53,6 +55,8 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
   Timer? _callDurationTimer;
   int _callDurationSeconds = 0;
   Timer? _incomingStatusTimer;
+  StreamSubscription<dynamic>? _statusSub;
+  bool _targetOnline = false;
 
   void _startDurationTimer() {
     if (_callDurationTimer != null) return;
@@ -70,6 +74,20 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
     _callUuid = widget.callSession.id; // Use the call UUID from session
     _callState =
         widget.isOutgoing ? CallState.outgoing : widget.callSession.state;
+    _targetOnline = widget.isOutgoing ? widget.isTargetOnline : true;
+    final otherId = widget.isOutgoing
+        ? widget.callSession.receiverId
+        : widget.callSession.callerId;
+    _socket.subscribeStatus(otherId);
+    _statusSub = _socket.onOnlineStatus.listen((data) {
+      final uid = data['user_id']?.toString();
+      if (uid != otherId || !mounted) return;
+      setState(() => _targetOnline = data['is_online'] == true);
+    });
+    _socket.getOnlineStatuses([otherId]).then((statuses) {
+      if (!mounted) return;
+      setState(() => _targetOnline = statuses[otherId] ?? _targetOnline);
+    });
     _initVideoManagerAndCall();
   }
 
@@ -121,6 +139,10 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
 
   @override
   void dispose() {
+    _statusSub?.cancel();
+    _socket.unsubscribeStatus(widget.isOutgoing
+        ? widget.callSession.receiverId
+        : widget.callSession.callerId);
     _callDurationTimer?.cancel();
     _incomingStatusTimer?.cancel();
     _signaling.onCallAccepted = null;
@@ -499,7 +521,36 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
+
+                  // Online / offline indicator
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: _targetOnline
+                              ? const Color(0xFF22C55E)
+                              : Colors.white38,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _targetOnline ? 'Online' : 'Offline',
+                        style: TextStyle(
+                          color: _targetOnline
+                              ? const Color(0xFF22C55E)
+                              : Colors.white38,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
 
                   // Status text
                   Text(
@@ -509,7 +560,7 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
                             ? 'Connecting...'
                             : _callState == CallState.declined
                                 ? 'Call declined'
-                                : (widget.isOutgoing && widget.isTargetOnline)
+                                : (widget.isOutgoing && _targetOnline)
                                     ? 'Ringing...'
                                     : 'Calling...',
                     style: const TextStyle(
