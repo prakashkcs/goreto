@@ -340,6 +340,10 @@ class AuthProvider with ChangeNotifier {
       await prefs.setString('user_email', email);
       await prefs.setString('user_name', name);
       await prefs.remove('is_guest');
+      // New account — force onboarding; skip the server re-check that would
+      // incorrectly mark onboarding done if the backend sets a default gender.
+      await prefs.setBool('onboarding_done', false);
+      await prefs.setBool('onboarding_server_checked', true);
       await SecureStorageService.instance.writeToken(appToken);
 
       _apiService.setToken(appToken);
