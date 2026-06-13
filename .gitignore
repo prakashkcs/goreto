@@ -209,3 +209,10 @@ _server_deploy/
 
 # Local terminal log dumps
 /terminals/
+
+# Backend secrets — never commit (config + service account live only on the VPS)
+backend/**/config.php
+backend/config/
+backend/**/service_account*.json
+backend/**/*.local.php
+backend/**/.env
