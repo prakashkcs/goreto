@@ -19,6 +19,9 @@ import 'package:love_vibe_pro/services/wallet_service.dart';
 import 'package:love_vibe_pro/services/fcm_service.dart';
 import 'package:love_vibe_pro/services/ad_service.dart';
 import 'package:love_vibe_pro/services/analytics_service.dart';
+import 'package:love_vibe_pro/services/connectivity_service.dart';
+import 'package:love_vibe_pro/widgets/network_gate.dart';
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -57,8 +60,9 @@ void main() {
       PaintingBinding.instance.imageCache.maximumSize = 80;
       PaintingBinding.instance.imageCache.maximumSizeBytes = 25 << 20;
 
-      // Start Firebase init in parallel — don't block the first frame.
+      // Start Firebase + connectivity check in parallel — don't block first frame.
       final firebaseFuture = Firebase.initializeApp();
+      ConnectivityService.instance.init();
 
       // Render the first frame immediately so the native splash transitions
       // to Flutter's splash with zero black gap.
@@ -127,6 +131,18 @@ void _initServices() async {
   // Note: CallChannelService and DeepLinkService are already initialised in
   // main() before the first frame to avoid cold-start race conditions.
 
+  // iOS App Tracking Transparency — must be requested while the app is active
+  // (this runs ~4s after launch) and BEFORE any IDFA-based ad/analytics use.
+  if (Platform.isIOS) {
+    try {
+      final status =
+          await AppTrackingTransparency.trackingAuthorizationStatus;
+      if (status == TrackingStatus.notDetermined) {
+        await AppTrackingTransparency.requestTrackingAuthorization();
+      }
+    } catch (_) {}
+  }
+
   try {
     final settings = await SettingsStore.getInstance();
     settings.fetchAndCacheSettings();
@@ -160,7 +176,7 @@ class LoveVibeProApp extends StatelessWidget {
         builder: (context, child) => MediaQuery(
           data:
               MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
-          child: child!,
+          child: NetworkGate(child: child!),
         ),
         home: const StartScreen(),
         routes: {'/login': (context) => const LoginScreen()},

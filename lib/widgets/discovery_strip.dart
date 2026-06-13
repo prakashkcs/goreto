@@ -153,11 +153,25 @@ class _DiscoveryStripState extends State<DiscoveryStrip> {
     final avatar = (user['avatar'] ?? '').toString();
     final mutual = (user['mutual_count'] ?? 0) as num;
     final distKm = (user['distance_km'] ?? -1) as num;
+    final place = (user['place'] ?? user['location'] ?? '').toString().trim();
+    final age = (user['age'] ?? 0) as num;
+    final rating = (user['rating'] ?? 0) as num;
     final isFollowed = _followed.contains(uid);
 
     String subtitle = '';
     if (distKm >= 0) {
+      // 1) Distance — only present when the user shares their distance.
       subtitle = distKm < 1 ? 'Less than 1 km' : '${distKm.toStringAsFixed(1)} km away';
+    } else if (widget.type == 'users') {
+      // People you may know: 2) place, otherwise 3) age + rating.
+      if (place.isNotEmpty) {
+        subtitle = place;
+      } else {
+        final parts = <String>[];
+        if (age > 0) parts.add('$age yrs');
+        if (rating > 0) parts.add('★ ${rating.toStringAsFixed(1)}');
+        subtitle = parts.join('  ·  ');
+      }
     } else if (mutual > 0) {
       subtitle = '$mutual mutual ${mutual == 1 ? 'friend' : 'friends'}';
     } else if (user.containsKey('followers_count')) {

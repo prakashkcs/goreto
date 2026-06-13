@@ -82,6 +82,10 @@ class _FindMatchScreenState extends State<FindMatchScreen>
           // ignore: unused_local_variable
           final result = await ApiService().sendProposal(targetUserId: currentUser.id);
         } catch (e) {
+          if (mounted) {
+            NeonToast.error(context,
+                e.toString().replaceFirst('Exception: ', ''));
+          }
         }
       }
     } else {
@@ -455,12 +459,16 @@ class _FindMatchScreenState extends State<FindMatchScreen>
                   children: [
                     Row(
                       children: [
-                        Text(
-                          '${user.name}, ${user.age}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
+                        Flexible(
+                          child: Text(
+                            '${user.name}, ${user.age}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -493,11 +501,15 @@ class _FindMatchScreenState extends State<FindMatchScreen>
                           size: 16,
                         ),
                         const SizedBox(width: 4),
-                        Text(
+                        Flexible(
+                          child: Text(
                           '${user.city}, ${user.country} • ${Formatters.formatDistance(user.distanceKm)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 15,
+                          ),
                           ),
                         ),
                       ],

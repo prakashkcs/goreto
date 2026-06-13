@@ -24,6 +24,9 @@ class UserProfile {
   final bool isSubscribed;
   final bool isOwnProfile;
   final String gender;
+  /// Owner's choice for the primary button cross-gender visitors see:
+  /// true → "Send Proposal" primary (Follow in the 3-dot), false → reverse.
+  final bool crossGenderProposal;
   final int age; // Added age field
   final List<String> galleryPhotos; // Added galleryPhotos field
   final double rating;
@@ -40,6 +43,9 @@ class UserProfile {
   final Map<String, dynamic>? publicPartner; // Added for public connections
   final int gifterLevel;       // 0–6 badge level (computed from totalCoinsSent)
   final int totalCoinsSent;    // lifetime coins spent on gifts
+  final int streak;            // current daily streak (0 if broken/none)
+  final int chatStreak;        // current chat streak (0 until it has started)
+  final int streakSecondsLeft; // seconds until the daily streak breaks
 
   UserProfile({
     required this.id,
@@ -60,6 +66,7 @@ class UserProfile {
     this.isSubscribed = false,
     this.isOwnProfile = true,
     this.gender = 'male', // Default for filtering logic if missing
+    this.crossGenderProposal = true,
     this.age = 25, // Default age
     this.galleryPhotos = const [],
     this.rating = 0.0,
@@ -74,6 +81,9 @@ class UserProfile {
     this.publicPartner,
     this.gifterLevel = 0,
     this.totalCoinsSent = 0,
+    this.streak = 0,
+    this.chatStreak = 0,
+    this.streakSecondsLeft = 0,
     this.mutualFriends = const [],
     this.mutualCount = 0,
   });
@@ -149,6 +159,11 @@ class UserProfile {
       isSubscribed: _asBool(json["is_subscribed"]),
       isOwnProfile: _asBool(json["is_own_profile"], fallback: true),
       gender: json["gender"]?.toString() ?? 'male',
+      crossGenderProposal: json["cross_gender_proposal"] == null
+          ? true
+          : (json["cross_gender_proposal"] == 1 ||
+              json["cross_gender_proposal"] == '1' ||
+              json["cross_gender_proposal"] == true),
       age: _asInt(json["age"], fallback: 25),
       galleryPhotos: List<String>.from(json["gallery_photos"] ?? []),
       rating: _asDouble(json["rating"]),
@@ -166,6 +181,9 @@ class UserProfile {
           ? Map<String, dynamic>.from(json["public_partner"] as Map)
           : null,
       totalCoinsSent: _asInt(json["total_coins_sent"]),
+      streak: _asInt(json["streak"] ?? json["current_streak"]),
+      chatStreak: _asInt(json["chat_streak"]),
+      streakSecondsLeft: _asInt(json["streak_seconds_left"]),
       mutualCount: _asInt(json["mutual_count"]),
       mutualFriends: json["mutual_friends"] is List
           ? (json["mutual_friends"] as List)
@@ -214,6 +232,7 @@ class UserProfile {
       "is_subscribed": isSubscribed,
       "is_own_profile": isOwnProfile,
       "gender": gender,
+      "cross_gender_proposal": crossGenderProposal ? 1 : 0,
       "age": age,
       "gallery_photos": galleryPhotos,
       "rating": rating,
@@ -252,6 +271,7 @@ class UserProfile {
     bool? isSubscribed,
     bool? isOwnProfile,
     String? gender,
+    bool? crossGenderProposal,
     int? age,
     List<String>? galleryPhotos,
     double? rating,
@@ -284,6 +304,7 @@ class UserProfile {
       isSubscribed: isSubscribed ?? this.isSubscribed,
       isOwnProfile: isOwnProfile ?? this.isOwnProfile,
       gender: gender ?? this.gender,
+      crossGenderProposal: crossGenderProposal ?? this.crossGenderProposal,
       age: age ?? this.age,
       galleryPhotos: galleryPhotos ?? this.galleryPhotos,
       rating: rating ?? this.rating,
@@ -298,6 +319,11 @@ class UserProfile {
       publicPartner: publicPartner ?? this.publicPartner,
       mutualFriends: this.mutualFriends,
       mutualCount: this.mutualCount,
+      gifterLevel: gifterLevel,
+      totalCoinsSent: totalCoinsSent,
+      streak: streak,
+      chatStreak: chatStreak,
+      streakSecondsLeft: streakSecondsLeft,
     );
   }
 
@@ -327,6 +353,7 @@ class UserProfile {
       isSubscribed: false,
       isOwnProfile: true,
       gender: 'male',
+      crossGenderProposal: true,
       age: 28,
       galleryPhotos: [
         'https://picsum.photos/seed/gallery1/400/600',

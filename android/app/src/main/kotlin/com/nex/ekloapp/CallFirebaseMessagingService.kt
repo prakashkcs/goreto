@@ -316,7 +316,12 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
                 .setSmallIcon(R.drawable.ic_stat_goreto)
                 .setContentTitle(title)
                 .setContentText(body)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                // MAX priority so the full-screen intent is eligible to take
+                // over the screen (heads-up otherwise). FSI launches full-screen
+                // when the device is locked / screen-off; on an actively-used
+                // unlocked device Android downgrades it to heads-up by design.
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setAutoCancel(true)
                 .setFullScreenIntent(nearbyPi, true)

@@ -104,9 +104,6 @@ Future<void> fcmBackgroundMessageHandler(RemoteMessage message) async {
 /// Tracks when a nearby alert was last shown for a given sender ID to prevent spam.
 final Map<String, DateTime> _lastNearbyAlerts = {};
 
-/// Tracks the currently visible nearby alert route so new ones replace it.
-Route<dynamic>? _currentNearbyRoute;
-
 /// Tracks viewed gift notification IDs so we don't auto-navigate again.
 const String _viewedGiftIdsKey = 'viewed_gift_notification_ids';
 
@@ -194,6 +191,14 @@ void _handleNotificationData(
     return;
   }
 
+  // Moderator force-ended this user's live stream — stop it on the device.
+  if (type == 'force_end_live') {
+    try {
+      FCMService.onForceEndLive?.call();
+    } catch (_) {}
+    return;
+  }
+
   // 2. Handle Navigation/Routing if from a Tray Tap (Non-Call)
   if (type == 'nearby') {
     final senderId = data['sender_id']?.toString() ?? '';
@@ -202,7 +207,6 @@ void _handleNotificationData(
         'Nearby User';
     final senderAvatar = data['sender_avatar']?.toString() ?? '';
     final senderDistance = data['sender_distance']?.toString() ?? '';
-    final senderAge = data['sender_age']?.toString() ?? '';
     final senderGender = data['sender_gender']?.toString().toLowerCase() ?? '';
 
     if (senderId.isEmpty) return;
@@ -223,14 +227,14 @@ void _handleNotificationData(
           final myGender =
               (prefs.getString('user_gender') ?? '').toLowerCase();
           if (myGender.isNotEmpty && myGender == senderGender) return;
-          _showNearbyAlert(
-              senderId, senderName, senderAvatar, senderDistance, senderAge);
+          _showNearbyInAppBanner(
+              senderId, senderName, senderAvatar, senderDistance, data);
         });
         return;
       }
 
-      _showNearbyAlert(
-          senderId, senderName, senderAvatar, senderDistance, senderAge);
+      _showNearbyInAppBanner(
+          senderId, senderName, senderAvatar, senderDistance, data);
     });
   } else if (type == 'proposal_accepted') {
     // Show "It's a Match!" toast and navigate to chat on tap
@@ -320,49 +324,29 @@ void _handleNotificationData(
   }
 }
 
-/// Shows the NearbyAlertScreen with spam-prevention (once per sender per 12 h).
-void _showNearbyAlert(String senderId, String senderName, String senderAvatar,
-    String senderDistance, String senderAge,
-    [int attempts = 0]) {
+/// Foreground nearby alert — shown as a non-intrusive in-app banner instead of
+/// the full-screen [NearbyAlertScreen]. The full-screen takeover is reserved
+/// for background / killed state (native NearbyAlertActivity). Tapping the
+/// banner opens the full nearby alert. Spam-guarded to once per sender / 5 min.
+void _showNearbyInAppBanner(String senderId, String senderName,
+    String senderAvatar, String senderDistance, Map<String, dynamic> data) {
   final now = DateTime.now();
   final last = _lastNearbyAlerts[senderId];
-  // Allow a new alert from the same sender if the previous one is still on
-  // screen (we'll replace it) OR if at least 5 minutes have passed.
-  // This prevents stacking while ensuring fresh updates are always shown.
-  final isOnScreen = _currentNearbyRoute != null;
-  if (!isOnScreen && last != null && now.difference(last).inMinutes < 5) return;
+  if (last != null && now.difference(last).inMinutes < 5) return;
 
-  if (navigatorKey.currentState != null) {
-    _lastNearbyAlerts[senderId] = now;
+  final ctx = navigatorKey.currentState?.context;
+  if (ctx == null || !ctx.mounted) return;
+  _lastNearbyAlerts[senderId] = now;
 
-    // Remove any previous nearby alert — same sender or different sender.
-    // Only ONE nearby alert should be visible at a time.
-    if (_currentNearbyRoute != null) {
-      navigatorKey.currentState!.removeRoute(_currentNearbyRoute!);
-      _currentNearbyRoute = null;
-    }
-
-    final route = MaterialPageRoute(
-      builder: (_) => NearbyAlertScreen(
-        senderId: senderId,
-        senderName: senderName,
-        senderAvatar: senderAvatar,
-        senderDistance: senderDistance,
-        senderAge: senderAge,
-      ),
-    );
-    _currentNearbyRoute = route;
-    navigatorKey.currentState!.push(route).then((_) {
-      if (_currentNearbyRoute == route) _currentNearbyRoute = null;
-    });
-  } else if (attempts < 10) {
-    // Navigator not ready yet (app just launched) — retry up to 5 s.
-    Future.delayed(
-      const Duration(milliseconds: 500),
-      () => _showNearbyAlert(
-          senderId, senderName, senderAvatar, senderDistance, senderAge, attempts + 1),
-    );
-  }
+  final distTxt = senderDistance.isNotEmpty ? ' • $senderDistance away' : '';
+  NeonToast.info(
+    ctx,
+    'is nearby right now$distTxt',
+    title: senderName,
+    imageUrl: senderAvatar,
+    onTap: () => _navigateToScreenWithRetry('nearby', null,
+        senderId: senderId, customData: data),
+  );
 }
 
 /// Helper to wait for Navigator to be ready before pushing
@@ -530,6 +514,11 @@ class FCMService {
 
   FCMService._internal();
 
+  /// Set by the live broadcast screen while a host is live. Invoked when a
+  /// moderator force-ends the stream (FCM type 'force_end_live') so the app
+  /// can leave the room immediately.
+  static void Function()? onForceEndLive;
+
   bool _setupComplete = false;
   static final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
@@ -566,8 +555,16 @@ class FCMService {
 
       // --- Build title / body ---
       final senderName = (data['sender_name'] ?? '').toString().trim();
-      final rawTitle = (data['title'] ?? 'Goreto').toString().trim();
-      final rawBody = (data['body'] ?? 'You have a new notification').toString().trim();
+      // Data-only payloads (nearby/call) strip title/body and send them under
+      // notif_title/notif_body — fall back to those so we never show the
+      // generic "You have a new notification".
+      final rawTitle =
+          (data['title'] ?? data['notif_title'] ?? 'Goreto').toString().trim();
+      final rawBody = (data['body'] ??
+              data['notif_body'] ??
+              'You have a new notification')
+          .toString()
+          .trim();
 
       // Use sender name as the headline when present (feels personal)
       String notifTitle = senderName.isNotEmpty ? senderName : rawTitle;
@@ -643,7 +640,9 @@ class FCMService {
             ongoing: isCall,
             sound: channelSound,
             fullScreenIntent: isCall || type == 'nearby',
-            category: isCall
+            // Nearby uses the call category too so Android honors the
+            // full-screen intent (over lock screen / when killed) like a call.
+            category: (isCall || type == 'nearby')
                 ? AndroidNotificationCategory.call
                 : AndroidNotificationCategory.social,
             color: const Color(0xFFEC4899),
@@ -911,6 +910,23 @@ class FCMService {
     } catch (e) {}
   }
 
+  /// Clears the FCM token from the server (call on logout so another account
+  /// on the same device doesn't receive this user's notifications).
+  Future<void> clearTokenOnServer() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final authToken =
+          prefs.getString('auth_token') ?? prefs.getString('app_token');
+      if (authToken == null || authToken.isEmpty) return;
+      final dio = await ApiService().getDioClient();
+      await dio.post(
+        'api_auth.php',
+        data: {'action': 'update_fcm_token', 'fcm_token': ''},
+        options: Options(headers: {'Authorization': 'Bearer $authToken'}),
+      );
+    } catch (_) {}
+  }
+
   Future<void> syncTokenToServer(String token) async {
     try {
       final dio = await ApiService().getDioClient();
@@ -924,7 +940,7 @@ class FCMService {
         return;
       }
 
-      final response = await dio.post(
+      await dio.post(
         'api_auth.php',
         data: {'action': 'update_fcm_token', 'fcm_token': token},
         options: Options(headers: {'Authorization': 'Bearer $authToken'}),

@@ -38,30 +38,28 @@ class _ProposalsScreenState extends State<ProposalsScreen>
 
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
-    try {
-      final received = await _apiService.getMyProposals(type: 'received');
-      final sent = await _apiService.getMyProposals(type: 'sent');
-      final connections = await _apiService.getConnections();
+    // Load each independently so one failing call doesn't blank ALL three tabs
+    // (previously a single throw in any await left received/sent/connected empty).
+    final received = await _apiService
+        .getMyProposals(type: 'received')
+        .catchError((_) => <dynamic>[]);
+    final sent = await _apiService
+        .getMyProposals(type: 'sent')
+        .catchError((_) => <dynamic>[]);
+    final connections =
+        await _apiService.getConnections().catchError((_) => <dynamic>[]);
 
-      if (mounted) {
-        setState(() {
-          _receivedProposals = received
-              .where((p) =>
-                  p['status'] == 'pending' &&
-                  !_localBlockedIds.contains(p['sender_id']?.toString()))
-              .toList();
-          _sentProposals = sent.where((p) => p['status'] == 'pending').toList();
-          _acceptedConnections = connections;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        NeonToast.show(context, 'Error loading proposals',
-            type: NeonToastType.error);
-      }
-    }
+    if (!mounted) return;
+    setState(() {
+      _receivedProposals = received
+          .where((p) =>
+              p['status'] == 'pending' &&
+              !_localBlockedIds.contains(p['sender_id']?.toString()))
+          .toList();
+      _sentProposals = sent;
+      _acceptedConnections = connections;
+      _isLoading = false;
+    });
   }
 
   Future<void> _acceptProposal(dynamic proposal) async {
@@ -257,7 +255,10 @@ class _ProposalsScreenState extends State<ProposalsScreen>
   }
 
   Widget _buildReceivedCard(dynamic p) {
-    final name = p['sender_name'] ?? 'Someone';
+    final name = (p['full_name']?.toString().isNotEmpty == true
+            ? p['full_name']
+            : (p['name'] ?? p['sender_name'])) ??
+        'Someone';
     final avatar = p['sender_avatar']?.toString();
     final age = p['age']?.toString();
     final gender = p['gender']?.toString();
@@ -640,16 +641,24 @@ class _ProposalsScreenState extends State<ProposalsScreen>
         padding: const EdgeInsets.all(16),
         itemBuilder: (context, index) {
           final p = _sentProposals[index];
-          final name = p['receiver_name'] ?? 'Someone';
-          final avatar = p['receiver_avatar']?.toString();
+          final name = (p['full_name']?.toString().isNotEmpty == true
+                  ? p['full_name']
+                  : p['name']) ??
+              'Someone';
+          final avatar = p['avatar']?.toString();
           final city = p['city']?.toString();
-          final distance = p['distance_km']?.toString();
+          final status = p['status']?.toString() ?? 'pending';
+          final isAccepted = status == 'accepted';
           return Container(
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.03),
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(
+                color: isAccepted
+                    ? const Color(0xFFD946EF).withValues(alpha: 0.3)
+                    : Colors.white.withValues(alpha: 0.06),
+              ),
             ),
             child: ListTile(
               contentPadding:
@@ -660,32 +669,48 @@ class _ProposalsScreenState extends State<ProposalsScreen>
                       color: Colors.white, fontWeight: FontWeight.bold)),
               subtitle: Text(
                 [
-                  'Pending...',
                   if (city != null && city != 'null') city,
-                  if (distance != null && distance != 'null')
-                    Formatters.formatDistance(distance),
                 ].join(' • '),
-                style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 12),
+                style: TextStyle(
+                    color: isAccepted
+                        ? const Color(0xFFD946EF)
+                        : const Color(0xFF00E5FF),
+                    fontSize: 12),
               ),
               trailing: Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF00E5FF).withValues(alpha: 0.08),
+                  color: isAccepted
+                      ? const Color(0xFFD946EF).withValues(alpha: 0.12)
+                      : const Color(0xFF00E5FF).withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                      color: const Color(0xFF00E5FF).withValues(alpha: 0.2)),
+                    color: isAccepted
+                        ? const Color(0xFFD946EF).withValues(alpha: 0.3)
+                        : const Color(0xFF00E5FF).withValues(alpha: 0.2),
+                  ),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.schedule, color: Color(0xFF00E5FF), size: 14),
-                    SizedBox(width: 4),
-                    Text('Waiting',
-                        style: TextStyle(
-                            color: Color(0xFF00E5FF),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600)),
+                    Icon(
+                      isAccepted ? Icons.favorite_rounded : Icons.schedule,
+                      color: isAccepted
+                          ? const Color(0xFFD946EF)
+                          : const Color(0xFF00E5FF),
+                      size: 14,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      isAccepted ? 'Matched!' : 'Waiting',
+                      style: TextStyle(
+                          color: isAccepted
+                              ? const Color(0xFFD946EF)
+                              : const Color(0xFF00E5FF),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600),
+                    ),
                   ],
                 ),
               ),
@@ -774,11 +799,17 @@ class _ProposalsScreenState extends State<ProposalsScreen>
           // Use the correct name field from the backend.
           // The backend returns 'partner_name' (the other person's name as
           // seen by the current user) and 'my_name' (current user's name).
-          final partnerName =
-              (c['partner_name'] ?? c['name'] ?? 'Match').toString();
+          final partnerName = (c['connected_user_name'] ??
+                  c['partner_name'] ??
+                  c['name'] ??
+                  'Match')
+              .toString();
           final partnerGender =
               (c['partner_gender'] ?? c['gender'] ?? '').toString();
-          final avatar = (c['partner_avatar'] ?? c['profile_pic'])?.toString();
+          final avatar = (c['connected_user_avatar'] ??
+                  c['partner_avatar'] ??
+                  c['profile_pic'])
+              ?.toString();
           final isPublic = (c['show_on_profile']?.toString() == '1');
           final pronoun = _pronoun(partnerGender);
 

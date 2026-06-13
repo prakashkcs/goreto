@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/screens/home_screen.dart';
+import 'package:love_vibe_pro/widgets/neon_toast.dart';
 
 /// Step 2 of first-time onboarding: privacy settings.
 /// All toggles default to OFF (most private) so the user consciously opts in.
@@ -17,17 +18,26 @@ class PrivacySetupScreen extends StatefulWidget {
 }
 
 class _PrivacySetupScreenState extends State<PrivacySetupScreen> {
-  // ── All OFF by default ────────────────────────────────────────────────────
-  bool _allowFindById = false;
-  bool _nearbyVisible = false;
-  bool _shareDistance = false;
-  bool _showOnline = false;
-  bool _showLastSeen = false;
-  bool _showProfileViews = false;
-  bool _allowRandomVideoCall = false;
-  bool _allowDirectCall = false;
-  bool _allowUnknownInbox = false;
-  bool _allowRepost = false;
+  // ── ON by default (most social features visible) ──────────────────────────
+  bool _allowFindById       = true;
+  bool _nearbyVisible       = true;
+  bool _nearbyAlert         = true;
+  bool _shareDistance       = true;
+  bool _showOnline          = true;
+  bool _showLastSeen        = true;
+  bool _showProfileViews    = true;
+  bool _allowRandomVideoCall = true;
+  bool _allowUnknownInbox   = true;
+  bool _allowRepost         = true;
+
+  // ── OFF by default (privacy-sensitive call features) ──────────────────────
+  bool _directRandomCall = false;   // Direct random video calls
+  bool _allowDirectCall  = false;   // Show name on random video call
+
+  // ── Compliance: explicit cross-border data-transfer consent ───────────────
+  // Required by Nepal's Individual Privacy Act 2075 §27 — data is processed on
+  // servers outside Nepal, so the user must consent before finishing setup.
+  bool _crossBorderConsent = false;
 
   bool _saving = false;
 
@@ -37,21 +47,29 @@ class _PrivacySetupScreenState extends State<PrivacySetupScreen> {
   static const _bg = Color(0xFF0A0A0A);
 
   Future<void> _finish() async {
+    if (!_crossBorderConsent) {
+      NeonToast.error(context,
+          'Please agree to international data processing to continue.');
+      return;
+    }
     HapticFeedback.mediumImpact();
     setState(() => _saving = true);
 
     try {
       await _api.updateUserPrivacySettings({
-        'privacy_allow_find_id': _allowFindById,
-        'privacy_nearby_visible': _nearbyVisible,
-        'privacy_share_distance': _shareDistance,
-        'privacy_show_online': _showOnline,
-        'privacy_show_last_seen': _showLastSeen,
-        'privacy_show_profile_views': _showProfileViews,
-        'privacy_allow_random_video_call': _allowRandomVideoCall,
-        'privacy_allow_direct_call': _allowDirectCall,
-        'privacy_allow_unknown_inbox': _allowUnknownInbox,
-        'privacy_allow_repost': _allowRepost,
+        'privacy_allow_find_id':          _allowFindById,
+        'privacy_nearby_visible':         _nearbyVisible,
+        'privacy_nearby_alert':           _nearbyAlert,
+        'privacy_share_distance':         _shareDistance,
+        'privacy_show_online':            _showOnline,
+        'privacy_show_last_seen':         _showLastSeen,
+        'privacy_show_profile_views':     _showProfileViews,
+        'privacy_allow_random_video_call':_allowRandomVideoCall,
+        'privacy_direct_random_call':     _directRandomCall,
+        'privacy_allow_direct_call':      _allowDirectCall,
+        'privacy_allow_unknown_inbox':    _allowUnknownInbox,
+        'privacy_allow_repost':           _allowRepost,
+        'cross_border_consent':           _crossBorderConsent,
       });
     } catch (e) {
       // Non-fatal — user can adjust later in settings
@@ -124,7 +142,7 @@ class _PrivacySetupScreenState extends State<PrivacySetupScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Everything is off by default. Turn on only what you\'re comfortable sharing.',
+                    'Most features are on by default so you\'re visible and reachable. You can change anything later in Settings.',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.45),
                       fontSize: 13,
@@ -160,6 +178,14 @@ class _PrivacySetupScreenState extends State<PrivacySetupScreen> {
                       value: _nearbyVisible,
                       color: const Color(0xFF22C55E),
                       onChanged: (v) => setState(() => _nearbyVisible = v),
+                    ),
+                    _toggle(
+                      icon: Icons.notifications_active,
+                      label: 'Nearby alerts as call',
+                      subtitle: 'Get a ringing alert when someone nearby is on the app',
+                      value: _nearbyAlert,
+                      color: const Color(0xFFFF6B9D),
+                      onChanged: (v) => setState(() => _nearbyAlert = v),
                     ),
                     _toggle(
                       icon: Icons.social_distance,
@@ -206,21 +232,28 @@ class _PrivacySetupScreenState extends State<PrivacySetupScreen> {
                       onChanged: (v) => setState(() => _allowRandomVideoCall = v),
                     ),
                     _toggle(
-                      icon: Icons.phone_in_talk,
-                      label: 'Allow direct call from random video',
-                      subtitle:
-                          'Users from random video tab can call you directly',
+                      icon: Icons.flash_on_rounded,
+                      label: 'Direct random video calls',
+                      subtitle: 'Connect instantly without a confirm step (OFF = both must tap Start)',
+                      value: _directRandomCall,
+                      color: const Color(0xFF00E5FF),
+                      onChanged: (v) => setState(() => _directRandomCall = v),
+                    ),
+                    _toggle(
+                      icon: Icons.badge_outlined,
+                      label: 'Show name on random video call',
+                      subtitle: 'Display your name during random calls (OFF = appear as Stranger)',
                       value: _allowDirectCall,
                       color: const Color(0xFF8B5CF6),
                       onChanged: (v) => setState(() => _allowDirectCall = v),
                     ),
                     _toggle(
-                      icon: Icons.message_outlined,
-                      label: 'Allow messages from strangers',
-                      subtitle: 'People who don\'t follow you can message you',
-                      value: _allowUnknownInbox,
+                      icon: Icons.group_outlined,
+                      label: 'Allow only messages from friends',
+                      subtitle: 'Only your friends can message you (strangers can\'t message or send requests)',
+                      value: !_allowUnknownInbox,
                       color: const Color(0xFF22C55E),
-                      onChanged: (v) => setState(() => _allowUnknownInbox = v),
+                      onChanged: (v) => setState(() => _allowUnknownInbox = !v),
                     ),
 
                     _section('Content', Icons.photo_library_outlined),
@@ -233,6 +266,9 @@ class _PrivacySetupScreenState extends State<PrivacySetupScreen> {
                       onChanged: (v) => setState(() => _allowRepost = v),
                     ),
 
+                    _section('Data & Consent', Icons.verified_user_outlined),
+                    _consentCheckbox(),
+
                     const SizedBox(height: 32),
 
                     // ── Finish button ────────────────────────────────────────
@@ -240,7 +276,8 @@ class _PrivacySetupScreenState extends State<PrivacySetupScreen> {
                       width: double.infinity,
                       height: 54,
                       child: ElevatedButton(
-                        onPressed: _saving ? null : _finish,
+                        onPressed:
+                            (_saving || !_crossBorderConsent) ? null : _finish,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _pink,
                           foregroundColor: Colors.white,
@@ -298,6 +335,64 @@ class _PrivacySetupScreenState extends State<PrivacySetupScreen> {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+
+  Widget _consentCheckbox() {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        setState(() => _crossBorderConsent = !_crossBorderConsent);
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: _pink.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: _crossBorderConsent
+                ? _pink.withValues(alpha: 0.6)
+                : Colors.white.withValues(alpha: 0.15),
+            width: _crossBorderConsent ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 22,
+              height: 22,
+              margin: const EdgeInsets.only(top: 2),
+              decoration: BoxDecoration(
+                color: _crossBorderConsent ? _pink : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: _crossBorderConsent ? _pink : Colors.white38,
+                  width: 1.5,
+                ),
+              ),
+              child: _crossBorderConsent
+                  ? const Icon(Icons.check, color: Colors.white, size: 15)
+                  : null,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'I agree that my data (including profile, location and chat '
+                'content) may be processed and stored on secure servers outside '
+                'Nepal, and I accept the Terms of Service and Privacy Policy.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  fontSize: 12.5,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _section(String title, IconData icon) {
     return Padding(

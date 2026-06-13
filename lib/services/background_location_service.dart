@@ -147,79 +147,90 @@ void onStart(ServiceInstance service) async {
   Timer.periodic(const Duration(minutes: 2), (timer) async {
     await _performBackgroundLocationPing();
   });
-  
+
+  // Standalone online heartbeat — does NOT need GPS. Runs every 3 minutes
+  // so the server knows the device has internet even when the app is closed.
+  Timer.periodic(const Duration(minutes: 3), (_) async {
+    await _performOnlineHeartbeat();
+  });
+
   // Also kick off an initial ping right on start
   await _performBackgroundLocationPing();
+  await _performOnlineHeartbeat();
 }
 
 Future<void> _performBackgroundLocationPingWithPos(Position pos) async {
   try {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('app_token') ?? prefs.getString('auth_token');
-    if (token == null || token.isEmpty) return; // Not logged in
+    if (token == null || token.isEmpty) return;
 
     final dio = Dio();
     dio.options.headers['Authorization'] = 'Bearer $token';
 
-    final response = await dio.post(
+    await dio.post(
       '${AppEnv.liveBaseUrl}/match_profiles.php',
       queryParameters: {'action': 'update_location'},
-      data: {
-        'lat': pos.latitude,
-        'lng': pos.longitude,
-      },
+      data: {'lat': pos.latitude, 'lng': pos.longitude, 'is_online': 1},
       options: Options(
         responseType: ResponseType.plain,
         sendTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 15),
       ),
     );
-
-  } catch (e) {
-  }
+  } catch (_) {}
 }
 
 Future<void> _performBackgroundLocationPing() async {
   try {
-    
-    // 1. Is service enabled?
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
 
-    // 2. Check permission
-    LocationPermission perm = await Geolocator.checkPermission();
+    final perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
       return;
     }
 
-    // 3. Fetch token from storage
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token');
-    if (token == null || token.isEmpty) {
-      return; // Not logged in
-    }
+    if (token == null || token.isEmpty) return;
 
-    // 4. Get Position
     final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.medium);
-    
-    // 5. Send to Server via Dio directly
+
     final dio = Dio();
     dio.options.headers['Authorization'] = 'Bearer $token';
 
-    final response = await dio.post(
+    await dio.post(
       '${AppEnv.liveBaseUrl}/match_profiles.php',
       queryParameters: {'action': 'update_location'},
-      data: {
-        'lat': pos.latitude,
-        'lng': pos.longitude,
-      },
+      data: {'lat': pos.latitude, 'lng': pos.longitude, 'is_online': 1},
       options: Options(
         responseType: ResponseType.plain,
         sendTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 15),
       ),
     );
+  } catch (_) {}
+}
 
-  } catch (e) {
-  }
+// Heartbeat that runs even when GPS is unavailable — just marks the device online.
+Future<void> _performOnlineHeartbeat() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('app_token') ?? prefs.getString('auth_token');
+    if (token == null || token.isEmpty) return;
+
+    final dio = Dio();
+    dio.options.headers['Authorization'] = 'Bearer $token';
+
+    await dio.post(
+      '${AppEnv.liveBaseUrl}/api_auth.php',
+      data: {'action': 'heartbeat', 'is_online': 1},
+      options: Options(
+        responseType: ResponseType.plain,
+        sendTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+      ),
+    );
+  } catch (_) {}
 }

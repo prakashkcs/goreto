@@ -316,7 +316,8 @@ class ApiService {
       if (payload is String) payload = jsonDecode(payload);
 
       if (payload is Map<String, dynamic>) {
-        if (payload['status'] == 'success') {
+        // '2fa_required' is not an error — the caller shows the OTP screen.
+        if (payload['status'] == 'success' || payload['status'] == '2fa_required') {
           return payload;
         } else {
           throw Exception(payload['message'] ?? 'Login failed');
@@ -327,6 +328,81 @@ class ApiService {
     } on DioException catch (e) {
       final errorMsg = _handleError(e);
       throw Exception(errorMsg);
+    }
+  }
+
+  /// Verify a login 2FA email OTP. Returns the same payload shape as login
+  /// ({status:'success', data:{token, user}}) on success.
+  Future<Map<String, dynamic>> verifyLogin2FA(String email, String code) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        'auth.php?action=verify_2fa',
+        data: {'email': email, 'code': code},
+        options: Options(responseType: ResponseType.plain),
+      );
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      if (payload is Map<String, dynamic>) {
+        if (payload['status'] == 'success') return payload;
+        throw Exception(payload['message'] ?? 'Verification failed');
+      }
+      throw Exception('Invalid response format');
+    } on DioException catch (e) {
+      throw Exception(_handleError(e));
+    }
+  }
+
+  /// Enable email-based 2FA (requires current password).
+  Future<Map<String, dynamic>> enable2FA(String password) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        '/account.php',
+        queryParameters: {'action': 'enable_2fa'},
+        data: {'password': password},
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      if (_isSuccessPayload(payload)) return payload!;
+      throw Exception(payload?['message'] ?? 'Failed to enable 2FA');
+    } on DioException catch (e) {
+      throw Exception(_handleError(e));
+    }
+  }
+
+  /// Disable 2FA (requires current password).
+  Future<Map<String, dynamic>> disable2FA(String password) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        '/account.php',
+        queryParameters: {'action': 'disable_2fa'},
+        data: {'password': password},
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      if (_isSuccessPayload(payload)) return payload!;
+      throw Exception(payload?['message'] ?? 'Failed to disable 2FA');
+    } on DioException catch (e) {
+      throw Exception(_handleError(e));
+    }
+  }
+
+  /// Get current 2FA status: {enabled: bool, method: String?}.
+  Future<Map<String, dynamic>> get2FAStatus() async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.get(
+        '/account.php',
+        queryParameters: {'action': 'get_2fa_status'},
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      if (payload != null) return payload;
+      return {'enabled': false};
+    } catch (_) {
+      return {'enabled': false};
     }
   }
 
@@ -367,16 +443,12 @@ class ApiService {
   /// Uses http package directly to avoid Dio baseUrl issues with ../ paths
   Future<Map<String, dynamic>> forgotPassword(String email) async {
     try {
-      final baseUrl = AppEnv.baseUrl;
-      // Remove /api/v1/ suffix to get parent URL (with or without trailing slash)
-      final parentUrl = baseUrl.replaceAll(RegExp(r'api/v1/?$'), '');
-      // Ensure parentUrl does NOT end with a slash
-      String cleanParent = parentUrl;
-      while (cleanParent.endsWith('/')) {
-        cleanParent = cleanParent.substring(0, cleanParent.length - 1);
-      }
+      // api_password_reset.php lives in the api/v1/ dir — call it there.
+      final base = AppEnv.baseUrl.endsWith('/')
+          ? AppEnv.baseUrl
+          : '${AppEnv.baseUrl}/';
       final uri = Uri.parse(
-          '$cleanParent/api_password_reset.php?action=forgot_password');
+          '${base}api_password_reset.php?action=forgot_password');
 
       if (kDebugMode) print('[forgotPassword] POST $uri');
 
@@ -406,10 +478,11 @@ class ApiService {
   Future<Map<String, dynamic>> verifyResetCode(
       String email, String code) async {
     try {
-      final baseUrl = AppEnv.baseUrl;
-      final parentUrl = baseUrl.replaceAll(RegExp(r'api/v1/$'), '');
+      final base = AppEnv.baseUrl.endsWith('/')
+          ? AppEnv.baseUrl
+          : '${AppEnv.baseUrl}/';
       final uri =
-          Uri.parse('$parentUrl/api_password_reset.php?action=verify_code');
+          Uri.parse('${base}api_password_reset.php?action=verify_code');
 
       if (kDebugMode) print('[verifyResetCode] POST $uri');
 
@@ -439,10 +512,11 @@ class ApiService {
   Future<Map<String, dynamic>> resetPassword(
       String email, String code, String newPassword) async {
     try {
-      final baseUrl = AppEnv.baseUrl;
-      final parentUrl = baseUrl.replaceAll(RegExp(r'api/v1/$'), '');
+      final base = AppEnv.baseUrl.endsWith('/')
+          ? AppEnv.baseUrl
+          : '${AppEnv.baseUrl}/';
       final uri =
-          Uri.parse('$parentUrl/api_password_reset.php?action=reset_password');
+          Uri.parse('${base}api_password_reset.php?action=reset_password');
 
       if (kDebugMode) print('[resetPassword] POST $uri');
 
@@ -487,10 +561,20 @@ class ApiService {
     }
   }
 
+  // Client-side cooldown: prevent sending proposals faster than once every 5 seconds.
+  DateTime? _lastProposalSentAt;
+
   /// Sends a proposal to another user. Returns {matched: bool}
   Future<Map<String, dynamic>> sendProposal({
     required String targetUserId,
   }) async {
+    final now = DateTime.now();
+    if (_lastProposalSentAt != null &&
+        now.difference(_lastProposalSentAt!).inSeconds < 5) {
+      throw Exception('Please wait a moment before sending another proposal.');
+    }
+    _lastProposalSentAt = now;
+
     final dio = await _ensureInitializedDio();
     try {
       final response = await dio.post(
@@ -571,7 +655,7 @@ class ApiService {
     }
   }
 
-  /// Get pending proposals received by the current user
+  /// Get proposals for the current user.
   Future<List<dynamic>> getMyProposals({String type = 'received'}) async {
     final dio = await _ensureInitializedDio();
     try {
@@ -589,6 +673,34 @@ class ApiService {
     } catch (_) {
       return [];
     }
+  }
+
+  /// Whether the CURRENT account has already accepted the terms (server-tracked,
+  /// so it's "once per account" across devices/reinstalls).
+  Future<bool> getTermsStatus() async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        'user_actions.php?action=get_terms_status',
+        data: const {},
+        options: Options(responseType: ResponseType.plain),
+      );
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      if (payload is Map && payload['status'] == 'success') {
+        final v = payload['terms_accepted'];
+        return v == 1 || v == '1' || v == true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// Record terms acceptance for the current account on the server.
+  Future<void> acceptTermsOnServer() async {
+    final dio = await _ensureInitializedDio();
+    try {
+      await dio.post('user_actions.php?action=accept_terms', data: const {});
+    } catch (_) {}
   }
 
   /// Get accepted proposal connections
@@ -1231,6 +1343,7 @@ class ApiService {
     String type, {
     String? hashtags,
     String? soundName,
+    int? soundId,
     bool muteAudio = false,
     bool subscriberOnly = false,
     String? thumbnailPath,
@@ -1244,6 +1357,7 @@ class ApiService {
         'type': type,
         if (hashtags != null && hashtags.isNotEmpty) 'hashtags': hashtags,
         if (soundName != null && soundName.isNotEmpty) 'sound_name': soundName,
+        if (soundId != null && soundId > 0) 'sound_id': soundId.toString(),
         'mute_audio': muteAudio ? '1' : '0',
         'subscriber_only': subscriberOnly ? '1' : '0',
         'file':
@@ -1724,19 +1838,23 @@ class ApiService {
       if (payload is String) payload = jsonDecode(payload);
 
       if (payload is Map<String, dynamic>) {
-        if (payload['status'] == 'success') {
-          return payload;
-        } else {
-          final errorMsg = payload['message'] ?? 'Unknown error';
-        }
+        // Return the payload on success OR error so the caller can show the
+        // specific reason (e.g. privacy 'repost_disabled' vs a generic failure).
+        return payload;
       }
-      return null;
+      return {'status': 'error', 'message': 'Repost failed. Try again.'};
     } on DioException catch (e) {
-      final errorMsg = _handleError(e);
-      final responseBody = e.response?.data?.toString() ?? 'No response body';
-      return null;
+      // Surface the server's JSON error body (e.g. a 403 privacy block).
+      dynamic body = e.response?.data;
+      if (body is String) {
+        try {
+          body = jsonDecode(body);
+        } catch (_) {}
+      }
+      if (body is Map<String, dynamic>) return body;
+      return {'status': 'error', 'message': _handleError(e)};
     } catch (e) {
-      return null;
+      return {'status': 'error', 'message': 'Repost failed. Try again.'};
     }
   }
 
@@ -2424,16 +2542,19 @@ class ApiService {
     File file, {
     String type = 'image',
     String? music,
+    String? musicUrl,
+    int? soundId,
     List<String>? tags,
     String? filterName,
     String? bgColor,
     String? textOverlays,
   }) async {
     final dio = await _ensureInitializedDio();
-    // stories.php lives at server root, not under /api/v1/
-    final base = dio.options.baseUrl;
-    final rootUrl = base.contains('/api/') ? base.substring(0, base.indexOf('/api/') + 1) : base;
-    final uri = Uri.parse('${rootUrl}stories.php');
+    // stories.php lives under api/v1/ (same as the GET ?action=active call).
+    final base = dio.options.baseUrl.endsWith('/')
+        ? dio.options.baseUrl
+        : '${dio.options.baseUrl}/';
+    final uri = Uri.parse('${base}stories.php');
     final prefs = await SharedPreferences.getInstance();
     final token =
         prefs.getString('auth_token') ?? prefs.getString('app_token') ?? '';
@@ -2445,6 +2566,12 @@ class ApiService {
 
       request.fields['type'] = type;
       if (music != null && music.isNotEmpty) request.fields['music'] = music;
+      if (musicUrl != null && musicUrl.isNotEmpty) {
+        request.fields['music_url'] = musicUrl;
+      }
+      if (soundId != null && soundId > 0) {
+        request.fields['sound_id'] = soundId.toString();
+      }
       if (tags != null && tags.isNotEmpty) request.fields['tags'] = jsonEncode(tags);
       if (filterName != null && filterName.isNotEmpty) request.fields['filter_name'] = filterName;
       if (bgColor != null && bgColor.isNotEmpty) request.fields['bg_color'] = bgColor;
@@ -2454,19 +2581,25 @@ class ApiService {
       final body = await streamed.stream.bytesToString();
 
       if (streamed.statusCode != 200 && streamed.statusCode != 201) {
-        throw Exception(
-          'Story upload failed (HTTP ${streamed.statusCode}): ${body.isEmpty ? 'No response body' : body}',
-        );
+        // Surface the server's message (e.g. NSFW content-policy rejection)
+        // instead of the raw JSON body.
+        String serverMsg = 'Story upload failed (HTTP ${streamed.statusCode})';
+        try {
+          final d = jsonDecode(body);
+          if (d is Map && d['message'] != null) serverMsg = d['message'].toString();
+        } catch (_) {}
+        throw Exception(serverMsg);
       }
 
       if (body.isNotEmpty) {
         final decoded = jsonDecode(body);
         if (decoded is Map && decoded['status'] != 'success') {
-          throw Exception('Story upload failed: ${decoded['message'] ?? body}');
+          throw Exception('${decoded['message'] ?? body}');
         }
       }
     } catch (e) {
-      throw Exception('Story upload error: $e');
+      // Preserve the clean message (avoid nested "Exception:" wrapping).
+      throw Exception(e.toString().replaceFirst(RegExp(r'^Exception:\s*'), ''));
     }
   }
 
@@ -2480,6 +2613,50 @@ class ApiService {
       return [];
     } catch (e) {
       return [];
+    }
+  }
+
+  /// Record that the current user viewed a story (FB-style view tracking).
+  Future<void> recordStoryView(dynamic storyId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      await dio.post('/stories.php?action=view', data: {'story_id': storyId});
+    } catch (_) {}
+  }
+
+  /// React to a story (heart/fire/etc.). The reaction is one emoji/string.
+  Future<void> reactToStory(dynamic storyId, String reaction) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      await dio.post('/stories.php?action=react',
+          data: {'story_id': storyId, 'reaction': reaction});
+    } catch (_) {}
+  }
+
+  /// Owner-only: list of viewers (with their reaction) for a story.
+  Future<Map<String, dynamic>> getStoryViewers(dynamic storyId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.get('/stories.php?action=viewers',
+          queryParameters: {'story_id': storyId});
+      if (response.data is Map<String, dynamic>) {
+        return response.data as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return {'viewers': [], 'count': 0};
+  }
+
+  /// Owner-only: delete a story.
+  Future<bool> deleteStory(dynamic storyId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post('/stories.php?action=delete',
+          data: {'story_id': storyId},
+          options: Options(responseType: ResponseType.plain));
+      final payload = _asJsonMap(response.data);
+      return _isSuccessPayload(payload);
+    } catch (_) {
+      return false;
     }
   }
 
@@ -2646,6 +2823,36 @@ class ApiService {
 
     final payload = _asJsonMap(response.data);
     return _isSuccessPayload(payload);
+  }
+
+  /// Validate a native store (Apple IAP / Google Play) purchase receipt with
+  /// the backend, which verifies it with the store and credits coins. The
+  /// client NEVER credits coins directly. Returns true on a verified credit.
+  Future<bool> validateIapReceipt({
+    required String productId,
+    required int coins,
+    required String source, // 'app_store' | 'google_play' | platform string
+    required String receipt,
+    required String transactionId,
+  }) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        '/iap_validate.php',
+        data: {
+          'product_id': productId,
+          'coins': coins,
+          'source': source,
+          'receipt': receipt,
+          'transaction_id': transactionId,
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      return _isSuccessPayload(payload);
+    } on DioException catch (_) {
+      return false;
+    }
   }
 
   Future<bool> requestWalletWithdraw({
@@ -3292,6 +3499,23 @@ class ApiService {
 
   // --- Delete Account ---------------------------------------------------
 
+  Future<void> deactivateAccount(String period) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        '/account.php',
+        queryParameters: {'action': 'deactivate_account'},
+        data: {'period': period},
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      if (_isSuccessPayload(payload)) return;
+      throw payload?['message'] ?? 'Failed to deactivate account';
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   Future<Map<String, dynamic>> deleteAccount(String password) async {
     final dio = await _ensureInitializedDio();
     try {
@@ -3612,6 +3836,99 @@ class ApiService {
     }
   }
 
+  /// GET /gift_notifications.php?action=post_gift_leaderboard
+  /// Returns aggregated top gifters for a post:
+  /// {total_gifts, total_coins, leaders: [{rank,user_id,name,avatar,gift_count,total_coins}]}
+  Future<Map<String, dynamic>> getPostGiftLeaderboard(dynamic contextId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.get(
+        '/gift_notifications.php',
+        queryParameters: {
+          'action': 'post_gift_leaderboard',
+          'context_id': contextId,
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      if (payload != null) return payload;
+    } catch (_) {}
+    return {'leaders': [], 'total_gifts': 0, 'total_coins': 0};
+  }
+
+  // ── Daily streak ("strike") ────────────────────────────────────────────────
+
+  /// Records today's activity and advances/resets the streak. Returns the
+  /// payload incl. {streak, reward_coins, rewards} or null on failure.
+  Future<Map<String, dynamic>?> streakCheckin() async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        '/api_streak.php',
+        queryParameters: {'action': 'checkin'},
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      if (_isSuccessPayload(payload)) return payload;
+    } catch (_) {}
+    return null;
+  }
+
+  /// Advances the chat streak (call when the user sends a message). Fire-and-
+  /// forget; the server dedupes multiple calls on the same day.
+  Future<void> chatStreakCheckin() async {
+    try {
+      final dio = await _ensureInitializedDio();
+      await dio.post(
+        '/api_streak.php',
+        queryParameters: {'action': 'chat_checkin'},
+        options: Options(responseType: ResponseType.plain),
+      );
+    } catch (_) {}
+  }
+
+  /// Returns the full streak summary (daily + chat) for a user.
+  /// Shape: {streak:{...}, chat_streak:{...}} with break_at / seconds_left.
+  Future<Map<String, dynamic>?> getStreakInfo({dynamic userId}) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.get(
+        '/api_streak.php',
+        queryParameters: {
+          'action': 'get',
+          if (userId != null) 'user_id': userId,
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      if (_isSuccessPayload(payload)) return payload;
+    } catch (_) {}
+    return null;
+  }
+
+  /// Returns a user's current display streak (0 if broken/none).
+  Future<int> getStreak({dynamic userId}) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.get(
+        '/api_streak.php',
+        queryParameters: {
+          'action': 'get',
+          if (userId != null) 'user_id': userId,
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      final s = payload?['streak'];
+      if (s is Map) {
+        return int.tryParse(
+                '${s['display_streak'] ?? s['current_streak'] ?? 0}') ??
+            0;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
   /// GET /gift_notifications.php?action=list
   /// Returns list of all gift notifications for the current user.
   Future<List<Map<String, dynamic>>> fetchGiftNotifications() async {
@@ -3699,6 +4016,88 @@ class ApiService {
       if (kDebugMode) print('getTrending error: $e');
       return {};
     }
+  }
+
+  // ── Sounds / trending audio ─────────────────────────────────────────────
+
+  /// GET /api_sounds.php — list audio. [action]: 'trending' | 'search' | 'list'.
+  /// Trending is sorted by a velocity-weighted virality score (server-side).
+  Future<List<Map<String, dynamic>>> getSounds({
+    String action = 'trending',
+    String? query,
+    String? category,
+    int limit = 30,
+  }) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.get(
+        '/api_sounds.php',
+        queryParameters: {
+          'action': action,
+          if (query != null && query.isNotEmpty) 'q': query,
+          if (category != null && category.isNotEmpty) 'category': category,
+          'limit': limit,
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      final list = payload?['sounds'];
+      if (list is List) {
+        return list
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// POST /api_sounds.php?action=upload — upload a custom audio clip (server
+  /// trims it to ≤60s). Returns the created sound map, or null on failure.
+  Future<Map<String, dynamic>?> uploadCustomSound(
+    File file, {
+    String title = '',
+    String category = 'original',
+  }) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final form = FormData.fromMap({
+        'title': title,
+        'category': category,
+        'audio': await MultipartFile.fromFile(
+          file.path,
+          filename: file.path.split(Platform.pathSeparator).last,
+        ),
+      });
+      final response = await dio.post(
+        '/api_sounds.php',
+        queryParameters: {'action': 'upload'},
+        data: form,
+        options: Options(responseType: ResponseType.plain),
+      );
+      final payload = _asJsonMap(response.data);
+      if (_isSuccessPayload(payload) && payload?['sound'] is Map) {
+        return Map<String, dynamic>.from(payload!['sound'] as Map);
+      }
+      throw Exception(payload?['message'] ?? 'Upload failed');
+    } on DioException catch (e) {
+      throw Exception(_handleError(e));
+    }
+  }
+
+  /// POST /api_sounds.php?action=use — record that a post uses a sound
+  /// (drives the trending/virality ranking + increments use_count).
+  Future<void> useSound(int soundId, int postId) async {
+    if (soundId <= 0 || postId <= 0) return;
+    final dio = await _ensureInitializedDio();
+    try {
+      await dio.post(
+        '/api_sounds.php',
+        queryParameters: {'action': 'use'},
+        data: {'sound_id': soundId, 'post_id': postId},
+        options: Options(responseType: ResponseType.plain),
+      );
+    } catch (_) {}
   }
 
   /// GET /api_hashtags.php?action=search&q=<tag>
@@ -4278,5 +4677,18 @@ class ApiService {
     } catch (e) {
       return {'success': false, 'msg': e.toString()};
     }
+  }
+
+  /// Explicitly marks the current user online (true) or offline (false).
+  /// Called on logout and when app lifecycle changes.
+  Future<void> setPresence(bool isOnline) async {
+    try {
+      final dio = await _ensureInitializedDio();
+      await dio.post(
+        'api_auth.php',
+        data: {'action': 'set_presence', 'is_online': isOnline ? 1 : 0},
+        options: Options(responseType: ResponseType.plain),
+      );
+    } catch (_) {}
   }
 }

@@ -341,21 +341,27 @@ class SignalingService {
   }
 
   // â”€â”€ Random call match â€” find real user â”€â”€
-  Future<Map<String, dynamic>?> randomCallMatch({String type = 'video'}) async {
+  Future<Map<String, dynamic>?> randomCallMatch({
+    String type = 'video',
+    String genderPref = 'cross',
+  }) async {
     try {
       final dio = await _getDio();
       final response = await dio.post(
         'signaling.php',
-        data: FormData.fromMap({'action': 'random_call_match', 'type': type}),
+        data: FormData.fromMap({
+          'action': 'random_call_match',
+          'type': type,
+          'gender_pref': genderPref,
+        }),
       );
       dynamic data = response.data;
       if (data is String) data = jsonDecode(data);
-
-      if (data['status'] == 'success') {
-        return data;
-      }
-    } catch (_) {}
-    return null;
+      if (data is Map<String, dynamic>) return data; // return success OR error payload
+    } catch (e) {
+      return {'status': 'error', 'message': 'Could not reach server. Check your connection.'};
+    }
+    return {'status': 'error', 'message': 'Unexpected response from server.'};
   }
 
   Future<Map<String, dynamic>?> pollRandomMatch() async {

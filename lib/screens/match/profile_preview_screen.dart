@@ -80,8 +80,11 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
       } else {
         NeonToast.success(context, 'Proposal sent! 🌹');
       }
-    } catch (_) {
-      if (mounted) setState(() => _sending = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _sending = false);
+        NeonToast.error(context, e.toString().replaceFirst('Exception: ', ''));
+      }
     }
   }
 

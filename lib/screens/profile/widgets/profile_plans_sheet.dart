@@ -1,24 +1,21 @@
 import 'dart:convert';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:love_vibe_pro/services/subscription_plan_service.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/widgets/coin_icon.dart';
 
-/// Bottom-sheet plan picker shown when a user taps Subscribe on a profile.
-/// Plans are presented as a horizontal carousel — one tall card at a time —
-/// so multiple plans don't push the Subscribe button under the system nav
-/// bar. Each card has a gradient background, animated tier icon, feature
-/// list, and a wide Subscribe action pinned inside the card itself (so it
-/// stays visible regardless of the system inset).
 class ProfilePlansSheet extends StatefulWidget {
   final int creatorId;
   final String creatorName;
+  final String? creatorAvatar;
   final VoidCallback? onSubscribed;
 
   const ProfilePlansSheet({
     super.key,
     required this.creatorId,
     this.creatorName = '',
+    this.creatorAvatar,
     this.onSubscribed,
   });
 
@@ -26,10 +23,13 @@ class ProfilePlansSheet extends StatefulWidget {
   State<ProfilePlansSheet> createState() => _ProfilePlansSheetState();
 }
 
-class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
+class _ProfilePlansSheetState extends State<ProfilePlansSheet>
+    with SingleTickerProviderStateMixin {
   final SubscriptionPlanService _service = SubscriptionPlanService();
-  final PageController _pageController =
-      PageController(viewportFraction: 0.88);
+  final PageController _pageController = PageController(viewportFraction: 0.88);
+  late AnimationController _glowController;
+  late Animation<double> _glowAnim;
+
   List<Map<String, dynamic>> _plans = [];
   bool _isLoading = true;
   int _isSubscribingPlanId = 0;
@@ -45,11 +45,19 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
         setState(() => _currentPage = page);
       }
     });
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat(reverse: true);
+    _glowAnim = Tween<double>(begin: 0.5, end: 1.0).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
+    );
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+    _glowController.dispose();
     super.dispose();
   }
 
@@ -81,73 +89,39 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
-    // Carousel height tuned so a single plan with full feature list fits
-    // without scrolling, and the bottom inset of the system nav bar is
-    // respected (no Subscribe button hidden behind gesture area).
-    final carouselHeight = (mq.size.height * 0.62).clamp(420.0, 560.0);
+    final carouselHeight = (mq.size.height * 0.58).clamp(380.0, 520.0);
 
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: EdgeInsets.only(
-          top: 20,
-          bottom: 20 + mq.viewInsets.bottom,
-        ),
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF0D0D14),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SafeArea(
+        top: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             // Drag handle
-            Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(2),
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
-            const SizedBox(height: 18),
-            Text(
-              widget.creatorName.isNotEmpty
-                  ? 'Subscribe to ${widget.creatorName}'
-                  : 'Choose your plan',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.3,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Unlock subscriber-only content',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.55),
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 22),
+            // Premium header
+            _buildHeader(),
             if (_isLoading)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 60),
-                child: CircularProgressIndicator(color: Color(0xFFFF007F)),
+                child: CircularProgressIndicator(color: Color(0xFFD946EF)),
               )
             else if (_plans.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Column(
-                  children: [
-                    Icon(Icons.workspace_premium_outlined,
-                        color: Colors.white.withValues(alpha: 0.3), size: 48),
-                    const SizedBox(height: 12),
-                    Text(
-                      'No plans available yet',
-                      style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.5),
-                          fontSize: 14),
-                    ),
-                  ],
-                ),
-              )
+              _buildEmptyState()
             else ...[
               SizedBox(
                 height: carouselHeight,
@@ -171,7 +145,7 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
                 ),
               ),
               if (_plans.length > 1) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(_plans.length, (i) {
@@ -183,7 +157,7 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
                       height: 6,
                       decoration: BoxDecoration(
                         color: active
-                            ? const Color(0xFFFF007F)
+                            ? const Color(0xFFD946EF)
                             : Colors.white.withValues(alpha: 0.25),
                         borderRadius: BorderRadius.circular(3),
                       ),
@@ -192,6 +166,251 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
                 ),
               ],
             ],
+            SizedBox(height: 20 + mq.viewInsets.bottom),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    final hasAvatar = widget.creatorAvatar != null &&
+        widget.creatorAvatar!.isNotEmpty;
+    final displayName = widget.creatorName.isNotEmpty
+        ? widget.creatorName
+        : 'Creator';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF1A0A2E),
+            Color(0xFF0D0D14),
+          ],
+        ),
+      ),
+      child: Column(
+        children: [
+          // Glowing avatar with crown badge
+          AnimatedBuilder(
+            animation: _glowAnim,
+            builder: (context, child) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Outer glow ring
+                  Container(
+                    width: 90,
+                    height: 90,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFD946EF)
+                              .withValues(alpha: 0.35 * _glowAnim.value),
+                          blurRadius: 28,
+                          spreadRadius: 6,
+                        ),
+                        BoxShadow(
+                          color: const Color(0xFFFF007F)
+                              .withValues(alpha: 0.2 * _glowAnim.value),
+                          blurRadius: 50,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Avatar ring
+                  Container(
+                    width: 80,
+                    height: 80,
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFF007F), Color(0xFFD946EF), Color(0xFF7C3AED)],
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: hasAvatar
+                          ? CachedNetworkImage(
+                              imageUrl: widget.creatorAvatar!,
+                              fit: BoxFit.cover,
+                              width: 74,
+                              height: 74,
+                              errorWidget: (_, __, ___) => _avatarFallback(displayName),
+                            )
+                          : _avatarFallback(displayName),
+                    ),
+                  ),
+                  // Crown badge
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFFB800), Color(0xFFFF6A00)],
+                        ),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFF0D0D14), width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFFFB800).withValues(alpha: 0.5),
+                            blurRadius: 8,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.workspace_premium_rounded,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          // Title
+          ShaderMask(
+            shaderCallback: (bounds) => const LinearGradient(
+              colors: [Color(0xFFFF007F), Color(0xFFD946EF), Color(0xFF7C3AED)],
+            ).createShader(bounds),
+            child: Text(
+              'Subscribe to $displayName',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.2,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 6),
+          // Perks row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _perkChip(Icons.lock_open_rounded, 'Exclusive content'),
+              const SizedBox(width: 8),
+              _perkChip(Icons.chat_bubble_outline_rounded, 'Direct message'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _avatarFallback(String name) {
+    return Container(
+      color: const Color(0xFF1A1A28),
+      child: Center(
+        child: Text(
+          name.isNotEmpty ? name[0].toUpperCase() : '?',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _perkChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFD946EF).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFD946EF).withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: const Color(0xFFD946EF)),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFFD946EF),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: const Color(0xFFD946EF).withValues(alpha: 0.15),
+          ),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF1A1A28),
+              Color(0xFF0D0D14),
+            ],
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFFD946EF).withValues(alpha: 0.2),
+                    const Color(0xFF7C3AED).withValues(alpha: 0.1),
+                  ],
+                ),
+              ),
+              child: Icon(
+                Icons.workspace_premium_rounded,
+                size: 40,
+                color: const Color(0xFFD946EF).withValues(alpha: 0.7),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No plans yet',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'This creator hasn\'t set up\nsubscription plans yet.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.45),
+                fontSize: 13,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
@@ -218,7 +437,6 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
       } catch (_) {}
     }
 
-    // Different gradient per tier so 2-plan carousels visually distinguish.
     final List<List<Color>> palette = [
       [const Color(0xFFFF007F), const Color(0xFFD946EF)],
       [const Color(0xFF00E5FF), const Color(0xFF0A84FF)],
@@ -232,13 +450,10 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
       margin: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF1A1A28),
-            const Color(0xFF0E0E16),
-          ],
+          colors: [Color(0xFF1A1A28), Color(0xFF0E0E16)],
         ),
         border: Border.all(
           color: colors.first.withValues(alpha: 0.4),
@@ -257,7 +472,6 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
         borderRadius: BorderRadius.circular(28),
         child: Stack(
           children: [
-            // Top gradient flair
             Positioned(
               top: -40,
               right: -40,
@@ -353,11 +567,12 @@ class _ProfilePlansSheetState extends State<ProfilePlansSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (canMessage) _featureRow(
-                            'Message creator first',
-                            Icons.chat_bubble_rounded,
-                            const Color(0xFF00E5FF),
-                          ),
+                          if (canMessage)
+                            _featureRow(
+                              'Message creator first',
+                              Icons.chat_bubble_rounded,
+                              const Color(0xFF00E5FF),
+                            ),
                           ...features.map(
                             (f) => _featureRow(
                               f,

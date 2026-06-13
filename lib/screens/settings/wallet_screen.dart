@@ -1,4 +1,5 @@
 ﻿import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -8,7 +9,9 @@ import 'package:love_vibe_pro/screens/wallet/deposit_flow_screen.dart';
 import 'package:love_vibe_pro/screens/wallet/subscription_screen.dart';
 import 'package:love_vibe_pro/screens/wallet/wallet_history_screen.dart';
 import 'package:love_vibe_pro/screens/wallet/withdraw_screen.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:love_vibe_pro/services/settings_store.dart';
+import 'package:love_vibe_pro/services/store_billing_service.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/services/wallet_service.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
@@ -42,6 +45,9 @@ class _WalletScreenState extends State<WalletScreen> {
   final TextEditingController _redeemController = TextEditingController();
   bool _isRedeeming = false;
 
+  // Cash-out gated OFF until an NRB license / licensed PSP partner is in place.
+  bool _withdrawalsEnabled = false;
+
   final int _maxReferralEdits = 1;
   List<WalletTransaction> _recentTransactions = <WalletTransaction>[];
   int _selectedTabIndex = 0; // 0 = Overview, 1 = My Gifts
@@ -61,6 +67,7 @@ class _WalletScreenState extends State<WalletScreen> {
 
   Future<void> _loadWalletData() async {
     _settingsStore ??= await SettingsStore.getInstance();
+    _withdrawalsEnabled = await _settingsStore?.getWithdrawalsEnabled() ?? false;
     if (mounted) setState(() => _isLoading = true);
 
     try {
@@ -173,10 +180,107 @@ class _WalletScreenState extends State<WalletScreen> {
 
   Future<void> _openDeposit() async {
     _hapticFeedback();
+    // Coins are digital goods. The App Store (Guideline 3.1.1) and Google Play
+    // (Payments policy) require their own billing for in-app purchases — coin
+    // top-ups must NEVER route through external payment (QR/eSewa) on store
+    // builds, or the app is rejected. Force native store billing on mobile.
+    if (Platform.isIOS || Platform.isAndroid) {
+      if (await StoreBillingService.instance.isAvailable()) {
+        await _openStoreCoinSheet();
+        await _refreshAll();
+      } else if (mounted) {
+        NeonToast.error(
+            context, 'Store is not available right now. Please try again later.');
+      }
+      return;
+    }
+    // Non-store platforms only: legacy deposit flow.
+    if (!mounted) return;
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const DepositFlowScreen()),
     );
+    await _refreshAll();
+  }
+
+  Future<void> _openStoreCoinSheet() async {
+    final store = StoreBillingService.instance;
+    await store.init();
+    final products = await store.loadProducts();
+    if (!mounted) return;
+    if (products.isEmpty) {
+      // No store products configured yet — do NOT fall back to external
+      // payment (that would be a store rejection). Surface a clear message.
+      if (mounted) {
+        NeonToast.error(context, 'Coin packs are not available right now.');
+      }
+      return;
+    }
+    products.sort((a, b) => a.rawPrice.compareTo(b.rawPrice));
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF14101C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 14),
+            const Text('Buy Coins',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text('Securely via the app store',
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.5), fontSize: 12)),
+            const SizedBox(height: 12),
+            ...products.map((p) => ListTile(
+                  leading: const CoinIcon(size: 26),
+                  title: Text(p.title.isNotEmpty ? p.title : p.id,
+                      style: const TextStyle(color: Colors.white)),
+                  subtitle: Text(p.description,
+                      style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontSize: 12)),
+                  trailing: Text(p.price,
+                      style: const TextStyle(
+                          color: Color(0xFFD946EF),
+                          fontWeight: FontWeight.bold)),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _buyCoinProduct(p);
+                  },
+                )),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _buyCoinProduct(ProductDetails product) async {
+    final result = await StoreBillingService.instance.buyCoins(product);
+    if (!mounted) return;
+    switch (result) {
+      case StorePurchaseResult.success:
+        NeonToast.success(context, 'Coins added to your wallet!');
+        break;
+      case StorePurchaseResult.pending:
+        NeonToast.info(context, 'Purchase pending approval.');
+        break;
+      case StorePurchaseResult.cancelled:
+        break;
+      case StorePurchaseResult.unavailable:
+        NeonToast.error(context, 'Store is not available right now.');
+        break;
+      case StorePurchaseResult.failed:
+        NeonToast.error(context, 'Purchase could not be completed.');
+        break;
+    }
     await _refreshAll();
   }
 
@@ -536,15 +640,19 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget _buildQuickActions() {
     return Row(
       children: [
-        Expanded(
-          child: _actionCard(
-            icon: Icons.arrow_upward_rounded,
-            label: 'Withdraw',
-            color: const Color(0xFFFF9800),
-            onTap: _openWithdraw,
+        // Withdraw (cash-out) is hidden until withdrawals are enabled remotely
+        // — coins are virtual-only pending NRB / licensed-PSP approval.
+        if (_withdrawalsEnabled) ...[
+          Expanded(
+            child: _actionCard(
+              icon: Icons.arrow_upward_rounded,
+              label: 'Withdraw',
+              color: const Color(0xFFFF9800),
+              onTap: _openWithdraw,
+            ),
           ),
-        ),
-        const SizedBox(width: 8),
+          const SizedBox(width: 8),
+        ],
         Expanded(
           child: _actionCard(
             icon: Icons.history,
@@ -848,7 +956,7 @@ class _WalletScreenState extends State<WalletScreen> {
     final amountWidget = _formatAmount(tx, color);
     final timeText = tx.createdAt == null
         ? 'Unknown time'
-        : DateFormat('MMM d, yyyy â€¢ h:mm a').format(tx.createdAt!.toLocal());
+        : DateFormat('MMM d, yyyy • h:mm a').format(tx.createdAt!.toLocal());
 
     return Container(
       margin: const EdgeInsets.only(top: 10),

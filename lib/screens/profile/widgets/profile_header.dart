@@ -25,6 +25,10 @@ class ProfileHeader extends StatelessWidget {
   final bool isFollowLoading;
   final bool isSubscribeLoading;
   final bool ratingReady;
+  // Cross-gender proposal: show a "Send Proposal" button when viewing an
+  // opposite-gender profile.
+  final bool showSendProposal;
+  final VoidCallback? onSendProposal;
 
   const ProfileHeader({
     super.key,
@@ -41,6 +45,8 @@ class ProfileHeader extends StatelessWidget {
     this.isFollowLoading = false,
     this.isSubscribeLoading = false,
     this.ratingReady = true,
+    this.showSendProposal = false,
+    this.onSendProposal,
   });
 
   @override
@@ -301,10 +307,31 @@ class ProfileHeader extends StatelessWidget {
                 ratingReady ? profile.rating.toStringAsFixed(1) : '--',
                 const Color(0xFFFFD700),
               ),
+              // Daily streak — visible to all viewers when active.
+              if (profile.streak > 0)
+                _buildCompactBadge(
+                  Icons.local_fire_department_rounded,
+                  '${profile.streak}',
+                  const Color(0xFFFF6B35),
+                ),
+              // Chat streak — shows once it has started (admin threshold).
+              if (profile.chatStreak > 0)
+                _buildCompactBadge(
+                  Icons.forum_rounded,
+                  '${profile.chatStreak}',
+                  const Color(0xFF22D3EE),
+                ),
               if (profile.isOwnProfile)
                 _ProposalBadge(
                   proposalsCount: profile.proposalsCount,
                   buildCompactBadge: _buildCompactBadge,
+                )
+              // Visited profile: show how many proposals this user has received.
+              else if (profile.proposalsCount > 0)
+                _buildCompactBadge(
+                  Icons.favorite_rounded,
+                  '${profile.proposalsCount}',
+                  const Color(0xFFFF007F),
                 ),
               if (profile.income > 0 &&
                   (profile.incomeStatus == 'verified' ||
@@ -319,6 +346,19 @@ class ProfileHeader extends StatelessWidget {
             ],
           ),
         ),
+
+        // Remaining time before the daily streak breaks (own profile only).
+        if (profile.isOwnProfile &&
+            profile.streak > 0 &&
+            profile.streakSecondsLeft > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '🔥 Streak resets in ${_fmtStreakLeft(profile.streakSecondsLeft)}',
+              style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.55), fontSize: 12),
+            ),
+          ),
 
         const SizedBox(height: 16),
 
@@ -501,27 +541,40 @@ class ProfileHeader extends StatelessWidget {
                     //   you follow only                  → Following
                     //   they follow you only             → Follow Back
                     //   neither                          → Follow
+                    // Cross-gender: the primary action is "Send Proposal"
+                    // (Follow moves into the 3-dot menu). Otherwise: Follow.
                     Expanded(
                       flex: 4,
-                      child: NeonButton(
-                        label: (profile.isFollowing && profile.isFollowedBy)
-                            ? 'Friends'
-                            : (profile.isFollowing
-                                ? 'Following'
-                                : (profile.isFollowedBy
-                                    ? 'Follow Back'
-                                    : 'Follow')),
-                        neonColor: profile.isFollowing
-                            ? Colors.white.withValues(alpha: 0.6)
-                            : (profile.isSubscribed
-                                ? const Color(0xFF00E5FF)
-                                : const Color(0xFF3B82F6)),
-                        isFilled:
-                            profile.isFollowing ? false : !profile.isSubscribed,
-                        onTap: onFollow,
-                        isLoading: isFollowLoading,
-                        height: 38,
-                      ),
+                      child: showSendProposal
+                          ? NeonButton(
+                              label: 'Send Proposal',
+                              icon: Icons.favorite_rounded,
+                              neonColor: const Color(0xFFFF2D55),
+                              isFilled: true,
+                              onTap: onSendProposal,
+                              height: 38,
+                            )
+                          : NeonButton(
+                              label: (profile.isFollowing &&
+                                      profile.isFollowedBy)
+                                  ? 'Friends'
+                                  : (profile.isFollowing
+                                      ? 'Following'
+                                      : (profile.isFollowedBy
+                                          ? 'Follow Back'
+                                          : 'Follow')),
+                              neonColor: profile.isFollowing
+                                  ? Colors.white.withValues(alpha: 0.6)
+                                  : (profile.isSubscribed
+                                      ? const Color(0xFF00E5FF)
+                                      : const Color(0xFF3B82F6)),
+                              isFilled: profile.isFollowing
+                                  ? false
+                                  : !profile.isSubscribed,
+                              onTap: onFollow,
+                              isLoading: isFollowLoading,
+                              height: 38,
+                            ),
                     ),
                     const SizedBox(width: 8),
                     // Subscribe button — disabled when creator has no plan
@@ -1240,4 +1293,17 @@ class _ProposalBadgeState extends State<_ProposalBadge> {
       ),
     );
   }
+}
+
+/// Human-friendly remaining time for a streak countdown (e.g. "1d 3h", "5h 12m").
+String _fmtStreakLeft(int seconds) {
+  final h = seconds ~/ 3600;
+  final m = (seconds % 3600) ~/ 60;
+  if (h >= 24) {
+    final d = h ~/ 24;
+    final rh = h % 24;
+    return rh > 0 ? '${d}d ${rh}h' : '${d}d';
+  }
+  if (h > 0) return m > 0 ? '${h}h ${m}m' : '${h}h';
+  return '${m}m';
 }

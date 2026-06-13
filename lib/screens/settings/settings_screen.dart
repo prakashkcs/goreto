@@ -9,6 +9,7 @@ import 'package:love_vibe_pro/services/settings_store.dart';
 import 'package:love_vibe_pro/services/kyc_status_controller.dart';
 import 'package:love_vibe_pro/services/profile_service.dart';
 import 'package:love_vibe_pro/screens/profile_screen.dart';
+import 'package:love_vibe_pro/screens/home_screen.dart';
 import 'package:love_vibe_pro/screens/settings/kyc_screen.dart';
 import 'package:love_vibe_pro/screens/settings/wallet_screen.dart';
 import 'package:love_vibe_pro/screens/settings/pay_per_minute_screen.dart';
@@ -22,6 +23,7 @@ import 'package:love_vibe_pro/screens/settings/blocked_users_screen.dart';
 import 'package:love_vibe_pro/screens/settings/nearby_blocked_screen.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/screens/settings/delete_account_screen.dart';
+import 'package:love_vibe_pro/screens/settings/deactivate_account_screen.dart';
 import 'package:love_vibe_pro/screens/settings/legal_screen.dart';
 import 'package:love_vibe_pro/widgets/coin_icon.dart';
 
@@ -201,12 +203,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           label: 'Profile Settings',
                           subtitle: 'Edit your profile information',
                           color: const Color(0xFFD946EF),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const ProfileScreen(),
-                            ),
-                          ),
+                          // Open the Profile TAB (with bottom nav) — the latest
+                          // profile UI — instead of pushing a bare screen.
+                          onTap: () {
+                            if (HomeScreen.switchToProfileTab != null) {
+                              Navigator.popUntil(context, (r) => r.isFirst);
+                              HomeScreen.switchToProfileTab!();
+                            } else {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ProfileScreen(),
+                                ),
+                              );
+                            }
+                          },
                         ),
                         _buildNavigationTile(
                           icon: Icons.alternate_email,
@@ -265,6 +276,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             context,
                             MaterialPageRoute(
                               builder: (_) => const NearbyBlockedScreen(),
+                            ),
+                          ),
+                        ),
+                        _buildNavigationTile(
+                          icon: Icons.pause_circle_outline,
+                          label: 'Deactivate Account',
+                          subtitle: 'Temporarily hide your account',
+                          color: const Color(0xFFFF9500),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const DeactivateAccountScreen(),
                             ),
                           ),
                         ),
@@ -470,6 +493,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               MaterialPageRoute(
                                   builder: (_) =>
                                       const LegalScreen(type: 'privacy'))),
+                        ),
+                        _buildNavigationTile(
+                          icon: Icons.gavel_outlined,
+                          label: 'Community & Content Policy',
+                          subtitle: 'What is and isn\'t allowed',
+                          color: const Color(0xFF8B5CF6),
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const LegalScreen(
+                                      type: 'content_policy'))),
+                        ),
+                        _buildNavigationTile(
+                          icon: Icons.child_care_outlined,
+                          label: 'Child Safety Standards',
+                          subtitle: 'Our zero-tolerance CSAE policy',
+                          color: const Color(0xFF06B6D4),
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const LegalScreen(type: 'child_safety'))),
                         ),
                         _buildNavigationTile(
                           icon: Icons.flag_outlined,

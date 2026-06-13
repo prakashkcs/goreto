@@ -432,7 +432,7 @@ class _PlanEditorDialogState extends State<_PlanEditorDialog> {
   late TextEditingController _durationCtrl;
 
   final List<TextEditingController> _featureCtrls = [];
-  bool _canMessageFirst = false;
+  bool _freeUnlimitedChat = true;
 
   @override
   void initState() {
@@ -445,8 +445,9 @@ class _PlanEditorDialogState extends State<_PlanEditorDialog> {
       text: (widget.existing?['duration_days'] ?? '30').toString(),
     );
 
-    _canMessageFirst = widget.existing?['can_message_first'] == 1 ||
-        widget.existing?['can_message_first'] == true;
+    // Inverted: free_unlimited_chat ON means can_message_first = 0 (no restriction)
+    _freeUnlimitedChat = !(widget.existing?['can_message_first'] == 1 ||
+        widget.existing?['can_message_first'] == true);
 
     if (widget.existing?['custom_features'] != null) {
       try {
@@ -680,17 +681,21 @@ class _PlanEditorDialogState extends State<_PlanEditorDialog> {
                     child: SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
-                        'Only Subscribers can message you?',
+                        'Free unlimited chat time',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      subtitle: const Text(
+                        'Let anyone message without buying a subscription',
+                        style: TextStyle(color: Colors.white54, fontSize: 11),
+                      ),
                       activeThumbColor: const Color(0xFFFF007F),
-                      value: _canMessageFirst,
+                      value: _freeUnlimitedChat,
                       onChanged: (val) =>
-                          setState(() => _canMessageFirst = val),
+                          setState(() => _freeUnlimitedChat = val),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -765,7 +770,7 @@ class _PlanEditorDialogState extends State<_PlanEditorDialog> {
                             priceCoins: price,
                             durationDays: duration,
                             customFeatures: features,
-                            canMessageFirst: _canMessageFirst,
+                            canMessageFirst: !_freeUnlimitedChat,
                           );
                         } else {
                           result = await widget.service.createPlan(
@@ -773,7 +778,7 @@ class _PlanEditorDialogState extends State<_PlanEditorDialog> {
                             priceCoins: price,
                             durationDays: duration,
                             customFeatures: features,
-                            canMessageFirst: _canMessageFirst,
+                            canMessageFirst: !_freeUnlimitedChat,
                           );
                         }
 

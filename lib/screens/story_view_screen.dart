@@ -5,8 +5,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:love_vibe_pro/services/chat_service.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
+import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  StoryViewScreen  –  Multi-story viewer with neon cyberpunk UI
@@ -32,6 +33,20 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   int _currentIndex = 0;
   VideoPlayerController? _videoController;
   AnimationController? _progressController;
+
+  final ApiService _api = ApiService();
+  String _currentUserId = '';
+  // Story ids we've already counted a view for this session (avoid dup calls).
+  final Set<String> _viewedStoryIds = {};
+  // Whether any story was deleted — signals the home feed to refresh on exit.
+  bool _didDelete = false;
+
+  String get _currentStoryId =>
+      (_currentStory['id'] ?? _currentStory['story_id'] ?? '').toString();
+  String get _currentStoryOwnerId =>
+      (_currentStory['user_id'] ?? _currentStory['userId'] ?? '').toString();
+  bool get _isOwnStory =>
+      _currentUserId.isNotEmpty && _currentUserId == _currentStoryOwnerId;
 
   /// Actively animating flying emojis
   final List<_FlyingEmojiEntry> _flyingEmojis = [];
@@ -90,6 +105,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
             if (status == AnimationStatus.completed) _nextStory();
           });
     _loadCurrentStory();
+    _loadCurrentUserId();
     _replyFocus.addListener(() {
       if (_replyFocus.hasFocus) {
         _progressController?.stop();
@@ -99,10 +115,213 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     });
   }
 
+  Future<void> _loadCurrentUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final uid = prefs.getString('user_id') ?? '';
+    if (mounted) setState(() => _currentUserId = uid);
+  }
+
+  /// Records a view for the current story (server ignores the owner's own view).
+  void _recordCurrentView() {
+    final id = _currentStoryId;
+    if (id.isEmpty || _viewedStoryIds.contains(id)) return;
+    _viewedStoryIds.add(id);
+    _api.recordStoryView(id);
+  }
+
+  Future<void> _confirmDeleteStory() async {
+    _progressController?.stop();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: Color(0xFFFF0055), width: 1),
+        ),
+        title: const Text('Delete story?', style: TextStyle(color: Colors.white)),
+        content: const Text('This story will be permanently removed.',
+            style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete',
+                  style: TextStyle(
+                      color: Color(0xFFFF0055), fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await _deleteStory();
+    } else {
+      _progressController?.forward();
+    }
+  }
+
+  Future<void> _deleteStory() async {
+    final id = _currentStoryId;
+    if (id.isEmpty) return;
+    final ok = await _api.deleteStory(id);
+    if (!mounted) return;
+    if (ok) {
+      _didDelete = true;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Story deleted'), duration: Duration(seconds: 2)));
+      widget.stories.removeAt(_currentIndex);
+      if (widget.stories.isEmpty) {
+        Navigator.pop(context, true);
+        return;
+      }
+      if (_currentIndex >= widget.stories.length) {
+        _currentIndex = widget.stories.length - 1;
+      }
+      _loadCurrentStory();
+      setState(() {});
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to delete story')));
+      _progressController?.forward();
+    }
+  }
+
+  Widget _buildOwnerViewersBar() {
+    final count =
+        int.tryParse((_currentStory['view_count'] ?? 0).toString()) ?? 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: GestureDetector(
+        onTap: _showViewersSheet,
+        child: Container(
+          height: 50,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: const Color(0xFF00E5FF), width: 1.5),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.visibility_outlined,
+                  color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Text(count == 1 ? '1 viewer' : '$count viewers',
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w600)),
+              const SizedBox(width: 6),
+              const Icon(Icons.keyboard_arrow_up_rounded,
+                  color: Colors.white54, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showViewersSheet() async {
+    _progressController?.stop();
+    final id = _currentStoryId;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF12121A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        builder: (ctx, scroll) => FutureBuilder<Map<String, dynamic>>(
+          future: _api.getStoryViewers(id),
+          builder: (ctx, snap) {
+            final viewers = (snap.data?['viewers'] as List?) ?? [];
+            return Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 10, bottom: 6),
+                  decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+                  child: Row(children: [
+                    const Icon(Icons.visibility_outlined,
+                        color: Color(0xFF00E5FF), size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                        '${viewers.length} ${viewers.length == 1 ? 'viewer' : 'viewers'}',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700)),
+                  ]),
+                ),
+                if (snap.connectionState == ConnectionState.waiting)
+                  const Expanded(
+                      child: Center(
+                          child: CircularProgressIndicator(
+                              color: Color(0xFFFF007F))))
+                else if (viewers.isEmpty)
+                  const Expanded(
+                      child: Center(
+                          child: Text('No viewers yet',
+                              style: TextStyle(color: Colors.white54))))
+                else
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scroll,
+                      itemCount: viewers.length,
+                      itemBuilder: (c, i) {
+                        final v = viewers[i] as Map<String, dynamic>;
+                        final avatar = (v['avatar'] ?? '').toString();
+                        final name = (v['name'] ?? 'User').toString();
+                        final reaction = (v['reaction'] ?? '').toString();
+                        return ListTile(
+                          leading: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: const Color(0xFF2A2A2A),
+                            backgroundImage:
+                                avatar.isNotEmpty && avatar.startsWith('http')
+                                    ? CachedNetworkImageProvider(avatar)
+                                    : null,
+                            child: avatar.isEmpty
+                                ? Text(
+                                    name.isNotEmpty
+                                        ? name[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(color: Colors.white))
+                                : null,
+                          ),
+                          title: Text(name,
+                              style: const TextStyle(color: Colors.white)),
+                          trailing: reaction.isNotEmpty
+                              ? Text(reaction,
+                                  style: const TextStyle(fontSize: 22))
+                              : null,
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+    if (mounted) _progressController?.forward();
+  }
+
   void _loadCurrentStory() {
     _progressController?.reset();
     _videoController?.dispose();
     _videoController = null;
+    _recordCurrentView();
 
     if (_isCurrentVideo) {
       _videoController =
@@ -123,14 +342,16 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       _progressController?.forward();
     }
 
-    // Play music if this story has a music tag
+    // Play the attached custom audio clip directly (≤60s, looped). Default
+    // iTunes music has been removed — only user-uploaded trending audio plays.
+    final musicUrl = (_currentStory['music_url'] ?? '').toString().trim();
     final music = (_currentStory['music'] ??
             _currentStory['music_title'] ??
             '')
         .toString()
         .trim();
-    if (music.isNotEmpty) {
-      _fetchAndPlayMusic(music);
+    if (musicUrl.isNotEmpty) {
+      _playMusicUrl(musicUrl, music);
     } else {
       _musicGen++;
       final old = _musicPlayer;
@@ -143,39 +364,26 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     setState(() {});
   }
 
-  Future<void> _fetchAndPlayMusic(String songTitle) async {
+  /// Plays the story's attached custom audio clip directly (looped, ≤60s).
+  Future<void> _playMusicUrl(String url, String title) async {
     final gen = ++_musicGen;
 
-    // Tear down any previously running player before the async gap
     final old = _musicPlayer;
     _musicPlayer = null;
     old?.stop();
     old?.dispose();
 
-    if (mounted) setState(() => _currentMusicTitle = songTitle);
+    if (mounted) setState(() => _currentMusicTitle = title);
 
     try {
-      final q = Uri.encodeComponent(songTitle);
-      final resp = await http
-          .get(Uri.parse(
-              'https://itunes.apple.com/search?term=$q&media=music&limit=1&entity=song'))
-          .timeout(const Duration(seconds: 8));
-
-      // Bail if this fetch was superseded by a story change or widget disposed
-      if (gen != _musicGen || !mounted) return;
-
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        final results = (data['results'] as List?) ?? [];
-        if (results.isNotEmpty) {
-          final previewUrl = results[0]['previewUrl'] as String?;
-          if (previewUrl != null && previewUrl.isNotEmpty) {
-            final player = AudioPlayer();
-            _musicPlayer = player;
-            await player.play(UrlSource(previewUrl));
-          }
-        }
+      final player = AudioPlayer();
+      if (gen != _musicGen) {
+        player.dispose();
+        return;
       }
+      _musicPlayer = player;
+      await player.setReleaseMode(ReleaseMode.loop);
+      await player.play(UrlSource(url));
     } catch (_) {
       if (gen == _musicGen && mounted) setState(() => _currentMusicTitle = '');
     }
@@ -186,7 +394,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       setState(() => _currentIndex++);
       _loadCurrentStory();
     } else {
-      Navigator.pop(context);
+      Navigator.pop(context, _didDelete);
     }
   }
 
@@ -203,6 +411,11 @@ class _StoryViewScreenState extends State<StoryViewScreen>
 
   void _onEmojiTap(String emoji) {
     SoundService().playReact();
+    // Persist the reaction so the story owner can see who reacted (and with what).
+    final id = _currentStoryId;
+    if (id.isNotEmpty && !_isOwnStory) {
+      _api.reactToStory(id, emoji);
+    }
     final key = UniqueKey();
     setState(() {
       _flyingEmojis.add(
@@ -335,10 +548,12 @@ class _StoryViewScreenState extends State<StoryViewScreen>
           // 5. Flying emoji animations
           ..._flyingEmojis.map((e) => e.buildWidget(size)),
 
-          // 5b. Music badge
+          // 5b. Music badge — sit clearly ABOVE the emoji-react bottom bar
+          // (nav-bar inset + bottom-bar height) so the audio name isn't hidden
+          // behind the reaction emojis.
           if (_currentMusicTitle.isNotEmpty)
             Positioned(
-              bottom: 110,
+              bottom: MediaQuery.of(context).padding.bottom + 160,
               left: 0,
               right: 0,
               child: Center(
@@ -396,12 +611,12 @@ class _StoryViewScreenState extends State<StoryViewScreen>
   Widget _buildMedia() {
     if (_isCurrentVideo) {
       if (_videoController != null && _videoController!.value.isInitialized) {
-        return SizedBox.expand(
-          child: FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: _videoController!.value.size.width,
-              height: _videoController!.value.size.height,
+        // contain = show the whole video without cropping or stretching.
+        return ColoredBox(
+          color: Colors.black,
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: _videoController!.value.aspectRatio,
               child: VideoPlayer(_videoController!),
             ),
           ),
@@ -433,21 +648,24 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       );
     }
 
-    return SizedBox.expand(
-      child: CachedNetworkImage(
-        imageUrl: _currentUrl,
-        fit: BoxFit.cover,
-        memCacheWidth: 800, // Task 5: Global memory strategy
-        placeholder: (p1_0, p1_1) => const ColoredBox(
+    return ColoredBox(
+      color: Colors.black,
+      child: SizedBox.expand(
+        child: CachedNetworkImage(
+          imageUrl: _currentUrl,
+          fit: BoxFit.contain, // show the whole photo — no crop, no stretch
+          memCacheWidth: 800, // Task 5: Global memory strategy
+          placeholder: (p1_0, p1_1) => const ColoredBox(
           color: Colors.black,
           child: Center(
             child: CircularProgressIndicator(color: Color(0xFFFF007F)),
           ),
         ),
-        errorWidget: (p2_0, p2_1, p2_2) => const ColoredBox(
-          color: Colors.black12,
-          child: Center(
-            child: Icon(Icons.broken_image, color: Colors.white54, size: 52),
+          errorWidget: (p2_0, p2_1, p2_2) => const ColoredBox(
+            color: Colors.black12,
+            child: Center(
+              child: Icon(Icons.broken_image, color: Colors.white54, size: 52),
+            ),
           ),
         ),
       ),
@@ -463,12 +681,19 @@ class _StoryViewScreenState extends State<StoryViewScreen>
                 story['user_image'] ??
                 '')
             .toString();
+    // Prefer the story owner's display name over the @username handle.
+    final displayName = (story['user_name'] ??
+            story['name'] ??
+            story['full_name'] ??
+            story['author_name'] ??
+            widget.username)
+        .toString();
 
     return Row(
       children: [
         // Back button
         GestureDetector(
-          onTap: () => Navigator.pop(context),
+          onTap: () => Navigator.pop(context, _didDelete),
           child: Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
@@ -523,7 +748,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.username,
+                displayName,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -541,11 +766,28 @@ class _StoryViewScreenState extends State<StoryViewScreen>
             ],
           ),
         ),
+        // Delete button — only on your own story
+        if (_isOwnStory)
+          GestureDetector(
+            onTap: _confirmDeleteStory,
+            child: Container(
+              margin: const EdgeInsets.only(left: 4),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.35),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.delete_outline_rounded,
+                  color: Colors.white, size: 20),
+            ),
+          ),
       ],
     );
   }
 
   Widget _buildBottomBar() {
+    // Your own story: show a viewers bar (who saw / reacted) instead of reply.
+    if (_isOwnStory) return _buildOwnerViewersBar();
     const emojis = ['❤️', '🔥', '😂', '😮', '👏'];
     return Column(
       mainAxisSize: MainAxisSize.min,

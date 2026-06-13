@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
+import 'package:love_vibe_pro/services/tts_service.dart';
 import 'package:love_vibe_pro/services/nearby_block_service.dart';
 import 'package:love_vibe_pro/screens/profile_screen.dart';
 
@@ -65,10 +66,19 @@ class _NearbyAlertScreenState extends State<NearbyAlertScreen>
 
     _entranceCtrl.forward();
     SoundService().playNearbySound();
+    _announceNearbyVoice();
+  }
+
+  /// After the alert chime, speak the user's name + "तपाईंको नजिक हुनुहुन्छ".
+  Future<void> _announceNearbyVoice() async {
+    await Future.delayed(const Duration(milliseconds: 1700));
+    if (!mounted) return;
+    await TtsService.instance.announceNearby(widget.senderName);
   }
 
   @override
   void dispose() {
+    TtsService.instance.stop();
     _pulseCtrl.dispose();
     _entranceCtrl.dispose();
     super.dispose();

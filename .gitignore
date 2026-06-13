@@ -206,3 +206,6 @@ FIXES_SUMMARY.md
 # Server admin utilities and migration backups
 admin/email_inbox.php
 _server_deploy/
+
+# Local terminal log dumps
+/terminals/

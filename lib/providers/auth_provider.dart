@@ -3,10 +3,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart' as g_auth;
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:provider/provider.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/fcm_service.dart';
 import 'package:love_vibe_pro/services/socket_service.dart';
 import 'package:love_vibe_pro/services/secure_storage_service.dart';
+import 'package:love_vibe_pro/services/chat_service.dart';
+import 'package:love_vibe_pro/services/profile_service.dart';
+import 'package:love_vibe_pro/providers/match_provider.dart';
+
+/// Result of an email/password login attempt.
+enum LoginOutcome { success, twoFactorRequired }
 
 class AuthProvider with ChangeNotifier {
   bool _isAuthenticated = false;
@@ -180,6 +188,7 @@ class AuthProvider with ChangeNotifier {
     await prefs.remove('is_guest');
     await prefs.remove('cached_profile');
     await prefs.remove('cached_feed_items');
+    await prefs.remove('shown_gift_ids'); // legacy non-scoped key
     _isAuthenticated = false;
     _isDebugMode = false;
     _isGuest = false;
@@ -188,14 +197,18 @@ class AuthProvider with ChangeNotifier {
 
   // ── Google Sign-In ────────────────────────────────────────────────────────
 
-  Future<void> loginWithGoogle() async {
+  /// Email pending a 2FA code (set when a login returns `2fa_required`).
+  String? _pending2faEmail;
+  String? get pending2faEmail => _pending2faEmail;
+
+  Future<LoginOutcome> loginWithGoogle() async {
     try {
       g_auth.GoogleSignInAccount? googleUser =
           await _googleSignIn.signInSilently();
       googleUser ??= await _googleSignIn.signIn();
 
       if (googleUser == null) {
-        return;
+        return LoginOutcome.success;
       }
 
       final g_auth.GoogleSignInAuthentication googleAuth =
@@ -215,6 +228,13 @@ class AuthProvider with ChangeNotifier {
         response = await _apiService.authGoogle(idToken);
       } catch (e) {
         rethrow;
+      }
+
+      // Account has 2FA enabled — an OTP was emailed; defer session creation.
+      if (response['status'] == '2fa_required') {
+        _pending2faEmail = response['email']?.toString();
+        notifyListeners();
+        return LoginOutcome.twoFactorRequired;
       }
 
       final dataMap = response['data'] as Map<String, dynamic>?;
@@ -249,6 +269,7 @@ class AuthProvider with ChangeNotifier {
       if (userEmail.isNotEmpty) await prefs.setString('user_email', userEmail);
       if (userName.isNotEmpty) await prefs.setString('user_name', userName);
       await SecureStorageService.instance.writeToken(appToken);
+      await _bindAccountCaches(userId);
 
       _apiService.setToken(appToken);
       _isAuthenticated = true;
@@ -259,6 +280,7 @@ class AuthProvider with ChangeNotifier {
       SocketService.instance.connect();
 
       notifyListeners();
+      return LoginOutcome.success;
     } catch (e) {
       rethrow;
     }
@@ -266,49 +288,94 @@ class AuthProvider with ChangeNotifier {
 
   // ── Email/Password Login ──────────────────────────────────────────────────
 
-  Future<bool> loginWithEmail(String email, String password) async {
+  Future<LoginOutcome> loginWithEmail(String email, String password) async {
     _isLoading = true;
     notifyListeners();
 
     try {
       final response = await _apiService.loginWithEmail(email, password);
 
-      final dataMap = response['data'] as Map<String, dynamic>?;
-      final appToken = dataMap?['token']?.toString() ?? '';
-      final userMap = dataMap?['user'] as Map<String, dynamic>?;
-      final userId = userMap?['id']?.toString() ?? '';
-      final userName = userMap?['name']?.toString() ?? '';
-
-      if (appToken.isEmpty) {
-        throw Exception('Invalid credentials');
+      // Account has 2FA enabled — an OTP was emailed; defer session creation.
+      if (response['status'] == '2fa_required') {
+        _pending2faEmail = response['email']?.toString() ?? email;
+        _isLoading = false;
+        notifyListeners();
+        return LoginOutcome.twoFactorRequired;
       }
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('app_token', appToken);
-      await prefs.setString('auth_token', appToken);
-      await prefs.setString('user_id', userId);
-      await prefs.setString('user_email', email);
-      await prefs.remove('is_guest');
-      if (userName.isNotEmpty) await prefs.setString('user_name', userName);
-      await SecureStorageService.instance.writeToken(appToken);
-
-      _apiService.setToken(appToken);
-      _isAuthenticated = true;
-      _isGuest = false;
-      _userId = userId;
+      await _persistSession(response['data'] as Map<String, dynamic>?, email);
+      return LoginOutcome.success;
+    } catch (e) {
       _isLoading = false;
-
-      FCMService.instance.init();
-      SocketService.instance.connect();
-
       notifyListeners();
+      rethrow;
+    }
+  }
 
+  /// Complete a login that required 2FA, by submitting the emailed OTP.
+  Future<bool> verifyTwoFactor(String email, String code) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final response = await _apiService.verifyLogin2FA(email, code);
+      await _persistSession(response['data'] as Map<String, dynamic>?, email);
       return true;
     } catch (e) {
       _isLoading = false;
       notifyListeners();
       rethrow;
     }
+  }
+
+  /// Persists the token + user from a successful auth response and flips the
+  /// provider into the authenticated state. Shared by login and 2FA verify.
+  Future<void> _persistSession(
+      Map<String, dynamic>? dataMap, String email) async {
+    final appToken = dataMap?['token']?.toString() ?? '';
+    final userMap = dataMap?['user'] as Map<String, dynamic>?;
+    final userId = userMap?['id']?.toString() ?? '';
+    final userName = userMap?['name']?.toString() ?? '';
+
+    if (appToken.isEmpty) {
+      throw Exception('Invalid credentials');
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('app_token', appToken);
+    await prefs.setString('auth_token', appToken);
+    await prefs.setString('user_id', userId);
+    await prefs.setString('user_email', email);
+    await prefs.remove('is_guest');
+    if (userName.isNotEmpty) await prefs.setString('user_name', userName);
+    await SecureStorageService.instance.writeToken(appToken);
+
+    _apiService.setToken(appToken);
+    _isAuthenticated = true;
+    _isGuest = false;
+    _userId = userId;
+    _isLoading = false;
+
+    await _bindAccountCaches(userId);
+
+    FCMService.instance.init();
+    SocketService.instance.connect();
+
+    notifyListeners();
+  }
+
+  /// Bind per-account singleton caches to a newly-established session. Wipes any
+  /// chat/message/block/profile state left over from a previous account (the
+  /// singletons survive across logout→login since the Dart process keeps
+  /// running), then points the chat layer at the new user id. Call from EVERY
+  /// session-establishing path (login, Google, signup) so a freshly-created or
+  /// switched account never shows the previous user's chats or history.
+  Future<void> _bindAccountCaches(String userId) async {
+    if (userId.isEmpty) return;
+    try {
+      ChatService.instance.clearForLogout();
+      await ProfileService.instance.clearCachedProfile();
+      ChatService.instance.setCurrentUserId(userId);
+    } catch (_) {}
   }
 
   // ── Email/Password Signup ─────────────────────────────────────────────────
@@ -345,6 +412,7 @@ class AuthProvider with ChangeNotifier {
       await prefs.setBool('onboarding_done', false);
       await prefs.setBool('onboarding_server_checked', true);
       await SecureStorageService.instance.writeToken(appToken);
+      await _bindAccountCaches(userId);
 
       _apiService.setToken(appToken);
       _isAuthenticated = true;
@@ -368,7 +436,46 @@ class AuthProvider with ChangeNotifier {
   // ── Logout ────────────────────────────────────────────────────────────────
 
   Future<void> logout() async {
+    // Capture context before any awaits to avoid BuildContext-across-async-gap.
+    final ctx = _navigatorKey?.currentContext;
+
     SocketService.instance.disconnect();
+
+    // Mark the user offline on the server while the token is still valid.
+    try {
+      await _apiService.setPresence(false);
+    } catch (_) {}
+
+    // Stop background location tracking so the logged-out account's
+    // coordinates are no longer sent to the server.
+    try {
+      final bgSvc = FlutterBackgroundService();
+      if (await bgSvc.isRunning()) bgSvc.invoke('stopService');
+    } catch (_) {}
+
+    // Clear FCM token on server — also clears location columns server-side.
+    try {
+      await FCMService.instance.clearTokenOnServer();
+    } catch (_) {}
+
+    // Wipe in-memory nearby/match cache so the next account starts fresh.
+    try {
+      if (ctx != null) {
+        Provider.of<MatchProvider>(ctx, listen: false).clearForLogout();
+      }
+    } catch (_) {}
+
+    // Wipe per-account singleton caches so the next account never sees the
+    // previous user's chats/messages/block-state or cached profile. These
+    // singletons survive the logout→login transition, so they MUST be cleared
+    // here (centralised) — otherwise a freshly-created account shows old data.
+    try {
+      ChatService.instance.clearForLogout();
+    } catch (_) {}
+    try {
+      await ProfileService.instance.clearCachedProfile();
+    } catch (_) {}
+
     try {
       await _googleSignIn.signOut();
     } catch (_) {}

@@ -24,7 +24,6 @@ import 'package:love_vibe_pro/widgets/manage_user_sheet.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/socket_service.dart';
 import 'package:love_vibe_pro/services/chat_package_service.dart';
-import 'package:love_vibe_pro/widgets/chat_timer_bar.dart';
 import 'package:love_vibe_pro/widgets/coin_icon.dart';
 import 'package:love_vibe_pro/services/wallet_service.dart';
 import 'package:love_vibe_pro/screens/profile_screen.dart';
@@ -48,6 +47,29 @@ class ChatScreen extends StatefulWidget {
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
+}
+
+String _friendlyError(Object e) {
+  if (e is DioException) {
+    final serverMsg = e.response?.data is Map
+        ? e.response!.data['message']?.toString()
+        : null;
+    if (serverMsg != null && serverMsg.isNotEmpty) return serverMsg;
+    final code = e.response?.statusCode;
+    if (code != null) {
+      if (code >= 500) return 'Server error. Please try again.';
+      if (code == 401 || code == 403) return 'Session expired. Please log in again.';
+      if (code == 404) return 'Content not found.';
+    }
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.sendTimeout) {
+      return 'Connection timed out. Check your internet.';
+    }
+    return 'No internet connection.';
+  }
+  if (e is SocketException) return 'No internet connection.';
+  return 'Something went wrong. Please try again.';
 }
 
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
@@ -85,6 +107,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   bool _isFriend = false;
   String _requestStatus = 'none';
+  bool _allowsUnknownInbox = true; // false = recipient blocks strangers
+  // True when the viewer has an active paid chat-time session (or subscription)
+  // with this creator — bypasses the friends-only block until it expires.
+  bool _hasPaidChatAccess = false;
 
   bool _isDownloading = false;
   final Map<String, Uint8List?> _thumbCache = {};
@@ -100,16 +126,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // Chat time-package state for this conversation.
   List<ChatPackage> _targetPackages = [];
   int _freeMinLeft = 0;
+  bool _hasSubscriptionPlans = false;
+  bool _hasFreeChatPlan = false; // plan with freeUnlimitedChat (can_message_first=false)
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadMessages();
-    _checkInitialRestriction();
     _startLiveSync();
     _initSocket();
-    _loadTargetPpmSettings();
+    // Load packages first, then evaluate restriction (so we know if packages exist).
+    _loadTargetPpmSettings().then((_) {
+      if (mounted) _checkInitialRestriction();
+    });
   }
 
   Future<void> _loadTargetPpmSettings() async {
@@ -117,19 +147,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final sellerId = int.tryParse(widget.userId) ?? 0;
       if (sellerId <= 0) return;
 
-      // Load packages + check active session in parallel.
+      // Load packages, session, and creator subscription plans in parallel.
       final results = await Future.wait([
         ChatPackageService.instance.listPackages(sellerId),
         ChatPackageService.instance.checkSession(sellerId),
+        SubscriptionPlanService().getCreatorPlans(sellerId),
       ]);
 
-      final pkgResult = results[0]
-          as ({List<ChatPackage> packages, int freeMinLeft});
+      final pkgResult = results[0] as ({List<ChatPackage> packages, int freeMinLeft});
+      final subPlans = results[2] as List<Map<String, dynamic>>;
 
       if (!mounted) return;
       setState(() {
         _targetPackages = pkgResult.packages;
         _freeMinLeft = pkgResult.freeMinLeft;
+        _hasSubscriptionPlans = subPlans.isNotEmpty;
+        _hasFreeChatPlan = subPlans.any((p) {
+          final v = p['can_message_first'];
+          return v == 0 || v == '0' || v == false;
+        });
       });
     } catch (_) {}
   }
@@ -204,41 +240,58 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final creatorId = int.tryParse(widget.userId);
       if (creatorId == null) return;
 
-      // 1. Check if there are already messages (if so, no restriction)
+      // 1. Already chatting — no restriction.
       if (_messages.isNotEmpty) {
         if (mounted) setState(() => _isCheckedRestriction = true);
         return;
       }
 
-      // 2. Check if creator has restriction
-      final hasRestriction =
-          await SubscriptionPlanService().checkMessagingRestriction(creatorId);
-      if (!hasRestriction) {
-        if (mounted) setState(() => _isCheckedRestriction = true);
-        return;
-      }
-
-      // 3. Check if user has an active chat package session — that also bypasses restriction.
+      // 2. Active chat-time session — bypass package gate AND friends-only gate.
       final session = ChatPackageService.instance.current;
-      final hasActiveSession =
-          session != null && session.active && session.sellerId == creatorId;
-      if (hasActiveSession) {
-        if (mounted) setState(() => _isCheckedRestriction = true);
+      if (session != null && session.active && session.sellerId == creatorId) {
+        if (mounted) {
+          setState(() {
+            _hasPaidChatAccess = true;
+            _isCheckedRestriction = true;
+          });
+        }
         return;
       }
 
-      // 4. No session — check subscription
-      final isSubscribed = await SubscriptionPlanService().isSubscribedTo(
-        creatorId,
-      );
+      // 3. Creator has no packages AND no subscription plans → nothing to restrict.
+      if (_targetPackages.isEmpty && !_hasSubscriptionPlans) {
+        if (mounted) setState(() { _isRestricted = false; _isCheckedRestriction = true; });
+        return;
+      }
+
+      // 4. Creator has a "free unlimited chat" plan → check if viewer is subscribed.
+      if (_hasFreeChatPlan) {
+        final isSubscribed = await SubscriptionPlanService().isSubscribedTo(creatorId);
+        if (isSubscribed) {
+          if (mounted) setState(() { _hasPaidChatAccess = true; _isRestricted = false; _isCheckedRestriction = true; });
+          return;
+        }
+      }
+
+      // 5. Has packages → viewer must buy one.
+      if (_targetPackages.isNotEmpty) {
+        if (mounted) setState(() { _isRestricted = true; _isCheckedRestriction = true; });
+        return;
+      }
+
+      // 6. Has subscription plans but no packages → no package gate (can still message).
+      if (mounted) setState(() { _isRestricted = false; _isCheckedRestriction = true; });
+    } catch (_) {
+      // Fail OPEN: a transient error loading packages/session must not wrongly
+      // show "Message Restricted" for users who have no paid gate at all (the
+      // server still enforces real package/stranger gates on send). Retry the
+      // check shortly to pick up the real state.
       if (mounted) {
-        setState(() {
-          _isRestricted = !isSubscribed;
-          _isCheckedRestriction = true;
+        setState(() { _isRestricted = false; _isCheckedRestriction = true; });
+        Future.delayed(const Duration(seconds: 4), () {
+          if (mounted) _checkInitialRestriction();
         });
       }
-    } catch (_) {
-      if (mounted) setState(() => _isCheckedRestriction = true);
     }
   }
 
@@ -361,6 +414,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _isBlockedByThem = _chatService.isBlockedByThem(widget.userId);
           _isFriend = _chatService.isFriend(widget.userId);
           _requestStatus = _chatService.requestStatus(widget.userId);
+          _allowsUnknownInbox = _chatService.allowsUnknownInbox(widget.userId);
         });
         _chatService.markAsRead(convId);
 
@@ -375,7 +429,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        NeonToast.error(context, 'Error loading messages: $e');
+        NeonToast.error(context, _friendlyError(e));
       }
     }
   }
@@ -470,15 +524,30 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _messages.removeWhere((m) => m.id == optimisticMsg.id);
           _isSending = false;
         });
-        String errMsg = e.toString();
-        if (e is DioException && e.response?.data != null) {
-          final dynamic data = e.response!.data;
-          if (data is Map && data['message'] != null) {
-            errMsg = data['message'].toString();
-          }
+        final errMsg = _friendlyError(e);
+        // "Paid chat only" / session required — the recipient turned on paid
+        // chat. Switch to the buy-package gate immediately so they can't keep
+        // trying to send for free.
+        final isSessionReq = (e is DioException &&
+                e.response?.data is Map &&
+                (e.response!.data as Map)['error_code'] == 'session_required') ||
+            errMsg.toLowerCase().contains('chat session');
+        if (isSessionReq) {
+          setState(() {
+            _isRestricted = true;
+            _isCheckedRestriction = true;
+          });
+          NeonToast.info(context, errMsg);
+          return;
         }
         NeonToast.error(context, errMsg);
-        if (errMsg.toLowerCase().contains("block") ||
+        if (errMsg.toLowerCase().contains("stranger") ||
+            errMsg.toLowerCase().contains("unknown") ||
+            errMsg.toLowerCase().contains("privacy")) {
+          // Server confirmed this user doesn't accept messages from strangers.
+          // Flip the flag so the input disappears without needing a full reload.
+          setState(() => _allowsUnknownInbox = false);
+        } else if (errMsg.toLowerCase().contains("block") ||
             errMsg.toLowerCase().contains("unavail")) {
           _loadMessages();
         }
@@ -513,7 +582,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       });
     } catch (e) {
       setState(() => _isSending = false);
-      NeonToast.error(context, 'Failed to send media: $e');
+      NeonToast.error(context, _friendlyError(e));
     }
   }
 
@@ -553,7 +622,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         });
       }
     } catch (e) {
-      NeonToast.error(context, 'Failed to start recording: $e');
+      NeonToast.error(context, 'Could not start recording. Check microphone permission.');
     }
   }
 
@@ -592,25 +661,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _isSending = false;
         _recordDuration = Duration.zero;
       });
-      // Extract a user-friendly message from DioException
-      String errMsg = e.toString().replaceAll('Exception: ', '');
-      if (e is DioException) {
-        if (e.response?.data != null) {
-          final d = e.response!.data;
-          if (d is Map && d['message'] != null) {
-            errMsg = d['message'].toString();
-          } else {
-            errMsg = 'Server error ${e.response?.statusCode}';
-          }
-        } else if (e.type == DioExceptionType.connectionTimeout ||
-            e.type == DioExceptionType.receiveTimeout ||
-            e.type == DioExceptionType.sendTimeout) {
-          errMsg = 'Connection timed out. Check your internet.';
-        } else if (e.type == DioExceptionType.connectionError) {
-          errMsg = 'Could not connect to server.';
-        }
-      }
-      NeonToast.error(context, errMsg);
+      NeonToast.error(context, _friendlyError(e));
     }
   }
 
@@ -999,7 +1050,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
             if (_isRestricted)
               _buildRestrictedInput()
-            else if (!_isCheckedRestriction && _messages.isEmpty)
+            else if (!_isCheckedRestriction)
               const SizedBox(
                 height: 80,
                 child: Center(
@@ -1008,8 +1059,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                 ),
               )
+            // Someone messaged us first (we're the receiver of a pending
+            // request): let us reply directly — sending accepts the request
+            // server-side — instead of forcing a separate Accept step.
             else if (_requestStatus == 'pending_received')
-              _buildRequestPendingBar()
+              _buildInputArea()
+            // Respect the recipient's "Allow only messages from friends" toggle:
+            // when it's ON (they don't accept unknown inbox) and we aren't
+            // friends, show the restriction instead of the message input —
+            // UNLESS the viewer bought an active chat-time package / subscribed,
+            // in which case they may message until that access expires.
+            // If they messaged ME first, I can always reply — even if they only
+            // accept messages from followers. (Socket-sent messages don't create
+            // a message_request row, so rely on the actual message history.)
+            else if (!_isFriend &&
+                !_allowsUnknownInbox &&
+                !_hasPaidChatAccess &&
+                !_theyMessagedMe)
+              _buildStrangerBlockedBar()
             else
               _buildInputArea(),
           ],
@@ -1083,6 +1150,46 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildStrangerBlockedBar() {
+    final navPadding = MediaQuery.of(context).padding.bottom;
+    final bottomPadding = navPadding > 0 ? navPadding + 10.0 : 20.0;
+
+    final String subtitle;
+    if (_hasSubscriptionPlans) {
+      subtitle = 'Follow each other, or subscribe to ${widget.userName} to message them.';
+    } else {
+      subtitle = 'Follow each other to start a conversation.';
+    }
+
+    return Container(
+      padding: EdgeInsets.only(left: 24, right: 24, top: 20, bottom: bottomPadding),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E0E14),
+        border: Border(
+          top: BorderSide(color: const Color(0xFFD946EF).withValues(alpha: 0.25)),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.lock_outline, color: Color(0xFFD946EF), size: 28),
+          const SizedBox(height: 10),
+          Text(
+            '${widget.userName} only accepts messages from followers',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _acceptRequest() async {
     try {
       await _chatService.acceptRequest(widget.userId);
@@ -1109,6 +1216,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _buildRestrictedInput() {
     final bottomInset = MediaQuery.of(context).padding.bottom;
+    final hasPackages = _targetPackages.isNotEmpty;
+    final hasFreeChatSub = _hasFreeChatPlan && _hasSubscriptionPlans;
+
+    final String reason;
+    if (hasPackages && hasFreeChatSub) {
+      reason = 'Subscribe to ${widget.userName} for free unlimited chat, or buy a chat time package.';
+    } else if (hasPackages) {
+      reason = 'Buy a chat time package to start messaging ${widget.userName}.';
+    } else if (hasFreeChatSub) {
+      reason = 'Subscribe to ${widget.userName} to get free unlimited chat time.';
+    } else {
+      reason = 'Messaging ${widget.userName} requires a subscription or chat package.';
+    }
+
     return Container(
       padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottomInset),
       decoration: BoxDecoration(
@@ -1123,48 +1244,34 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.lock_outline,
-            color: GalacticTheme.laserPink,
-            size: 32,
-          ),
+          const Icon(Icons.lock_outline, color: GalacticTheme.laserPink, size: 32),
           const SizedBox(height: 12),
           const Text(
             'Message Restricted',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(
-            'Buy a chat time package to start messaging ${widget.userName}.',
+            reason,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.6),
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 14),
           ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton(
-              onPressed: _showPlansSheet,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: GalacticTheme.laserPink,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(24),
+          if (hasPackages) ...[
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: _showPlansSheet,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: GalacticTheme.laserPink,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                 ),
-              ),
-              child: const Text(
-                'Buy Chat Package',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                child: const Text('Buy Chat Package', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1287,12 +1394,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         : 'Friends',
                     style: const TextStyle(color: Color(0xFF22C55E), fontSize: 11),
                   )
-                else if (_requestStatus == 'pending_received')
+                // Once both sides have messaged the request is effectively
+                // accepted (server auto-accepts on reply) — don't keep showing
+                // the stale "Message Request" / "Request Sent" labels.
+                else if (_requestStatus == 'pending_received' &&
+                    !_bothHaveMessaged)
                   const Text(
                     'Message Request',
                     style: TextStyle(color: Color(0xFFF97316), fontSize: 11),
                   )
-                else if (_requestStatus == 'pending_sent')
+                else if (_requestStatus == 'pending_sent' && !_bothHaveMessaged)
                   const Text(
                     'Request Sent',
                     style: TextStyle(color: Colors.white38, fontSize: 11),
@@ -1346,6 +1457,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// The other user has sent me at least one message (they reached out first),
+  /// so I'm allowed to reply even if they only accept messages from followers.
+  bool get _theyMessagedMe =>
+      _messages.any((m) => m.senderId == widget.userId);
+
   bool get _bothHaveMessaged {
     if (_messages.isEmpty) return false;
     final myId = _chatService.currentUserId;
@@ -1375,16 +1491,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildMessageList() {
+    // Render strictly newest-first (reverse:true puts index 0 at the bottom).
+    // The list is built from server order + 9 insert points (sends, calls,
+    // voice, polls) so it can drift out of order — sorting a local copy by
+    // createdAt here guarantees correct chronology AND correct date dividers.
+    final ordered = List<Message>.of(_messages)
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      itemCount: _messages.length,
+      itemCount: ordered.length,
       itemBuilder: (context, index) {
-        final message = _messages[index];
+        final message = ordered[index];
         final isMe = message.senderId == _chatService.currentUserId;
-        final showDate = index == _messages.length - 1 ||
-            !_isSameDay(_messages[index + 1].createdAt, message.createdAt);
+        final showDate = index == ordered.length - 1 ||
+            !_isSameDay(ordered[index + 1].createdAt, message.createdAt);
 
         return Column(
           children: [
@@ -1962,22 +2084,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildPpmBar(),
+          // "5 min free remaining / Start Free" PPM bar removed per product decision.
           _isRecording ? _buildRecordingUI() : _buildNormalInputUI(),
         ],
       ),
-    );
-  }
-
-  /// Timer bar above the composer — shows package countdown when active
-  /// or a "Buy / Start free" prompt when the creator has packages.
-  Widget _buildPpmBar() {
-    final sellerId = int.tryParse(widget.userId) ?? 0;
-    return ChatTimerBar(
-      sellerId: sellerId,
-      targetPkgCount: _targetPackages.length,
-      freeMinLeft: _freeMinLeft,
-      onBuyPackage: () => _showBuyPackageSheet(sellerId),
     );
   }
 
@@ -2286,7 +2396,7 @@ class _BuyPackageSheetState extends State<_BuyPackageSheet> {
       }
     } catch (e) {
       if (mounted) {
-        NeonToast.error(context, e.toString().replaceAll('Exception: ', ''));
+        NeonToast.error(context, _friendlyError(e));
       }
     } finally {
       if (mounted) setState(() => _loadingId = -1);
@@ -2296,7 +2406,7 @@ class _BuyPackageSheetState extends State<_BuyPackageSheet> {
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
-    final hasFree = widget.freeMinLeft > 0;
+
     return SafeArea(
       top: false,
       child: Container(
@@ -2346,15 +2456,7 @@ class _BuyPackageSheetState extends State<_BuyPackageSheet> {
                     color: Colors.white.withValues(alpha: 0.5),
                     fontSize: 13)),
             const SizedBox(height: 20),
-            if (hasFree)
-              _tile(
-                id: 0,
-                label: '5 min Free',
-                subtitle: 'One-time per creator',
-                coins: 0,
-                minutes: widget.freeMinLeft,
-                isFree: true,
-              ),
+
             ...widget.packages.map((p) => _tile(
                   id: p.id,
                   label: p.name,
@@ -2363,7 +2465,7 @@ class _BuyPackageSheetState extends State<_BuyPackageSheet> {
                   minutes: p.minutes,
                   isFree: p.isFree,
                 )),
-            if (!hasFree && widget.packages.isEmpty)
+            if (widget.packages.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 20),
                 child: Text('No packages available',

@@ -107,7 +107,14 @@ class ZegoProvider implements VideoCallProvider {
     }
 
     final config = ZegoUIKitPrebuiltCallConfig.oneOnOneVideoCall();
-    config.video = ZegoUIKitVideoConfig.preset720P();
+    // Portrait resolution (height > width) — the app is locked to portrait, so
+    // a landscape 1280x720 capture made the video render sideways/letterboxed.
+    config.video = ZegoUIKitVideoConfig(
+      width: 720,
+      height: 1280,
+      bitrate: 2000,
+      fps: 30,
+    );
     config.turnOnCameraWhenJoining = isVideoCall;
     config.turnOnMicrophoneWhenJoining = true;
     config.useSpeakerWhenJoining = true;

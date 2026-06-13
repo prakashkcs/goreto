@@ -12,12 +12,14 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.speech.tts.TextToSpeech
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import android.app.Activity
 import java.net.URL
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class NearbyAlertActivity : Activity() {
@@ -45,6 +47,7 @@ class NearbyAlertActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
     private val handler  = Handler(Looper.getMainLooper())
     private var ringPlayer: MediaPlayer? = null
+    private var tts: TextToSpeech? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,6 +97,7 @@ class NearbyAlertActivity : Activity() {
         // "Say Hi" — full-width green pill button
         findViewById<Button>(R.id.btnConnect).setOnClickListener {
             stopRing()
+            stopVoice()
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -111,6 +115,7 @@ class NearbyAlertActivity : Activity() {
         // "Not now" — outlined secondary pill
         findViewById<Button>(R.id.btnIgnore).setOnClickListener {
             stopRing()
+            stopVoice()
             dismissNotification()
             finish()
         }
@@ -132,6 +137,51 @@ class NearbyAlertActivity : Activity() {
 
         // Ring once we're fully on-screen
         startRing()
+
+        // Announce the person's name out loud (works even when the app is
+        // killed / the device is locked — this is a native Activity, not Dart).
+        startVoiceAnnouncement(senderName)
+    }
+
+    /**
+     * Speaks "<name> tapai ko najik hununcha" (romanized Nepali for "<name> is
+     * near you") using the device's native TTS engine. Runs over the lock
+     * screen with the app fully killed. Spoken twice with a short gap so a
+     * sleeping/just-woken user catches the name.
+     */
+    private fun startVoiceAnnouncement(name: String) {
+        val phrase = "$name tapai ko najik hununcha"
+        try {
+            tts = TextToSpeech(applicationContext) { status ->
+                if (status != TextToSpeech.SUCCESS) return@TextToSpeech
+                val engine = tts ?: return@TextToSpeech
+                try {
+                    // English voice pronounces the romanized Nepali phrase
+                    // phonetically; most devices lack a Nepali (Devanagari) voice.
+                    engine.language = Locale.ENGLISH
+                    // Route speech through the ringtone stream so it is audible
+                    // on the lock screen even when media volume is muted.
+                    engine.setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    engine.setSpeechRate(0.95f)
+                    engine.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "nearby_voice_1")
+                    engine.playSilentUtterance(700, TextToSpeech.QUEUE_ADD, "nearby_voice_gap")
+                    engine.speak(phrase, TextToSpeech.QUEUE_ADD, null, "nearby_voice_2")
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun stopVoice() {
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (_: Exception) {}
+        tts = null
     }
 
     private fun startRing() {
@@ -146,6 +196,8 @@ class NearbyAlertActivity : Activity() {
                 setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 afd.close()
                 isLooping = true
+                // Lower the ring so the spoken name stays intelligible over it.
+                setVolume(0.4f, 0.4f)
                 prepare()
                 start()
             }
@@ -182,6 +234,7 @@ class NearbyAlertActivity : Activity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         stopRing()
+        stopVoice()
         super.onDestroy()
         executor.shutdown()
     }

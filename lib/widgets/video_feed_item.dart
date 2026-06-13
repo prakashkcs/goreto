@@ -732,6 +732,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
       'Violence',
       'Hate speech',
       'Harassment',
+      'Child sexual abuse / exploitation (CSAE)',
       'Other',
     ];
     String? selectedReason;
@@ -1004,8 +1005,8 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                           widget.post['is_locked'] == true)
                         ImageFiltered(
                           imageFilter: ImageFilter.blur(
-                            sigmaX: 15.0,
-                            sigmaY: 15.0,
+                            sigmaX: 32.0,
+                            sigmaY: 32.0,
                           ),
                           child: thumbUrl.isNotEmpty
                               ? CachedNetworkImage(
@@ -1047,8 +1048,8 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                                       widget.post['is_locked'] == true)
                                   ? ImageFiltered(
                                       imageFilter: ImageFilter.blur(
-                                        sigmaX: 8.0,
-                                        sigmaY: 8.0,
+                                        sigmaX: 30.0,
+                                        sigmaY: 30.0,
                                       ),
                                       child: VideoPlayer(_controller!),
                                     )

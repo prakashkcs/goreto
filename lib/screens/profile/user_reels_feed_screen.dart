@@ -148,6 +148,10 @@ class _UserReelsFeedScreenState extends State<UserReelsFeedScreen> {
       );
     }
 
+    // Lift the bottom overlays above the system navigation bar so the
+    // username/caption and action buttons aren't cut off behind it.
+    final bottomSafe = MediaQuery.of(context).padding.bottom;
+
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
@@ -241,7 +245,7 @@ class _UserReelsFeedScreenState extends State<UserReelsFeedScreen> {
 
               // Bottom Text & Caption
               Positioned(
-                bottom: 40,
+                bottom: 40 + bottomSafe,
                 left: 16,
                 right: 80,
                 child: Column(
@@ -273,7 +277,7 @@ class _UserReelsFeedScreenState extends State<UserReelsFeedScreen> {
 
               // Right Action Buttons
               Positioned(
-                bottom: 40,
+                bottom: 40 + bottomSafe,
                 right: 12,
                 child: Column(
                   children: [

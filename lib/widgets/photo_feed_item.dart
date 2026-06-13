@@ -1,6 +1,8 @@
 ﻿import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:love_vibe_pro/widgets/full_screen_photo_viewer.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:visibility_detector/visibility_detector.dart';
@@ -31,6 +33,10 @@ class PhotoFeedItem extends StatefulWidget {
   final VoidCallback? onSubscribe;
   final VoidCallback? onDeleted;
 
+  /// True when this card is the centered/active one in the feed — drives
+  /// custom-audio autoplay (loops the attached ≤60s clip).
+  final bool isActive;
+
   const PhotoFeedItem({
     super.key,
     required this.post,
@@ -39,6 +45,7 @@ class PhotoFeedItem extends StatefulWidget {
     this.onShare,
     this.onSubscribe,
     this.onDeleted,
+    this.isActive = false,
   });
 
   @override
@@ -123,6 +130,35 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
         userNode['is_following'] == true ||
         userNode['is_following'] == 1;
     _impressionStart = DateTime.now();
+    _syncSound();
+  }
+
+  @override
+  void didUpdateWidget(covariant PhotoFeedItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) _syncSound();
+  }
+
+  // ── Custom-audio autoplay ──────────────────────────────────────────────────
+  AudioPlayer? _soundPlayer;
+
+  String get _soundUrl => (widget.post['sound_url'] ?? '').toString();
+
+  /// Plays the post's attached trending audio (looped) while this card is the
+  /// active/centered one; stops it otherwise. The clip is already ≤60s.
+  Future<void> _syncSound() async {
+    final url = _soundUrl;
+    if (widget.isActive && url.startsWith('http')) {
+      try {
+        _soundPlayer ??= AudioPlayer();
+        await _soundPlayer!.setReleaseMode(ReleaseMode.loop);
+        await _soundPlayer!.play(UrlSource(url));
+      } catch (_) {}
+    } else {
+      try {
+        await _soundPlayer?.stop();
+      } catch (_) {}
+    }
   }
 
   // _loadCurrentUserId removed â€” now sync via UserPrefsCache in initState
@@ -140,6 +176,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
 
   @override
   void dispose() {
+    _soundPlayer?.dispose();
     _heartController.dispose();
     if (_impressionStart != null) {
       final ms = DateTime.now().difference(_impressionStart!).inMilliseconds;
@@ -597,6 +634,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
       'Violence or harmful content',
       'Hate speech',
       'Harassment or bullying',
+      'Child sexual abuse / exploitation (CSAE)',
       'Other',
     ];
     String? selectedReason;
@@ -875,8 +913,9 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
 
     return GestureDetector(
       onLongPress: _handleLongPress,
-      child: Container(
-        height: MediaQuery.of(context).size.width * 5 / 4,
+      child: AspectRatio(
+        aspectRatio: 4.0 / 5.0,
+        child: Container(
         margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
@@ -915,14 +954,19 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                   else
                     GestureDetector(
                       onDoubleTap: _handleDoubleTap,
+                      // Single tap → full-screen zoomable viewer + download
+                      // (with app-logo watermark). Disabled on locked content.
+                      onTap: (imageUrl.isNotEmpty && !isLocked)
+                          ? () => FullScreenPhotoViewer.open(context, imageUrl)
+                          : null,
                       child: imageUrl.isEmpty
                           ? _buildImageError('empty media url', imageUrl)
                           : CachedNetworkImage(
                               imageUrl: imageUrl,
                               fit: BoxFit.cover,
                               width: double.infinity,
+                              // Width-only decode preserves aspect ratio (both = stretch).
                               memCacheWidth: 600,
-                              memCacheHeight: 800,
                               placeholder: (p3_0, p3_1) =>
                                   Container(color: const Color(0xFF1E1E1E)),
                               errorWidget: (_, __, error) =>
@@ -960,16 +1004,16 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                   // 4. Top Overlay (User & Subscribe) — frosted gradient header
                   Positioned(
                     top: 0,
-                    left: 40,
-                    right: 40,
+                    left: 0,
+                    right: 0,
                     child: Container(
-                      padding: const EdgeInsets.fromLTRB(12, 14, 12, 28),
+                      padding: const EdgeInsets.fromLTRB(52, 14, 52, 28),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            Colors.black.withValues(alpha: 0.65),
+                            Colors.black.withValues(alpha: 0.80),
                             Colors.transparent,
                           ],
                         ),
@@ -1075,20 +1119,6 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                                             true),
                                 onTap: _handleFollow,
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${widget.post['views_unique'] ?? widget.post['views_total'] ?? widget.post['view_count'] ?? widget.post['views_count'] ?? widget.post['views'] ?? 0} Views',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                  shadows: [
-                                    Shadow(color: Colors.black, blurRadius: 4)
-                                  ],
-                                ),
-                              ),
                             ],
                           ),
                         ],
@@ -1166,6 +1196,36 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                         style: _kCaptionStyle,
                       ),
                     ),
+
+                  // 7. Views count at bottom-left (matches reels style)
+                  Positioned(
+                    left: 12,
+                    bottom: 6,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.remove_red_eye_outlined,
+                            color: Colors.white70, size: 13),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${widget.post['views_unique'] ?? widget.post['views_total'] ?? widget.post['view_count'] ?? widget.post['views_count'] ?? widget.post['views'] ?? 0}',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text('views',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                              shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                            )),
+                      ],
+                    ),
+                  ),
                 ],
                 ),
               ),
@@ -1173,6 +1233,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -1272,8 +1333,9 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                 fit: BoxFit.cover,
                 width: double.infinity,
                 height: double.infinity,
+                // Only constrain width so the decode preserves aspect ratio.
+                // Setting both forces a square decode that STRETCHES the photo.
                 memCacheWidth: 700,
-                memCacheHeight: 700,
                 placeholder: (_, __) => Container(color: const Color(0xFF111118)),
                 errorWidget: (_, __, e) => _buildImageError(e, imageUrl),
               );
@@ -1288,71 +1350,9 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
           border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.max,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── TOP HEADER: Reposter → Original creator ──────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Reposter avatar
-                  GestureDetector(
-                    onTap: () => goToProfile(resharerId),
-                    child: buildAvatar(userAvatar, username, 18, const Color(0xFF3B82F6)),
-                  ),
-                  const SizedBox(width: 8),
-                  // Names: "username reposted"
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => goToProfile(resharerId),
-                      child: RichText(
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        text: TextSpan(
-                          style: const TextStyle(fontSize: 13),
-                          children: [
-                            TextSpan(
-                              text: username,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const TextSpan(
-                              text: ' reposted',
-                              style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w400),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Repost badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFD946EF), Color(0xFF7C3AED)],
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.repeat_rounded, size: 11, color: Colors.white),
-                        SizedBox(width: 3),
-                        Text('Repost',
-                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
             // Resharer's comment/caption (if any)
             if (reshareCaption.isNotEmpty)
               Padding(
@@ -1362,9 +1362,8 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis),
               ),
-
-            // ── MAIN PHOTO CARD with overlaid original-author info ───────
-            GestureDetector(
+            Expanded(
+              child: GestureDetector(
               onDoubleTap: _handleDoubleTap,
               onTap: () {
                 final url = viewerImageUrl;
@@ -1400,17 +1399,14 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                 );
               },
               child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(2), bottom: Radius.circular(0)),
-                child: AspectRatio(
-                  aspectRatio: 1.0,
-                  child: Stack(
+                borderRadius: BorderRadius.circular(14),
+                child: Stack(
                     fit: StackFit.expand,
                     children: [
                       // Image / text content
                       (widget.post['is_locked'] == 1 || widget.post['is_locked'] == true)
                           ? ImageFiltered(
-                              imageFilter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                              imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                               child: imageWidget)
                           : imageWidget,
 
@@ -1423,67 +1419,161 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                           onSubscribed: () => goToProfile(_resolvePostAuthorId()),
                         )),
 
-                      // Bottom gradient for legibility
+                      // Repost header overlay (reel-style: stacked avatars)
                       Positioned(
-                        left: 0, right: 0, bottom: 0, height: 90,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [Colors.black.withValues(alpha: 0.75), Colors.transparent],
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // Original author attribution — bottom
-                      Positioned(
-                        left: 0, right: 0, bottom: 0,
+                        top: 0,
+                        left: 0,
+                        right: 0,
                         child: Container(
-                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                          padding: const EdgeInsets.fromLTRB(10, 10, 10, 24),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [Colors.black.withValues(alpha: 0.88), Colors.transparent],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.black.withValues(alpha: 0.85),
+                                Colors.transparent,
+                              ],
                             ),
                           ),
-                          child: GestureDetector(
-                            onTap: () => goToProfile(originalUserId),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                buildAvatar(originalAvatar, originalFirstName, 15, const Color(0xFF7C3AED)),
-                                const SizedBox(width: 8),
-                                Column(
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 44,
+                                height: 36,
+                                child: Stack(children: [
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: const Color(0xFF7C3AED), width: 1.5),
+                                      ),
+                                      child: buildAvatar(originalAvatar, originalFirstName, 13, const Color(0xFF7C3AED)),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: 0,
+                                    top: 0,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: const Color(0xFF3B82F6), width: 1.5),
+                                      ),
+                                      child: buildAvatar(userAvatar, username, 13, const Color(0xFF3B82F6)),
+                                    ),
+                                  ),
+                                ]),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Text('Original post by',
-                                        style: TextStyle(color: Colors.white54, fontSize: 10)),
-                                    Text(
-                                      originalUsername.isNotEmpty ? originalUsername : 'Creator',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
+                                    GestureDetector(
+                                      onTap: () => goToProfile(resharerId),
+                                      child: RichText(
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        text: TextSpan(
+                                          style: const TextStyle(fontSize: 12),
+                                          children: [
+                                            TextSpan(text: username, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                                            const TextSpan(text: ' reposted', style: TextStyle(color: Colors.white54)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    GestureDetector(
+                                      onTap: () => goToProfile(originalUserId),
+                                      child: RichText(
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        text: TextSpan(
+                                          style: const TextStyle(fontSize: 11),
+                                          children: [
+                                            const TextSpan(text: 'by ', style: TextStyle(color: Colors.white38)),
+                                            TextSpan(
+                                              text: originalUsername.isNotEmpty ? originalUsername : 'Original creator',
+                                              style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
-                              ],
-                            ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(colors: [Color(0xFFD946EF), Color(0xFF7C3AED)]),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                                  Icon(Icons.repeat_rounded, size: 11, color: Colors.white),
+                                  SizedBox(width: 3),
+                                  Text('Repost', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                                ]),
+                              ),
+                            ],
                           ),
                         ),
                       ),
 
-                      // Heart animation
+                                            // Heart animation
                       if (_showHeartOverlay)
                         Center(child: ScaleTransition(
                           scale: CurvedAnimation(parent: _heartController, curve: Curves.elasticOut),
                           child: const Icon(Icons.favorite, color: Color(0xFFFF007F), size: 80),
                         )),
+                      // Reel-style right action column (overlaid on the photo)
+                      Positioned(
+                        right: 6,
+                        bottom: 10,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildActionBtn(
+                              _isLiked ? Icons.favorite : Icons.favorite_border,
+                              '$_likesCount',
+                              _isLiked ? const Color(0xFFFF007F) : Colors.white,
+                              _handleLike,
+                            ),
+                            const SizedBox(height: 14),
+                            _buildActionBtn(
+                              Icons.chat_bubble_outline_rounded,
+                              '${widget.post['comments_count'] ?? 0}',
+                              Colors.white,
+                              _showCommentsSheet,
+                            ),
+                            const SizedBox(height: 14),
+                            _buildActionBtn(Icons.near_me_outlined, 'Share', Colors.white, _showShareSheet),
+                            if (!_isOwnPost) ...[
+                              const SizedBox(height: 14),
+                              _buildActionBtn(Icons.card_giftcard_rounded, 'Gift', const Color(0xFFFFD700), _openGiftsSheet, _showGiftLeaderboard),
+                            ],
+                          ],
+                        ),
+                      ),
+                      // Views count (bottom-left, overlaid)
+                      Positioned(
+                        left: 12,
+                        bottom: 14,
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          const Icon(Icons.remove_red_eye_outlined, size: 15, color: Colors.white,
+                              shadows: [Shadow(color: Colors.black, blurRadius: 6)]),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${widget.post['views_unique'] ?? widget.post['views_total'] ?? widget.post['view_count'] ?? 0}',
+                            style: const TextStyle(color: Colors.white, fontSize: 12,
+                                shadows: [Shadow(color: Colors.black, blurRadius: 6)]),
+                          ),
+                        ]),
+                      ),
                     ],
                   ),
                 ),
@@ -1500,71 +1590,54 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                     overflow: TextOverflow.ellipsis),
               ),
 
-            // ── ACTION BAR ───────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-              child: Row(children: [
-                // Like
-                _buildActionBtn(
-                  _isLiked ? Icons.favorite : Icons.favorite_border,
-                  '$_likesCount',
-                  _isLiked ? const Color(0xFFFF007F) : Colors.white54,
-                  _handleLike,
-                ),
-                const SizedBox(width: 6),
-                // Comment
-                _buildActionBtn(
-                  Icons.chat_bubble_outline_rounded,
-                  '${widget.post['comments_count'] ?? 0}',
-                  Colors.white54,
-                  _showCommentsSheet,
-                ),
-                const SizedBox(width: 6),
-                // Share
-                _buildActionBtn(Icons.near_me_outlined, 'Share', Colors.white54, _showShareSheet),
-                const Spacer(),
-                // Views label
-                Row(children: [
-                  const Icon(Icons.visibility_outlined, size: 14, color: Colors.white30),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${widget.post['views_unique'] ?? widget.post['views_total'] ?? widget.post['view_count'] ?? 0}',
-                    style: const TextStyle(color: Colors.white30, fontSize: 12),
-                  ),
-                ]),
-                if (!_isOwnPost) ...[
-                  const SizedBox(width: 14),
-                  GestureDetector(
-                    onTap: _openGiftsSheet,
-                    child: Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFD700).withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.card_giftcard_rounded,
-                          color: Color(0xFFFFD700), size: 18),
-                    ),
-                  ),
-                ],
-              ]),
-            ),
           ],
         ),
       ),
     );
   }
 
-  void _openGiftsSheet() {
+  void _openGiftsSheet() async {
     final uploaderId =
         (widget.post['user_id'] ?? widget.post['user']?['id'] ?? '').toString();
     final postId =
         (widget.post['id'] ?? widget.post['post_id'] ?? '').toString();
-    GiftsSheet.show(
+    await GiftsSheet.show(
       context: context,
       toUserId: uploaderId,
       contextType: 'post',
       contextId: postId,
+    );
+    // Refresh the overlay so a just-sent gift animates in immediately.
+    _refreshGiftOverlay();
+  }
+
+  /// Re-fetch the post's gifts and refresh the floating overlay (called after
+  /// a gift is sent so it shows without leaving the post).
+  void _refreshGiftOverlay() {
+    final postId =
+        (widget.post['id'] ?? widget.post['post_id'] ?? '').toString();
+    if (postId.isEmpty) return;
+    _api.fetchPostGifts(contextType: 'post', contextId: postId).then((raw) {
+      if (!mounted) return;
+      setState(() =>
+          _giftOverlayData = raw.map((e) => GiftTx.fromJson(e)).toList());
+    });
+  }
+
+  /// Opens the gift leaderboard for this post — total gifts/coins plus a
+  /// ranked list of top gifters. Each gifter row opens their profile.
+  void _showGiftLeaderboard() {
+    final postId =
+        (widget.post['id'] ?? widget.post['post_id'] ?? '').toString();
+    if (postId.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF12121E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (_) => _GiftLeaderboardSheet(api: _api, postId: postId),
     );
   }
 
@@ -1634,18 +1707,10 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
           final avatar = g.senderAvatar;
           final name = g.senderName.split(' ').first;
           final iconUrl = g.gifUrl;
-          final senderId = g.senderId;
           return GestureDetector(
-            onTap: () {
-              if (senderId.isNotEmpty && senderId != '0') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (p9_0) => ProfileScreen(userId: senderId),
-                  ),
-                );
-              }
-            },
+            // Tapping the gifters strip opens the full gift leaderboard for
+            // this post; individual users are tappable inside that sheet.
+            onTap: _showGiftLeaderboard,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1702,10 +1767,12 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
     IconData icon,
     String label,
     Color color,
-    VoidCallback? onTap,
-  ) {
+    VoidCallback? onTap, [
+    VoidCallback? onLongPress,
+  ]) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1724,6 +1791,189 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
             style: _kActionLabelStyle,
           ),
         ],
+      ),
+    );
+  }
+}
+
+// Gift leaderboard — total gifts/coins on a post + ranked top gifters.
+// Each row opens the gifter's profile.
+class _GiftLeaderboardSheet extends StatelessWidget {
+  final ApiService api;
+  final String postId;
+  const _GiftLeaderboardSheet({required this.api, required this.postId});
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      builder: (context, scrollController) {
+        return FutureBuilder<Map<String, dynamic>>(
+          future: api.getPostGiftLeaderboard(postId),
+          builder: (context, snap) {
+            final data = snap.data;
+            final leaders = (data?['leaders'] as List?) ?? [];
+            final totalGifts = int.tryParse('${data?['total_gifts'] ?? 0}') ?? 0;
+            final totalCoins = int.tryParse('${data?['total_coins'] ?? 0}') ?? 0;
+            return Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 10, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 4, 18, 12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.emoji_events_rounded,
+                          color: Color(0xFFFFD700), size: 22),
+                      const SizedBox(width: 8),
+                      const Text('Top Gifters',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 17)),
+                      const Spacer(),
+                      if (totalGifts > 0) ...[
+                        Text('$totalGifts gift${totalGifts == 1 ? '' : 's'} · ',
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 12)),
+                        Text('$totalCoins',
+                            style: const TextStyle(
+                                color: Color(0xFFFFD700),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700)),
+                        const SizedBox(width: 3),
+                        const Icon(Icons.monetization_on,
+                            color: Color(0xFFFFD700), size: 14),
+                      ],
+                    ],
+                  ),
+                ),
+                if (snap.connectionState == ConnectionState.waiting)
+                  const Expanded(
+                      child: Center(
+                          child: CircularProgressIndicator(
+                              color: Color(0xFFFF007F))))
+                else if (leaders.isEmpty)
+                  const Expanded(
+                      child: Center(
+                          child: Text('No gifts on this post yet',
+                              style: TextStyle(color: Colors.white54))))
+                else
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: leaders.length,
+                      itemBuilder: (context, i) => _leaderRow(context,
+                          Map<String, dynamic>.from(leaders[i] as Map)),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _leaderRow(BuildContext context, Map<String, dynamic> m) {
+    final rank = int.tryParse('${m['rank'] ?? 0}') ?? 0;
+    final userId = (m['user_id'] ?? '').toString();
+    final name = (m['name'] ?? 'User').toString();
+    final avatar = (m['avatar'] ?? '').toString();
+    final coins = int.tryParse('${m['total_coins'] ?? 0}') ?? 0;
+    final count = int.tryParse('${m['gift_count'] ?? 0}') ?? 0;
+    final hasAvatar = avatar.isNotEmpty && avatar.startsWith('http');
+    final medal = rank == 1
+        ? '🥇'
+        : rank == 2
+            ? '🥈'
+            : rank == 3
+                ? '🥉'
+                : '#$rank';
+    final top3 = rank <= 3;
+    return GestureDetector(
+      onTap: () {
+        if (userId.isNotEmpty && userId != '0') {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => ProfileScreen(userId: userId)),
+          );
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: top3
+              ? const Color(0xFFFFD700).withValues(alpha: 0.08)
+              : Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: top3
+                ? const Color(0xFFFFD700).withValues(alpha: 0.30)
+                : Colors.white.withValues(alpha: 0.06),
+          ),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 30,
+              child: Text(medal,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16, color: Colors.white)),
+            ),
+            const SizedBox(width: 8),
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: const Color(0xFF2A2A3A),
+              backgroundImage:
+                  hasAvatar ? CachedNetworkImageProvider(avatar) : null,
+              child: hasAvatar
+                  ? null
+                  : Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+                      style: const TextStyle(color: Colors.white)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14)),
+                  Text('$count gift${count == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                          color: Colors.white38, fontSize: 11)),
+                ],
+              ),
+            ),
+            Text('$coins',
+                style: const TextStyle(
+                    color: Color(0xFFFFD700),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15)),
+            const SizedBox(width: 3),
+            const Icon(Icons.monetization_on,
+                color: Color(0xFFFFD700), size: 16),
+          ],
+        ),
       ),
     );
   }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -225,6 +226,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         child: Column(
           children: [
             _buildHeader(),
+            const _ChatStreakCard(),
             const TabBar(
               indicatorColor: Color(0xFFD946EF),
               labelColor: Colors.white,
@@ -257,49 +259,114 @@ class _ChatListScreenState extends State<ChatListScreen> {
       child: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
-          // Message requests section
-          if (_requests.isNotEmpty) ...[
-            _buildSectionHeader(
-              icon: Icons.mark_email_unread_rounded,
-              label: 'Message Requests',
-              count: _requests.length,
-              color: const Color(0xFFFF9F0A),
-            ),
-            ..._requests.map((c) => _buildConversationItem(c, isRequest: true)),
-            const SizedBox(height: 8),
-          ],
-
-          // Friends / direct chats section
-          if (_direct.isNotEmpty) ...[
-            if (_requests.isNotEmpty)
-              _buildSectionHeader(
-                icon: Icons.chat_bubble_rounded,
-                label: 'Messages',
-                count: _direct.length,
-                color: const Color(0xFFD946EF),
-              ),
-            ..._direct.map((c) => _buildConversationItem(c)),
-          ],
+          _buildRequestsFolderRow(),
+          ..._direct.map((c) => _buildConversationItem(c)),
         ],
       ),
     );
   }
 
-  Widget _buildSectionHeader({required IconData icon, required String label, required int count, required Color color}) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 8, 4, 10),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 16),
-          const SizedBox(width: 6),
-          Text(label, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
-            child: Text('$count', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+  Widget _buildRequestsFolderRow() {
+    final previews = _requests.take(3).toList();
+    final hasRequests = _requests.isNotEmpty;
+    final previewWidth = previews.length > 1 ? 38.0 + (previews.length - 1) * 20.0 : 38.0;
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _MessageRequestsScreen(
+            requests: _requests,
+            onRefresh: _loadConversations,
           ),
-        ],
+        ),
+      ).then((_) => _loadConversations()),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12, top: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: hasRequests
+                ? const Color(0xFFFF9F0A).withValues(alpha: 0.5)
+                : Colors.white.withValues(alpha: 0.08),
+          ),
+          boxShadow: hasRequests
+              ? [BoxShadow(color: const Color(0xFFFF9F0A).withValues(alpha: 0.08), blurRadius: 12)]
+              : null,
+        ),
+        child: Row(
+          children: [
+            if (hasRequests)
+              SizedBox(
+                width: previewWidth,
+                height: 38,
+                child: Stack(
+                  children: [
+                    for (int i = 0; i < previews.length; i++)
+                      Positioned(
+                        left: i * 20.0,
+                        child: Container(
+                          width: 38, height: 38,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xFF121212), width: 2),
+                          ),
+                          child: ClipOval(
+                            child: previews[i].otherUserAvatar != null && previews[i].otherUserAvatar!.isNotEmpty
+                                ? CachedNetworkImage(imageUrl: previews[i].otherUserAvatar!, fit: BoxFit.cover)
+                                : _avatarPlaceholder(),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              )
+            else
+              Container(
+                width: 38, height: 38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.06),
+                ),
+                child: const Icon(Icons.mark_email_unread_rounded, color: Colors.white38, size: 18),
+              ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Message Requests',
+                      style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 3),
+                  Text(
+                    _requests.isEmpty
+                        ? 'No requests'
+                        : _requests.length == 1
+                            ? '${_requests[0].otherUserName} sent you a request'
+                            : '${_requests.length} people sent you requests',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 12),
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (hasRequests) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFFFF9F0A), Color(0xFFFF6B00)]),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('${_requests.length}',
+                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 4),
+            ],
+            Icon(Icons.chevron_right_rounded,
+                color: hasRequests ? const Color(0xFFFF9F0A) : Colors.white24, size: 20),
+          ],
+        ),
       ),
     );
   }
@@ -656,4 +723,236 @@ class _ChatListScreenState extends State<ChatListScreen> {
     width: 52, height: 52, color: const Color(0xFF2A2A2A),
     child: const Icon(Icons.person, color: Colors.white38),
   );
+}
+
+class _MessageRequestsScreen extends StatelessWidget {
+  final List<Conversation> requests;
+  final VoidCallback onRefresh;
+
+  const _MessageRequestsScreen({required this.requests, required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0A0A0A),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0A0A0A),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Message Requests',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('${requests.length} request${requests.length == 1 ? '' : 's'}',
+                style: const TextStyle(color: Color(0xFFFF9F0A), fontSize: 12)),
+          ],
+        ),
+      ),
+      body: requests.isEmpty
+          ? const Center(
+              child: Text('No message requests', style: TextStyle(color: Colors.white38, fontSize: 15)),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              itemCount: requests.length,
+              itemBuilder: (context, i) => _RequestItem(
+                conv: requests[i],
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ChatScreen(
+                        userId: requests[i].otherUserId,
+                        userName: requests[i].otherUserName,
+                        userAvatar: requests[i].otherUserAvatar,
+                      ),
+                    ),
+                  ).then((_) => onRefresh());
+                },
+              ),
+            ),
+    );
+  }
+}
+
+class _RequestItem extends StatelessWidget {
+  final Conversation conv;
+  final VoidCallback onTap;
+
+  const _RequestItem({required this.conv, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFFF9F0A).withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          children: [
+            ClipOval(
+              child: conv.otherUserAvatar != null && conv.otherUserAvatar!.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: conv.otherUserAvatar!,
+                      width: 52, height: 52, fit: BoxFit.cover,
+                    )
+                  : Container(
+                      width: 52, height: 52, color: const Color(0xFF2A2A2A),
+                      child: const Icon(Icons.person, color: Colors.white38),
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(conv.otherUserName,
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 3),
+                  Text(
+                    conv.lastMessage?.content ?? 'Sent a message request',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 12),
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Chat streak card — shows the user's consecutive-day chat streak + a nudge.
+// ═══════════════════════════════════════════════════════════════════════════
+class _ChatStreakCard extends StatefulWidget {
+  const _ChatStreakCard();
+
+  @override
+  State<_ChatStreakCard> createState() => _ChatStreakCardState();
+}
+
+class _ChatStreakCardState extends State<_ChatStreakCard> {
+  Map<String, dynamic>? _chat;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final info = await ApiService().getStreakInfo();
+    if (!mounted) return;
+    setState(() {
+      _chat = info?['chat_streak'] is Map
+          ? Map<String, dynamic>.from(info!['chat_streak'])
+          : null;
+      _loaded = true;
+    });
+  }
+
+  int _i(dynamic v) => int.tryParse('${v ?? 0}') ?? 0;
+
+  String _fmtLeft(int s) {
+    final h = s ~/ 3600, m = (s % 3600) ~/ 60;
+    if (h >= 24) {
+      final d = h ~/ 24, rh = h % 24;
+      return rh > 0 ? '${d}d ${rh}h' : '${d}d';
+    }
+    if (h > 0) return m > 0 ? '${h}h ${m}m' : '${h}h';
+    return '${m}m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_loaded || _chat == null) return const SizedBox.shrink();
+    final display = _i(_chat!['display_streak']);
+    final current = _i(_chat!['current_streak']);
+    final threshold = _chat!['start_threshold'] == null
+        ? 3
+        : _i(_chat!['start_threshold']);
+    final secondsLeft = _i(_chat!['seconds_left']);
+
+    final bool started = display > 0;
+    final IconData icon =
+        started ? Icons.local_fire_department_rounded : Icons.forum_rounded;
+    final Color color =
+        started ? const Color(0xFFFF6B35) : const Color(0xFF22D3EE);
+
+    String title;
+    String subtitle;
+    if (started) {
+      title = '$display-day chat streak';
+      subtitle = secondsLeft > 0
+          ? 'Keep it alive — resets in ${_fmtLeft(secondsLeft)}'
+          : 'Send a message today to keep it going';
+    } else if (current > 0) {
+      final left = (threshold - current).clamp(1, threshold);
+      title = 'Chat streak building ($current/$threshold)';
+      subtitle = 'Chat $left more day${left == 1 ? '' : 's'} in a row to start it';
+    } else {
+      title = 'Start a chat streak';
+      subtitle = 'Chat $threshold days in a row to begin 🔥';
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [color.withValues(alpha: 0.18), color.withValues(alpha: 0.05)],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14)),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 12)),
+              ],
+            ),
+          ),
+          if (started)
+            Text('🔥 $display',
+                style: TextStyle(
+                    color: color, fontWeight: FontWeight.w800, fontSize: 18)),
+        ],
+      ),
+    );
+  }
 }

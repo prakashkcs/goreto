@@ -14,13 +14,16 @@ class Formatters {
     if (distance == null) return '$distanceKm km';
 
     if (distance < 1.0) {
-      final int meters = (distance * 1000).toInt();
+      final int meters = (distance * 1000).round();
       // Avoid "0 m" if it's actually just very small but not 0
-      if (meters == 0 && distance > 0) return '1 m';
+      if (meters <= 0 && distance > 0) return '1 m';
       return '$meters m';
+    } else if (distance < 10.0) {
+      // One decimal for nearby distances — truncating to whole km made
+      // e.g. 2.7 km show as "2 km" (~1 km error).
+      return '${distance.toStringAsFixed(1)} km';
     } else {
-      final int km = distance.toInt();
-      return '$km km';
+      return '${distance.round()} km';
     }
   }
 }

@@ -27,12 +27,34 @@ class DeepLinkService {
   StreamSubscription<Uri>? _sub;
   GlobalKey<NavigatorState>? _navigatorKey;
 
-  // Pend the initial link if the navigator isn't ready yet; retry on each frame
   Uri? _pendingUri;
+
+  // True once fireInitialLink() has been called (home screen is on screen).
+  // Stream links that arrive before this point are queued, not routed
+  // immediately — otherwise they land on top of StartScreen and get buried
+  // when StartScreen calls pushReplacement(HomeScreen).
+  bool _appReady = false;
+
+  // Stored so fireInitialLink() can await it even if getInitialLink() is
+  // still in-flight when the 450ms StartScreen delay fires.
+  Future<void>? _initialLinkFuture;
 
   void init(GlobalKey<NavigatorState> navigatorKey) {
     _navigatorKey = navigatorKey;
-    _handleInitialLink();
+
+    // Kick off getInitialLink() immediately and store the future.
+    // We do NOT await here — we want main() to proceed to runApp().
+    _initialLinkFuture = _appLinks
+        .getInitialLink()
+        .then((uri) {
+          if (uri != null) {
+            debugPrint('[DeepLink] cold-start URI: $uri');
+            _pendingUri = uri;
+          }
+        })
+        .catchError((_) {});
+
+    // Stream handles warm/hot links (app already fully running).
     _sub = _appLinks.uriLinkStream.listen(_handleUri, onError: (_) {});
   }
 
@@ -42,38 +64,46 @@ class DeepLinkService {
   }
 
   /// Called by StartScreen once the home/guest screen is on screen.
-  /// Routes any URI captured during cold start that couldn't be handled yet.
-  void fireInitialLink() {
+  /// Awaits getInitialLink() in case it hasn't resolved yet, then routes.
+  Future<void> fireInitialLink() async {
+    _appReady = true;
+
+    // Await the initial link future. On slow devices getInitialLink() may
+    // still be in-flight when the 450ms StartScreen delay fires.
+    if (_initialLinkFuture != null) {
+      await _initialLinkFuture;
+      _initialLinkFuture = null;
+    }
+
     final uri = _pendingUri;
     if (uri == null) return;
+
     final nav = _navigatorKey?.currentState;
     if (nav == null) {
-      // Home screen transition hasn't finished yet — retry next frame.
+      // Navigator not mounted yet — retry next frame.
       WidgetsBinding.instance.addPostFrameCallback((_) => fireInitialLink());
       return;
     }
     _pendingUri = null;
+    debugPrint('[DeepLink] routing cold-start URI: $uri');
     _route(nav, uri);
   }
 
-  Future<void> _handleInitialLink() async {
-    try {
-      final uri = await _appLinks.getInitialLink();
-      if (uri != null) _handleUri(uri);
-    } catch (_) {}
-  }
-
   void _handleUri(Uri uri) {
-    final nav = _navigatorKey?.currentState;
-    if (nav == null) {
-      // Cold start: navigator not mounted yet. Store the URI and wait for
-      // StartScreen to call fireInitialLink() after the auth flow completes.
-      // Do NOT auto-retry here — StartScreen.pushReplacement() would wipe any
-      // screen we push now anyway.
+    debugPrint('[DeepLink] stream URI (appReady=$_appReady): $uri');
+
+    if (!_appReady) {
+      // Cold start: app hasn't navigated to the home screen yet.
+      // Queue and let fireInitialLink() dispatch it.
       _pendingUri = uri;
       return;
     }
-    // Warm/hot link (app already running): route immediately.
+
+    final nav = _navigatorKey?.currentState;
+    if (nav == null) {
+      _pendingUri = uri;
+      return;
+    }
     _route(nav, uri);
   }
 
@@ -81,6 +111,7 @@ class DeepLinkService {
     // 1. Post link (highest priority — must beat profile ?id= check)
     final postId = _extractPostId(uri);
     if (postId != null && postId.isNotEmpty) {
+      debugPrint('[DeepLink] → PostDetailScreen(postId=$postId)');
       nav.push(MaterialPageRoute(
         builder: (_) => PostDetailScreen(postId: postId),
       ));
@@ -90,6 +121,7 @@ class DeepLinkService {
     // 2. Direct userId — only from goreto:// scheme or profile_preview.php
     final userId = _extractUserId(uri);
     if (userId != null && userId.isNotEmpty) {
+      debugPrint('[DeepLink] → ProfileScreen(userId=$userId)');
       nav.push(MaterialPageRoute(
         builder: (_) => ProfileScreen(userId: userId),
       ));
@@ -99,6 +131,7 @@ class DeepLinkService {
     // 3. Username resolution
     final username = _extractUsername(uri);
     if (username != null && username.isNotEmpty) {
+      debugPrint('[DeepLink] → resolving username=$username');
       _resolveUsernameAndNavigate(nav, username);
     }
   }
@@ -128,10 +161,10 @@ class DeepLinkService {
       return qId;
     }
 
-    // goreto.org/{username}/{postId}  (no leading ekloadmin)
+    // goreto.org/{username}/{postId}  — 2-segment paths where first isn't a reserved word
     if (segs.length == 2) {
       const skip = {'ekloadmin', 'profile', 'u', 'post', 'api', 'admin'};
-      if (!skip.contains(segs[0])) return segs[1];
+      if (!skip.contains(segs[0].toLowerCase())) return segs[1];
     }
 
     return null;
@@ -148,10 +181,22 @@ class DeepLinkService {
       return segs[1];
     }
 
-    // HTTPS: .../profile_preview.php?id=123  or  .../profile.php?id=123
-    // Only match when the path explicitly mentions "profile" — never match
-    // view_post.php or other pages that also use ?id=.
     if (_isGoretoHost(uri)) {
+      // Path-based: .../profile/{userId} or .../u/{userId}
+      //   e.g. https://goreto.org/ekloadmin/profile/16  (the share/copy-link
+      //   format produced by manage_user_sheet.dart). Match a "profile"/"u"
+      //   segment followed by an id segment anywhere in the path.
+      for (var i = 0; i < segs.length - 1; i++) {
+        final s = segs[i].toLowerCase();
+        if (s == 'profile' || s == 'u') {
+          final candidate = segs[i + 1];
+          if (candidate.isNotEmpty) return candidate;
+        }
+      }
+
+      // Query-based: .../profile_preview.php?id=123  or  .../profile.php?id=123
+      // Only match when the path explicitly mentions "profile" — never match
+      // view_post.php or other pages that also use ?id=.
       final last = segs.isNotEmpty ? segs.last.toLowerCase() : '';
       if (last.contains('profile')) {
         final id = uri.queryParameters['id'];
@@ -171,7 +216,7 @@ class DeepLinkService {
     final segs = uri.pathSegments.where((s) => s.isNotEmpty).toList();
     if (segs.length == 1) {
       const skip = {'ekloadmin', 'profile', 'u', 'post', 'api', 'login', 'register', 'admin'};
-      if (!skip.contains(segs[0])) return segs[0];
+      if (!skip.contains(segs[0].toLowerCase())) return segs[0];
     }
 
     return null;
@@ -183,22 +228,37 @@ class DeepLinkService {
 
   Future<void> _resolveUsernameAndNavigate(
       NavigatorState nav, String username) async {
-    try {
-      final url =
-          'https://goreto.org/profile.php?username=${Uri.encodeComponent(username)}&format=json';
-      final response =
-          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final userId = data['user_id']?.toString() ?? '';
-        if (userId.isNotEmpty) {
-          nav.push(MaterialPageRoute(
-            builder: (_) => ProfileScreen(userId: userId),
-          ));
-          return;
+    // Try the ekloadmin profile_preview endpoint with username param
+    const ekloadmin = 'https://goreto.org/ekloadmin';
+    final candidates = [
+      '$ekloadmin/profile_preview.php?username=${Uri.encodeComponent(username)}&format=json',
+      '$ekloadmin/api/v1/profile_v19.php?action=get&username=${Uri.encodeComponent(username)}',
+    ];
+    for (final url in candidates) {
+      try {
+        final response =
+            await http.get(Uri.parse(url)).timeout(const Duration(seconds: 6));
+        if (response.statusCode == 200) {
+          final body = response.body.trim();
+          if (body.startsWith('{') || body.startsWith('[')) {
+            final data = jsonDecode(body);
+            final userId = (data is Map)
+                ? (data['user_id'] ?? data['id'] ?? data['data']?['id'])
+                    ?.toString()
+                : null;
+            if (userId != null && userId.isNotEmpty && userId != '0') {
+              debugPrint('[DeepLink] resolved username=$username → userId=$userId');
+              nav.push(MaterialPageRoute(
+                builder: (_) => ProfileScreen(userId: userId),
+              ));
+              return;
+            }
+          }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
+    // Last resort: pass username directly — ProfileScreen may handle it
+    debugPrint('[DeepLink] username resolution failed, passing as userId: $username');
     nav.push(MaterialPageRoute(
       builder: (_) => ProfileScreen(userId: username),
     ));

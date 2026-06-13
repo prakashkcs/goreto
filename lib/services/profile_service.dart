@@ -230,7 +230,7 @@ class ProfileService {
           }
         } catch (_) {}
       }
-      throw Exception('Failed to load profile: $e');
+      rethrow;
     }
   }
 

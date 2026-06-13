@@ -27,6 +27,8 @@ class ChatService {
   final Map<String, bool> _blockedByThemMap = {};
   final Map<String, bool> _isFriendMap = {};
   final Map<String, String> _requestStatusMap = {};
+  // Privacy: whether the other user accepts messages from strangers (non-friends)
+  final Map<String, bool> _allowUnknownInboxMap = {};
 
   // Cached Dio — created once, reused for all requests (HTTP keep-alive)
   Dio? _dio;
@@ -36,6 +38,9 @@ class ChatService {
   bool isBlockedByThem(String userId) => _blockedByThemMap[userId] ?? false;
   bool isFriend(String userId) => _isFriendMap[userId] ?? false;
   String requestStatus(String userId) => _requestStatusMap[userId] ?? 'none';
+  // Returns false only when the server explicitly said strangers are blocked.
+  // Defaults true so we never accidentally block messaging when the field is absent.
+  bool allowsUnknownInbox(String userId) => _allowUnknownInboxMap[userId] ?? true;
 
   // Current user ID (loaded from SharedPreferences)
   String _currentUserId = '';
@@ -104,9 +109,22 @@ class ChatService {
               (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
           final method = options.method.toUpperCase();
           final path = options.uri.toString();
-          final body = options.data is String
-              ? (options.data as String)
-              : (options.data != null ? jsonEncode(options.data) : '');
+          // Signature body. FormData (multipart, e.g. voice/media uploads) is
+          // NOT json-encodable — jsonEncode() throws and kills the request,
+          // which surfaced as a bogus "No internet connection". Multipart is
+          // signed with an empty body (matches the server + api_service).
+          String body;
+          if (options.data is String) {
+            body = options.data as String;
+          } else if (options.data == null || options.data is FormData) {
+            body = '';
+          } else {
+            try {
+              body = jsonEncode(options.data);
+            } catch (_) {
+              body = '';
+            }
+          }
           final base = '$appId|$ts|$method|$path|$body';
           final sig = Hmac(sha256, utf8.encode(appSecret))
               .convert(utf8.encode(base))
@@ -127,6 +145,26 @@ class ChatService {
 
   /// Call on logout to force full re-initialisation on next request.
   void resetDio() {
+    _dio = null;
+    _cachedToken = null;
+  }
+
+  /// Wipe ALL per-account in-memory state on logout. ChatService is a singleton
+  /// that survives the logout→login transition (the Dart process keeps running),
+  /// so without this the next account that logs in would see the previous user's
+  /// conversations, messages, and block/friend state — and, because
+  /// `_userIdLoaded` would still be true, would even query with the OLD user id.
+  void clearForLogout() {
+    _conversations.clear();
+    _messages.clear();
+    _blockedByMeMap.clear();
+    _blockedByThemMap.clear();
+    _isFriendMap.clear();
+    _requestStatusMap.clear();
+    _allowUnknownInboxMap.clear();
+    _currentUserId = '';
+    _userIdLoaded = false;
+    _fetchingConversations = false;
     _dio = null;
     _cachedToken = null;
   }
@@ -203,6 +241,10 @@ class ChatService {
         _blockedByThemMap[otherUserId] = payload['is_blocked_by_them'] ?? false;
         _isFriendMap[otherUserId] = payload['is_friend'] == true || payload['is_friend'] == 1;
         _requestStatusMap[otherUserId] = payload['request_status']?.toString() ?? 'none';
+        // allow_unknown_inbox: absent → default true (don't block unless server says so)
+        final rawAllow = payload['allow_unknown_inbox'];
+        _allowUnknownInboxMap[otherUserId] =
+            rawAllow == null || rawAllow == true || rawAllow == 1;
 
         final List<dynamic> data = payload['messages'] ?? [];
         final parsed = data.map((e) => _parseMessage(e)).toList();
@@ -285,6 +327,24 @@ class ChatService {
   }
 
   /// Send a message (text or call log)
+  String? _lastChatStreakDate; // YYYY-MM-DD of last chat-streak check-in
+
+  /// Fire-and-forget chat-streak check-in, at most once per local day.
+  void _bumpChatStreak(Dio dio) {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    if (_lastChatStreakDate == today) return;
+    _lastChatStreakDate = today;
+    () async {
+      try {
+        await dio.post(
+          'api_streak.php',
+          queryParameters: {'action': 'chat_checkin'},
+          options: Options(responseType: ResponseType.plain),
+        );
+      } catch (_) {}
+    }();
+  }
+
   Future<Message> sendMessage({
     required String receiverId,
     required String content,
@@ -316,6 +376,10 @@ class ChatService {
       throw Exception(msg);
     }
 
+    // Advance the chat streak (consecutive days the user chats). Throttled to
+    // once/day on the client; the server also dedupes per day.
+    _bumpChatStreak(dio);
+
     final Message message = _parseMessage(
       payload['message'] ??
           {
@@ -324,7 +388,10 @@ class ChatService {
             'type': type.name,
             'content': content,
             'status': 'sent',
-            'created_at': DateTime.now().toIso8601String(),
+            // UTC + 'Z' so parseServerTime (which assumes UTC for naive
+            // strings) doesn't double-apply the local offset and push the
+            // message into the future / onto the wrong date divider.
+            'created_at': DateTime.now().toUtc().toIso8601String(),
           },
     );
 
@@ -424,7 +491,10 @@ class ChatService {
             'media_url': '',
             'voice_duration': duration.inSeconds,
             'status': 'sent',
-            'created_at': DateTime.now().toIso8601String(),
+            // UTC + 'Z' so parseServerTime (which assumes UTC for naive
+            // strings) doesn't double-apply the local offset and push the
+            // message into the future / onto the wrong date divider.
+            'created_at': DateTime.now().toUtc().toIso8601String(),
           },
     );
 

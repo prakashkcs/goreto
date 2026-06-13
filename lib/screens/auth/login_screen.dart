@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:love_vibe_pro/providers/auth_provider.dart';
 import 'package:love_vibe_pro/screens/auth/signup_screen.dart';
 import 'package:love_vibe_pro/screens/auth/forgot_password_screen.dart';
+import 'package:love_vibe_pro/screens/auth/two_factor_login_screen.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/screens/start_screen.dart';
 
@@ -114,16 +115,35 @@ class _LoginScreenState extends State<LoginScreen>
     setState(() => _isLoading = true);
     try {
       final auth = Provider.of<AuthProvider>(context, listen: false);
-      await auth.loginWithEmail(
-        _emailController.text.trim(),
-        _passwordController.text,
-      );
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const StartScreen()),
-          (route) => false,
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+      final outcome = await auth.loginWithEmail(email, password);
+
+      if (!mounted) return;
+
+      if (outcome == LoginOutcome.twoFactorRequired) {
+        // Account has 2FA — collect the emailed OTP before completing login.
+        final verified = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => TwoFactorLoginScreen(
+              email: email,
+              onResend: () => auth.loginWithEmail(email, password),
+            ),
+          ),
         );
+        if (verified == true && mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const StartScreen()),
+            (route) => false,
+          );
+        }
+        return;
       }
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const StartScreen()),
+        (route) => false,
+      );
     } catch (e) {
       if (mounted) NeonToast.error(context, e.toString());
     } finally {
@@ -135,13 +155,33 @@ class _LoginScreenState extends State<LoginScreen>
     setState(() => _isLoading = true);
     try {
       final auth = Provider.of<AuthProvider>(context, listen: false);
-      await auth.loginWithGoogle();
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const StartScreen()),
-          (route) => false,
+      final outcome = await auth.loginWithGoogle();
+
+      if (!mounted) return;
+
+      if (outcome == LoginOutcome.twoFactorRequired) {
+        final email = auth.pending2faEmail ?? '';
+        final verified = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => TwoFactorLoginScreen(
+              email: email,
+              onResend: () => auth.loginWithGoogle(),
+            ),
+          ),
         );
+        if (verified == true && mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const StartScreen()),
+            (route) => false,
+          );
+        }
+        return;
       }
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const StartScreen()),
+        (route) => false,
+      );
     } catch (e) {
       if (mounted) NeonToast.error(context, e.toString());
     } finally {
@@ -620,13 +660,33 @@ class _SignupScreenState extends State<SignupScreen>
     setState(() => _isLoading = true);
     try {
       final auth = Provider.of<AuthProvider>(context, listen: false);
-      await auth.loginWithGoogle();
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const StartScreen()),
-          (route) => false,
+      final outcome = await auth.loginWithGoogle();
+
+      if (!mounted) return;
+
+      if (outcome == LoginOutcome.twoFactorRequired) {
+        final email = auth.pending2faEmail ?? '';
+        final verified = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => TwoFactorLoginScreen(
+              email: email,
+              onResend: () => auth.loginWithGoogle(),
+            ),
+          ),
         );
+        if (verified == true && mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const StartScreen()),
+            (route) => false,
+          );
+        }
+        return;
       }
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const StartScreen()),
+        (route) => false,
+      );
     } catch (e) {
       if (mounted) NeonToast.error(context, e.toString());
     } finally {

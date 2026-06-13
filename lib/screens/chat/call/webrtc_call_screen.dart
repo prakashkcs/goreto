@@ -376,7 +376,11 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
       onProviderError: (errorMsg) {
         _videoManager.reportProviderError(error: errorMsg);
         if (mounted) {
-          NeonToast.error(context, 'Call connection failed. Please try again.');
+          // Show Zego error code so it's diagnosable, with a friendly prefix.
+          final msg = errorMsg.contains('code:')
+              ? 'Call failed ($errorMsg). Retry or check your connection.'
+              : 'Call connection failed. Please try again.';
+          NeonToast.error(context, msg);
           _endCall();
         }
       },

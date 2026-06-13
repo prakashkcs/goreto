@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/subscription_plan_service.dart';
+import 'package:love_vibe_pro/screens/audio/audio_picker_sheet.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -42,6 +43,72 @@ class _PublishPostScreenState extends State<PublishPostScreen>
   bool _showEmojiPicker = false;
   late AnimationController _publishAnimCtrl;
   late Animation<double> _publishScale;
+
+  // Custom trending audio attached to this post.
+  Map<String, dynamic>? _selectedSound;
+
+  Future<void> _pickMusic() async {
+    final sound = await AudioPickerSheet.show(context);
+    if (sound != null && mounted) setState(() => _selectedSound = sound);
+  }
+
+  /// Digs the new post's id out of the upload response (shape varies).
+  int _extractPostId(Map<String, dynamic>? r) {
+    if (r == null) return 0;
+    dynamic v = r['post_id'] ?? r['id'];
+    if (v == null && r['post'] is Map) v = (r['post'] as Map)['id'];
+    if (v == null && r['data'] is Map) {
+      final d = r['data'] as Map;
+      v = d['post_id'] ?? d['id'] ?? (d['post'] is Map ? (d['post'] as Map)['id'] : null);
+    }
+    return int.tryParse('${v ?? 0}') ?? 0;
+  }
+
+  Widget _buildMusicSelector() {
+    final title = (_selectedSound?['title'] ?? '').toString();
+    final has = title.isNotEmpty;
+    return GestureDetector(
+      onTap: _pickMusic,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: has
+                ? const Color(0xFFFF007F).withValues(alpha: 0.55)
+                : Colors.white.withValues(alpha: 0.12),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(has ? Icons.music_note_rounded : Icons.library_music_outlined,
+                color: const Color(0xFFFF007F), size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                has ? title : 'Add music (trending or your own)',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: has ? Colors.white : Colors.white.withValues(alpha: 0.5),
+                  fontSize: 14,
+                  fontWeight: has ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
+            ),
+            if (has)
+              GestureDetector(
+                onTap: () => setState(() => _selectedSound = null),
+                child: const Icon(Icons.close, color: Colors.white38, size: 18),
+              )
+            else
+              const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
+      ),
+    );
+  }
 
   // Thumbnail selection
   String? _thumbnailPath;
@@ -325,16 +392,27 @@ class _PublishPostScreenState extends State<PublishPostScreen>
           } catch (_) {}
         }
 
+        final soundTitle =
+            (_selectedSound?['title'] ?? widget.soundName ?? '').toString();
+        final soundId = (_selectedSound?['id'] as num?)?.toInt() ?? 0;
         uploadResult = await ApiService().uploadPost(
           File(widget.mediaPath!),
           _captionController.text,
           backendType,
           hashtags: hashtags,
-          soundName: widget.soundName,
-          muteAudio: widget.soundName != null && widget.soundName!.isNotEmpty,
+          soundName: soundTitle.isNotEmpty ? soundTitle : null,
+          soundId: soundId > 0 ? soundId : null,
+          // A custom track replaces the clip's own audio on photos.
+          muteAudio: soundTitle.isNotEmpty,
           subscriberOnly: _subscriberOnly,
           thumbnailPath: thumbPath,
         );
+
+        // Link the sound to the new post + bump its virality ranking.
+        if (soundId > 0) {
+          final postId = _extractPostId(uploadResult);
+          if (postId > 0) await ApiService().useSound(soundId, postId);
+        }
       }
 
       if (!mounted) return;
@@ -344,7 +422,12 @@ class _PublishPostScreenState extends State<PublishPostScreen>
       if (!mounted) return;
       setState(() => _isPublishing = false);
       debugPrint('[PUBLISH_POST] Upload error: $e');
-      NeonToast.error(context, 'Upload Failed: $e');
+      final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      // Content-policy rejections (NSFW) come back as a clear server message —
+      // show it on its own instead of an "Upload Failed:" prefix.
+      final isPolicy = msg.toLowerCase().contains('content policy') ||
+          msg.toLowerCase().contains('community guidelines');
+      NeonToast.error(context, isPolicy ? msg : 'Upload Failed: $msg');
     }
   }
 
@@ -375,6 +458,14 @@ class _PublishPostScreenState extends State<PublishPostScreen>
                       ],
                       const SizedBox(height: 20),
                       _buildCaptionInput(),
+                      // Custom music — for photo/image posts (videos keep their
+                      // own audio track).
+                      if (widget.mediaType == 'photo' ||
+                          widget.mediaType == 'image' ||
+                          widget.mediaType == 'text') ...[
+                        const SizedBox(height: 14),
+                        _buildMusicSelector(),
+                      ],
                       const SizedBox(height: 16),
                       if (_hasPlans) _buildSubscriberToggle(),
                       const SizedBox(height: 24),

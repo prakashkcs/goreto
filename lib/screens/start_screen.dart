@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:love_vibe_pro/providers/auth_provider.dart';
 import 'package:love_vibe_pro/screens/home_screen.dart';
 import 'package:love_vibe_pro/screens/guest_main_screen.dart';
-import 'package:love_vibe_pro/screens/auth/login_screen.dart';
 import 'package:love_vibe_pro/screens/onboarding/terms_acceptance_screen.dart';
 import 'package:love_vibe_pro/screens/onboarding/profile_setup_screen.dart';
 import 'package:love_vibe_pro/screens/splash_screen.dart';
@@ -51,7 +50,25 @@ class _StartScreenState extends State<StartScreen> {
     ]);
     final prefs = prefsAndAuth[0] as SharedPreferences;
 
-    final termsAccepted = prefs.getBool('terms_accepted') ?? false;
+    var termsAccepted = prefs.getBool('terms_accepted') ?? false;
+    // "Once per account" — terms acceptance is tracked on the server per account.
+    if (auth.isAuthenticated) {
+      if (!termsAccepted) {
+        // Did this account already accept on another device/reinstall? If so,
+        // don't ask again.
+        try {
+          if (await ApiService().getTermsStatus()) {
+            termsAccepted = true;
+            await prefs.setBool('terms_accepted', true);
+          }
+        } catch (_) {}
+      } else if (!(prefs.getBool('terms_server_synced') ?? false)) {
+        // Accepted locally (possibly before this account logged in) — record it
+        // on the account once so other devices honor it.
+        ApiService().acceptTermsOnServer();
+        await prefs.setBool('terms_server_synced', true);
+      }
+    }
     bool onboardingDone = prefs.getBool('onboarding_done') ?? false;
 
     // Reinstall case: only check the server profile when:
@@ -117,10 +134,11 @@ class _StartScreenState extends State<StartScreen> {
       );
     } else if (auth.isAuthenticated) {
       destination = const HomeScreen();
-    } else if (auth.isGuest) {
-      destination = const GuestMainScreen();
     } else {
-      destination = const LoginScreen();
+      // Not logged in → browse as a guest by default (no forced login screen).
+      // Guests can view content; any activity prompts account creation via
+      // LoginRequiredSheet inside the guest experience.
+      destination = const GuestMainScreen();
     }
 
     if (!mounted) return;
@@ -138,7 +156,11 @@ class _StartScreenState extends State<StartScreen> {
     // navigation. We must do this AFTER pushReplacement so the home/guest
     // screen is already the base of the stack; pushing PostDetailScreen on
     // top then works correctly. The 450ms matches the fade transition duration.
-    if (auth.isAuthenticated || auth.isGuest) {
+    // Fire any pending deep link once we're on a browse screen (Home or the
+    // guest experience) — not while on the Terms/Onboarding gates.
+    final onBrowseScreen =
+        _termsAccepted && !(auth.isAuthenticated && !_onboardingDone);
+    if (onBrowseScreen) {
       Future.delayed(const Duration(milliseconds: 450), () {
         DeepLinkService.instance.fireInitialLink();
       });
@@ -165,7 +187,11 @@ class _StartScreenState extends State<StartScreen> {
     } else if (auth.isGuest) {
       destination = const GuestMainScreen();
     } else {
-      destination = const LoginScreen();
+      // First visit / signed out: go straight to guest browsing instead of
+      // forcing account creation. Any activity (like, comment, message, post…)
+      // prompts sign-up from within guest mode.
+      auth.enterGuestMode();
+      destination = const GuestMainScreen();
     }
     navigatorKey.currentState?.pushReplacement(
       MaterialPageRoute(builder: (_) => destination),

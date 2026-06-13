@@ -509,17 +509,23 @@ class _MatchesViewState extends State<MatchesView>
     );
 
     _isAnimating = true;
-    _flyOffController.addListener(() {
+    // Named listener so we can actually remove THIS reference — an anonymous
+    // `removeListener(() {})` never matches, so listeners piled up every reset
+    // and stale ones jerked the card around ("going unfixing") after a few swipes.
+    void listener() {
       if (mounted) setState(() => _dragOffset = resetAnim.value);
-    });
+    }
+
+    _flyOffController.addListener(listener);
 
     _flyOffController.forward().then((_) {
       if (mounted) {
+        _flyOffController.removeListener(listener);
         setState(() {
           _dragOffset = Offset.zero;
           _isAnimating = false;
         });
-        _flyOffController.removeListener(() {});
+        _flyOffController.reset();
       }
     });
   }
@@ -547,7 +553,12 @@ class _MatchesViewState extends State<MatchesView>
           if (matched && mounted) {
             _showMutualMatchDialog(currentUser);
           }
-        } catch (_) {}
+        } catch (e) {
+          if (mounted) {
+            NeonToast.error(context,
+                e.toString().replaceFirst('Exception: ', ''));
+          }
+        }
       }
     } else {
       SoundService().playReject();
@@ -1105,9 +1116,10 @@ class _NearbyViewState extends State<NearbyView> {
       }
     } catch (e) {
       if (mounted) {
-        final errMsg = e.toString().toLowerCase().contains('already')
+        final raw = e.toString().replaceFirst('Exception: ', '');
+        final errMsg = raw.toLowerCase().contains('already')
             ? 'Already sent to ${user.name} ❤️'
-            : 'Error sending proposal';
+            : raw;
         scaffoldMsg.showSnackBar(SnackBar(
           content: Text(errMsg, style: const TextStyle(color: Colors.white)),
           backgroundColor: const Color(0xFF3A3A3C),
@@ -2269,6 +2281,7 @@ class _RandomCallViewState extends State<RandomCallView>
   bool _searching = false;
   String? _errorMsg;
   Timer? _pollTimer;
+  String _genderPref = 'cross';
 
   @override
   void initState() {
@@ -2318,32 +2331,92 @@ class _RandomCallViewState extends State<RandomCallView>
     if (!mounted) return;
     setState(() => _searching = false);
 
-    final name = matchedUser['name']?.toString() ??
-        matchedUser['full_name']?.toString() ??
-        'a stranger';
+    final name = matchedUser['full_name']?.toString().trim().isNotEmpty == true
+        ? matchedUser['full_name'].toString()
+        : (matchedUser['name']?.toString() ?? 'A stranger');
+    final avatar = matchedUser['avatar']?.toString() ?? '';
+    final ageStr = matchedUser['age']?.toString() ?? '';
 
+    // App Store 1.2 compliance: show the matched person's profile (photo +
+    // name) and require an explicit Accept/Decline BEFORE any video connects.
     final accepted = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A28),
-        title: const Text('Start random call?',
-            style: TextStyle(color: Colors.white)),
-        content: Text(
-          'You matched with $name. Tap Start to begin the call. Both of you must tap Start before the call connects.',
-          style: const TextStyle(color: Colors.white70),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Color(0xFF00E5FF), width: 1),
         ),
+        contentPadding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFF00E5FF), width: 2),
+              ),
+              child: ClipOval(
+                child: avatar.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: avatar,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => Container(
+                          color: Colors.white10,
+                          child: const Icon(Icons.person,
+                              color: Colors.white38, size: 40),
+                        ),
+                        errorWidget: (_, __, ___) => Container(
+                          color: Colors.white10,
+                          child: const Icon(Icons.person,
+                              color: Colors.white38, size: 40),
+                        ),
+                      )
+                    : Container(
+                        color: Colors.white10,
+                        child: const Icon(Icons.person,
+                            color: Colors.white38, size: 40),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              ageStr.isNotEmpty ? '$name, $ageStr' : name,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'You matched! Both of you must tap Accept before the video call connects.',
+              style: TextStyle(color: Colors.white60, fontSize: 13, height: 1.4),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.spaceEvenly,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Decline'),
+            child: const Text('Decline',
+                style: TextStyle(color: Colors.white54)),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Start',
-                style: TextStyle(
-                    color: Color(0xFF00E5FF),
-                    fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00E5FF),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Accept',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -2459,9 +2532,10 @@ class _RandomCallViewState extends State<RandomCallView>
       );
     }
 
+    final myUserId = UserPrefsCache.instance.userId ?? '';
     final session = CallSession(
       id: callUuid,
-      callerId: '',
+      callerId: myUserId,
       callerName: 'You',
       receiverId: matchedUser['id'].toString(),
       receiverName: matchedUser['name']?.toString() ??
@@ -2507,7 +2581,10 @@ class _RandomCallViewState extends State<RandomCallView>
       });
 
       final signaling = SignalingService.instance;
-      final result = await signaling.randomCallMatch(type: 'video');
+      final result = await signaling.randomCallMatch(
+        type: 'video',
+        genderPref: _genderPref,
+      );
 
       if (!mounted) return;
 
@@ -2568,7 +2645,15 @@ class _RandomCallViewState extends State<RandomCallView>
               pollResult['matched_user'] as Map<String, dynamic>;
           final callId = pollResult['call_id'] as int;
           final callUuid = pollResult['call_uuid'] as String;
-          await _navigateToCall(matchedUser, callId, callUuid);
+          // Queue matches always require the two-sided accept gate (App Store
+          // 1.2 — no instant/anonymous connect). Broadcast-call matches were
+          // already accepted via the incoming-call screen, so they connect.
+          final handshakeRequired = pollResult['handshake_required'] == true;
+          if (handshakeRequired) {
+            await _runRandomHandshake(matchedUser, callId, callUuid);
+          } else {
+            await _navigateToCall(matchedUser, callId, callUuid);
+          }
         } else if (pollResult != null && pollResult['expired'] == true) {
           timer.cancel();
           if (mounted) {
@@ -2607,6 +2692,47 @@ class _RandomCallViewState extends State<RandomCallView>
         );
       }
     }
+  }
+
+  Widget _genderChip(String value, String label, IconData icon) {
+    final selected = _genderPref == value;
+    return GestureDetector(
+      onTap: () => setState(() => _genderPref = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFFFF007F).withValues(alpha: 0.18)
+              : Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFFFF007F)
+                : Colors.white.withValues(alpha: 0.15),
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon,
+                size: 15,
+                color: selected ? const Color(0xFFFF007F) : Colors.white54),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? const Color(0xFFFF007F) : Colors.white54,
+                fontSize: 13,
+                fontWeight:
+                    selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -2683,7 +2809,20 @@ class _RandomCallViewState extends State<RandomCallView>
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 50),
+            const SizedBox(height: 24),
+            if (!_searching) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _genderChip('cross', 'Cross gender', Icons.compare_arrows_rounded),
+                  const SizedBox(width: 10),
+                  _genderChip('female', 'Girls only', Icons.female_rounded),
+                  const SizedBox(width: 10),
+                  _genderChip('male', 'Boys only', Icons.male_rounded),
+                ],
+              ),
+            ],
+            const SizedBox(height: 32),
             if (_searching)
               ElevatedButton(
                 onPressed: _cancelSearch,

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:image_picker/image_picker.dart';
@@ -39,6 +40,23 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
+String _friendlyProfileError(Object e) {
+  if (e is DioException) {
+    final serverMsg = e.response?.data is Map
+        ? e.response!.data['message']?.toString()
+        : null;
+    if (serverMsg != null && serverMsg.isNotEmpty) return serverMsg;
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.sendTimeout) {
+      return 'Connection timed out. Please check your internet.';
+    }
+    return 'No internet connection.';
+  }
+  if (e is SocketException) return 'No internet connection.';
+  return 'Something went wrong. Please try again.';
+}
+
 class _ProfileScreenState extends State<ProfileScreen> {
   final ScrollController _scrollController = ScrollController();
   final ProfileService _profileService = ProfileService.instance;
@@ -58,6 +76,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final bool _isSubscribeLoading = false;
   bool _isOwnProfileView = true;
   String _targetUserId = '';
+  String _viewerGender = ''; // current user's gender, for cross-gender proposal
   bool _isTargetUserLive = false;
   Map<String, dynamic>? _liveData;
   bool _loggingOut = false;
@@ -107,6 +126,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
     }
     _profileFuture = _loadProfileData();
+    // Load the viewer's own gender for the cross-gender proposal button.
+    // Prefer the cached pref (set at signup); fall back to the current user's
+    // own server profile for accounts created before gender was captured —
+    // otherwise the "Send Proposal" button never appears for them.
+    SharedPreferences.getInstance().then((p) async {
+      var g = (p.getString('user_gender') ?? '').toLowerCase();
+      if (g.isEmpty) {
+        try {
+          final me = await _profileService.getCachedProfile();
+          g = (me?.gender ?? '').toLowerCase();
+        } catch (_) {}
+        if (g.isEmpty) {
+          try {
+            final me = await _profileService.getMyProfile();
+            g = me.gender.toLowerCase();
+          } catch (_) {}
+        }
+        if (g.isNotEmpty) await p.setString('user_gender', g);
+      }
+      if (g.isNotEmpty && mounted) setState(() => _viewerGender = g);
+    });
     // Listen for cache clears (e.g. from ProposalsScreen) to trigger a refresh
     _profileService.currentProfileNotifier.addListener(_onProfileChanged);
   }
@@ -163,6 +203,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       profile = profile.copyWith(isOwnProfile: isOwnProfile);
 
+      // Render the profile header immediately once the primary profile is in.
+      // Otherwise the screen sits on a blank spinner until ALL the secondary
+      // calls below finish — which makes a deep-linked profile look like it
+      // "never opened" on slow networks. Stats/posts/gifts fill in afterward.
+      if (mounted && _profile == null) {
+        setState(() {
+          _profile = profile;
+          _targetUserId = targetUserId;
+        });
+      }
+
       // Fetch live stats, quality, posts, collections, base URL, live status in parallel
       final parallelResults = await Future.wait([
         _apiService
@@ -187,10 +238,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _apiService
             .getMatchProfile(targetUserId)
             .catchError((_) => null), // [6]
+        _apiService
+            .getProfileSocialLinks(targetUserId)
+            .catchError((_) => null), // [7] dedicated social links endpoint
         if (!isOwnProfile)
           _apiService
               .getLiveUsers()
-              .catchError((_) => <dynamic>[]), // [7]
+              .catchError((_) => <dynamic>[]), // [8]
       ]);
 
       final liveProfileStats = parallelResults[0] as Map<String, dynamic>?;
@@ -200,6 +254,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final baseUrl = parallelResults[4] as String;
       final collections = parallelResults[5] as List<Collection>;
       final matchProfileStats = parallelResults[6] as Map<String, dynamic>?;
+      final dedicatedSocialLinks = parallelResults[7] as Map<String, String>?;
 
       // Combine the standard stats with the new quality engine stats + match profile stats
       final combinedStats = {
@@ -214,8 +269,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         mergeFollowState: true,
       );
 
-      // Read social links using the combined stats
-      profile = _mergeSocialLinks(profile, _extractSocialLinks(combinedStats));
+      // Social links: prefer the dedicated social_links.php endpoint result;
+      // fall back to whatever profile_v19.php returned in combinedStats.
+      final resolvedSocialLinks =
+          (dedicatedSocialLinks != null && dedicatedSocialLinks.isNotEmpty)
+              ? dedicatedSocialLinks
+              : _extractSocialLinks(combinedStats);
+      profile = _mergeSocialLinks(profile, resolvedSocialLinks);
+
       if (profile.cover.isNotEmpty && !profile.cover.startsWith('http')) {
         final fullCover = profile.cover.startsWith('/')
             ? '${baseUrl.replaceAll('/api/v1', '')}${profile.cover}'
@@ -224,8 +285,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       // Check if target user is currently live (result from parallel fetch)
-      if (!isOwnProfile && parallelResults.length > 7) {
-        final lives = parallelResults[7] as List<dynamic>? ?? [];
+      if (!isOwnProfile && parallelResults.length > 8) {
+        final lives = parallelResults[8] as List<dynamic>? ?? [];
         Map<String, dynamic>? liveEntry;
         for (final l in lives) {
           if ((l['user_id'] ?? l['id'] ?? '').toString() == targetUserId) {
@@ -285,7 +346,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       return profile;
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = _friendlyProfileError(e);
 
       // Auth/suspension errors originate from OUR token, not the visited user's
       // account. When viewing another user's profile, swallow these silently so
@@ -438,7 +499,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     UserProfile source,
     Map<String, String>? socialLinks,
   ) {
-    return source.copyWith(socialLinks: socialLinks ?? const {});
+    if (socialLinks == null) return source;
+    return source.copyWith(socialLinks: socialLinks);
   }
 
   Map<String, String>? _extractSocialLinks(Map<String, dynamic>? stats) {
@@ -526,6 +588,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ACTION BUTTONS
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
+  /// True when the viewer and target are opposite, known binary genders —
+  /// the condition for offering the "Send Proposal" action.
+  bool _isCrossGender(String viewer, String target) {
+    final v = viewer.toLowerCase();
+    final t = target.toLowerCase();
+    if (v.isEmpty || t.isEmpty) return false;
+    return (v == 'male' && t == 'female') || (v == 'female' && t == 'male');
+  }
+
+  Future<void> _handleSendProposal(UserProfile profile) async {
+    SoundService().playTap();
+    try {
+      await _apiService.sendProposal(targetUserId: profile.id);
+      if (mounted) {
+        NeonToast.success(context, 'Proposal sent to ${profile.name}! 💖');
+      }
+    } catch (e) {
+      if (mounted) NeonToast.error(context, _friendlyProfileError(e));
+    }
+  }
+
   Future<void> _handleFollow() async {
     if (_profile == null || _isOwnProfileView) return;
 
@@ -588,6 +671,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (ctx) => ProfilePlansSheet(
         creatorId: creatorId,
         creatorName: _profile!.name,
+        creatorAvatar: _profile!.profilePicUrl.isNotEmpty
+            ? _profile!.profilePicUrl
+            : _profile!.avatar,
         onSubscribed: () {
           Navigator.pop(ctx);
           _refreshProfileData();
@@ -625,7 +711,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (pickedFile == null || !mounted) return;
 
-    final file = File(pickedFile.path);
+    // Crop to the app's photo-post ratio (4:5) so the profile picture matches
+    // how posts are framed.
+    final croppedFile = await ImageCropper().cropImage(
+      sourcePath: pickedFile.path,
+      aspectRatio: const CropAspectRatio(ratioX: 4, ratioY: 5),
+      compressQuality: 85,
+      uiSettings: [
+        AndroidUiSettings(
+          toolbarTitle: 'Crop Profile Photo',
+          lockAspectRatio: true,
+          toolbarColor: const Color(0xFF111118),
+          toolbarWidgetColor: Colors.white,
+          activeControlsWidgetColor: const Color(0xFFFF007F),
+          hideBottomControls: true,
+        ),
+        IOSUiSettings(
+          title: 'Crop Profile Photo',
+          aspectRatioLockEnabled: true,
+        ),
+      ],
+    );
+    if (croppedFile == null || !mounted) return;
+
+    final file = File(croppedFile.path);
 
     // Show loading toast
     NeonToast.show(
@@ -666,7 +775,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (mounted) {
-        NeonToast.error(context, 'Failed to update profile picture: $e');
+        NeonToast.error(context, _friendlyProfileError(e));
       }
     }
   }
@@ -691,6 +800,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           toolbarColor: const Color(0xFF111118),
           toolbarWidgetColor: Colors.white,
           activeControlsWidgetColor: const Color(0xFFFF007F),
+          // Hide uCrop's bottom bar — it overlaps the Android nav bar.
+          hideBottomControls: true,
         ),
         IOSUiSettings(
           title: 'Crop Cover Photo',
@@ -713,7 +824,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         throw Exception('Upload failed');
       }
     } catch (e) {
-      if (mounted) NeonToast.error(context, 'Failed to update cover: $e');
+      if (mounted) NeonToast.error(context, _friendlyProfileError(e));
     }
   }
 
@@ -864,6 +975,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       userId: _profile!.id,
                       userName: _profile!.name,
                       userAvatar: _profile!.profilePicUrl,
+                      // Cross-gender: whichever action ISN'T the primary
+                      // on-profile button lives here in the 3-dot menu. The
+                      // owner's privacy setting (crossGenderProposal) decides
+                      // which is primary.
+                      showFollow:
+                          _isCrossGender(_viewerGender, _profile!.gender) &&
+                              _profile!.crossGenderProposal,
+                      showProposal:
+                          _isCrossGender(_viewerGender, _profile!.gender) &&
+                              !_profile!.crossGenderProposal,
+                      isFollowing: _profile!.isFollowing,
+                      onFollow: _handleFollow,
+                      onSendProposal: () => _handleSendProposal(_profile!),
                       onActionTaken: () {
                         _refreshProfileData();
                       },
@@ -1104,6 +1228,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     onSubscribe: _handleSubscribe,
                     onInbox: _handleInbox,
                     onLogout: _handleLogout,
+                    // Send Proposal is the primary button only when the owner
+                    // set it as primary; otherwise Follow is primary and the
+                    // proposal action lives in the 3-dot menu.
+                    showSendProposal: !_isOwnProfileView &&
+                        _isCrossGender(_viewerGender, profile.gender) &&
+                        profile.crossGenderProposal,
+                    onSendProposal: () => _handleSendProposal(profile),
                     isFollowLoading: _isFollowLoading,
                     isSubscribeLoading: _isSubscribeLoading,
                     onFollowersTap: () => Navigator.push(

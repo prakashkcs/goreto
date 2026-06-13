@@ -202,4 +202,19 @@ class SubscriptionPlanService {
       return false;
     }
   }
+
+  /// Returns true if the creator has at least one plan with "free unlimited
+  /// chat" for subscribers (can_message_first stored as false/0).
+  Future<bool> checkSubscriberFreeChatExists(int creatorId) async {
+    try {
+      final plans = await getCreatorPlans(creatorId);
+      return plans.isNotEmpty &&
+          plans.any((p) {
+            final v = p['can_message_first'];
+            return v == 0 || v == '0' || v == false;
+          });
+    } catch (_) {
+      return false;
+    }
+  }
 }

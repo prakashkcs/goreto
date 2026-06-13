@@ -33,6 +33,15 @@ class SettingsStore {
   static const String _keyBlinkBackgroundScan = 'blink_background_scan';
   static const String _keySubscriptionStatus = 'subscription_status';
   static const String _keyFeedActionSubscribe = 'feed_action_subscribe';
+  // Feature flag: route coin/subscription purchases through Apple IAP /
+  // Google Play Billing. Default OFF so the existing wallet flow keeps working
+  // until store products are configured. Can be flipped remotely via backend
+  // public settings (`store_billing_enabled`).
+  static const String _keyStoreBillingEnabled = 'store_billing_enabled';
+  // Feature flag: allow cash-out / withdrawal of coins. Default OFF — coins are
+  // virtual-only until an NRB payment-service license (or licensed PSP partner)
+  // is in place. Remotely flippable via public settings (`withdrawals_enabled`).
+  static const String _keyWithdrawalsEnabled = 'withdrawals_enabled';
 
   static SettingsStore? _instance;
   static SharedPreferences? _prefs;
@@ -70,8 +79,42 @@ class SettingsStore {
             settings['subscription_status'].toString(),
           );
         }
+        if (settings['store_billing_enabled'] != null) {
+          await _prefs?.setBool(
+            _keyStoreBillingEnabled,
+            settings['store_billing_enabled'].toString() == '1' ||
+                settings['store_billing_enabled'].toString() == 'true',
+          );
+        }
+        if (settings['withdrawals_enabled'] != null) {
+          await _prefs?.setBool(
+            _keyWithdrawalsEnabled,
+            settings['withdrawals_enabled'].toString() == '1' ||
+                settings['withdrawals_enabled'].toString() == 'true',
+          );
+        }
       }
     } catch (_) {}
+  }
+
+  // ── Store billing (IAP) feature flag ──────────────────────────────────────
+
+  Future<bool> getStoreBillingEnabled() async {
+    return _prefs?.getBool(_keyStoreBillingEnabled) ?? false;
+  }
+
+  Future<void> setStoreBillingEnabled(bool value) async {
+    await _prefs?.setBool(_keyStoreBillingEnabled, value);
+  }
+
+  // ── Withdrawals (cash-out) feature flag ───────────────────────────────────
+
+  Future<bool> getWithdrawalsEnabled() async {
+    return _prefs?.getBool(_keyWithdrawalsEnabled) ?? false;
+  }
+
+  Future<void> setWithdrawalsEnabled(bool value) async {
+    await _prefs?.setBool(_keyWithdrawalsEnabled, value);
   }
 
   Future<bool> getGuestModeEnabled() async {

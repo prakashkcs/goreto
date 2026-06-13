@@ -39,6 +39,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _ytCtrl;
   late TextEditingController _xCtrl;
 
+  static const _kFbBase = 'facebook.com/';
+  static const _kIgBase = 'instagram.com/';
+  static const _kYtBase = 'youtube.com/@';
+  static const _kXBase  = 'x.com/';
+
+  /// Strips any URL prefix and returns just the username/handle.
+  static String _stripSocialUrl(String? raw, String base) {
+    if (raw == null || raw.trim().isEmpty) return '';
+    String s = raw.trim();
+    for (final prefix in ['https://www.$base', 'https://$base', 'http://www.$base', 'http://$base', 'www.$base', base]) {
+      if (s.toLowerCase().startsWith(prefix.toLowerCase())) {
+        return s.substring(prefix.length).replaceAll('/', '').trim();
+      }
+    }
+    // Already a plain username — no dots suggesting a domain
+    if (!s.contains('/') && !s.contains('.')) return s;
+    // Fallback: last path segment that isn't a domain
+    return s.split('/').lastWhere((p) => p.isNotEmpty, orElse: () => s);
+  }
+
   // Match Profile Extensions
   late TextEditingController _ageCtrl;
   late TextEditingController _incomeCtrl;
@@ -54,7 +74,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   static const _kDefaultInterests = [
     'Music 🎵',
-    'Travel âœˆï¸',
+    'Travel ✈️',
     'Art 🎨',
     'Gaming 🎮',
     'Fitness 💪',
@@ -96,7 +116,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     'Adventure Buddy 🏔️',
     'Creative Collab 🎨',
     'Gaming Partner 🎮',
-    'Coffee Dates â˜•',
+    'Coffee Dates ☕',
     'Movie Nights 🎬',
     'Deep Talks 🧠',
   ];
@@ -116,10 +136,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _locationCtrl = TextEditingController(text: widget.currentProfile.location);
 
     final links = widget.currentProfile.socialLinks;
-    _fbCtrl = TextEditingController(text: links['facebook']);
-    _igCtrl = TextEditingController(text: links['instagram']);
-    _ytCtrl = TextEditingController(text: links['youtube']);
-    _xCtrl = TextEditingController(text: links['x']);
+    _fbCtrl = TextEditingController(text: _stripSocialUrl(links['facebook'], _kFbBase));
+    _igCtrl = TextEditingController(text: _stripSocialUrl(links['instagram'], _kIgBase));
+    _ytCtrl = TextEditingController(text: _stripSocialUrl(links['youtube'], _kYtBase));
+    _xCtrl  = TextEditingController(text: _stripSocialUrl(links['x'], _kXBase));
 
     _coverUrl = widget.currentProfile.cover.isNotEmpty
         ? widget.currentProfile.cover
@@ -287,7 +307,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       sourcePath: pickedFile.path,
       aspectRatio: isCover
           ? const CropAspectRatio(ratioX: 16, ratioY: 9)
-          : const CropAspectRatio(ratioX: 1, ratioY: 1),
+          : const CropAspectRatio(ratioX: 4, ratioY: 5),
       compressQuality: 85,
       uiSettings: [
         AndroidUiSettings(
@@ -297,7 +317,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           backgroundColor: const Color(0xFF0D0B14),
           activeControlsWidgetColor: const Color(0xFFFF007F),
           lockAspectRatio: true,
-          hideBottomControls: false,
+          // Hide uCrop's bottom bar — it overlaps the Android nav bar.
+          hideBottomControls: true,
         ),
         IOSUiSettings(
           title: isCover ? 'Crop Cover Photo' : 'Crop Profile Photo',
@@ -415,11 +436,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         }
       }
 
+      String buildUrl(String username, String base) {
+        final u = username.trim();
+        return u.isEmpty ? '' : 'https://$base$u';
+      }
       final socialLinks = {
-        'facebook': _fbCtrl.text.trim(),
-        'instagram': _igCtrl.text.trim(),
-        'youtube': _ytCtrl.text.trim(),
-        'x': _xCtrl.text.trim(),
+        'facebook':  buildUrl(_fbCtrl.text, _kFbBase),
+        'instagram': buildUrl(_igCtrl.text, _kIgBase),
+        'youtube':   buildUrl(_ytCtrl.text, _kYtBase),
+        'x':         buildUrl(_xCtrl.text,  _kXBase),
       };
       socialLinks.removeWhere((_, v) => v.isEmpty);
 
@@ -695,13 +720,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            _buildTextField('Facebook', _fbCtrl, icon: Icons.facebook),
+            _buildSocialField('Facebook',   _fbCtrl, Icons.facebook,        _kFbBase),
             const SizedBox(height: 10),
-            _buildTextField('Instagram', _igCtrl, icon: Icons.camera_alt),
+            _buildSocialField('Instagram',  _igCtrl, Icons.camera_alt,      _kIgBase),
             const SizedBox(height: 10),
-            _buildTextField('YouTube', _ytCtrl, icon: Icons.play_arrow),
+            _buildSocialField('YouTube',    _ytCtrl, Icons.play_arrow,      _kYtBase),
             const SizedBox(height: 10),
-            _buildTextField('X (Twitter)', _xCtrl, icon: Icons.close),
+            _buildSocialField('X (Twitter)', _xCtrl, Icons.close,           _kXBase),
 
             const SizedBox(height: 40),
           ],
@@ -1035,6 +1060,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ),
         const SizedBox(height: 24),
       ],
+    );
+  }
+
+  Widget _buildSocialField(
+    String label,
+    TextEditingController controller,
+    IconData icon,
+    String urlBase,
+  ) {
+    return TextField(
+      controller: controller,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.05),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        prefixIcon: Icon(icon, color: Colors.white54, size: 20),
+        prefix: Text(
+          urlBase,
+          style: const TextStyle(color: Colors.white30, fontSize: 13),
+        ),
+        hintText: 'your_username',
+        hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.2)),
+      ),
     );
   }
 

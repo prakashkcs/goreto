@@ -27,9 +27,9 @@ class SubscriberLockOverlay extends StatelessWidget {
 
     return ClipRect(
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
         child: Container(
-          color: Colors.black.withValues(alpha: 0.2),
+          color: Colors.black.withValues(alpha: 0.35),
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,

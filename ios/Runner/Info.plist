@@ -2,8 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Goreto needs access to save media to your photo library.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -70,7 +68,21 @@
 		</dict>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Love Vibe uses your front camera to detect eye blinks for hands-free scrolling.</string>
+	<string>Goreto uses your camera for video calls, live streams, profile photos, and hands-free blink scrolling.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Goreto uses your microphone for video and audio calls, live streams, and voice messages.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Goreto needs access to your photos so you can set a profile picture and share posts.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Goreto saves photos and videos you download to your photo library.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Goreto uses your location to show people and matches near you and your approximate distance. Your exact location is never shown to others.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Goreto uses your location in the background to keep nearby discovery up to date. You can turn this off anytime in Settings.</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>This lets us deliver more relevant ads and measure their performance. Your data is never sold.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Goreto uses the local network to discover nearby devices for offline proximity features.</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

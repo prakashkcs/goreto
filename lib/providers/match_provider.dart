@@ -99,16 +99,16 @@ class MatchProvider extends ChangeNotifier {
       final String? targetGender = results[0] as String?;
       final Position? position = results[1] as Position?;
 
-      // Update location on server in background (don't await)
+      // Update our location on the server BEFORE querying nearby, so that
+      // other users' queries can find us at our current position.
       if (position != null) {
-        // fire-and-forget — ignore errors
-        _service.api
-            .updateLocation(
-              userId: userId,
-              lat: position.latitude,
-              lng: position.longitude,
-            )
-            .catchError((_) => <String, dynamic>{});
+        try {
+          await _service.api.updateLocation(
+            userId: userId,
+            lat: position.latitude,
+            lng: position.longitude,
+          );
+        } catch (_) {}
       }
 
       final fetched = await _service.getNearbyUsers(
@@ -125,10 +125,9 @@ class MatchProvider extends ChangeNotifier {
       // Always strip own profile from results (safety net in case server slips)
       var filtered = fetched.where((u) => u.id != userId).toList();
 
-      // Gender filter: only apply client-side when we have enough results.
-      // If the server already filtered (and returned < 3), skip to avoid
-      // showing an empty screen when the user's own gender isn't set yet.
-      if (targetGender != null && filtered.length >= 3) {
+      // Always apply gender filter client-side when we know the target gender.
+      // Even 1-2 nearby users of the wrong gender should be filtered out.
+      if (targetGender != null && filtered.isNotEmpty) {
         final genderFiltered = filtered
             .where((u) => u.gender.isEmpty || u.gender.toLowerCase() == targetGender)
             .toList();
@@ -156,7 +155,7 @@ class MatchProvider extends ChangeNotifier {
     }
   }
 
-  // Fast location fetch with 8s timeout — returns null if unavailable
+  // Fast location fetch — medium accuracy, 8s timeout, falls back to last known
   Future<Position?> _getLocationQuick() async {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -169,9 +168,15 @@ class MatchProvider extends ChangeNotifier {
           permission == LocationPermission.deniedForever) {
         return null;
       }
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,
-      ).timeout(const Duration(seconds: 8));
+      try {
+        return await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+        ).timeout(const Duration(seconds: 8));
+      } catch (_) {
+        // GPS timed out or failed — use last known position so the query
+        // still works rather than sending null coordinates.
+        return await Geolocator.getLastKnownPosition();
+      }
     } catch (_) {
       return null;
     }
@@ -214,6 +219,16 @@ class MatchProvider extends ChangeNotifier {
     _currentIndex = 0;
     _history.clear();
     loadNearbyUsers();
+  }
+
+  /// Clears all cached match/nearby data on logout without triggering a reload.
+  void clearForLogout() {
+    _matchQueue = [];
+    _nearbyAll = [];
+    _currentIndex = 0;
+    _history.clear();
+    _error = null;
+    notifyListeners();
   }
 
   // â”€â”€ Nearby sort â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

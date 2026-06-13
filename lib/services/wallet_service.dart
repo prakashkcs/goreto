@@ -78,10 +78,12 @@ class WalletService {
         'amount': amount.toStringAsFixed(2),
       };
       Response<dynamic> response;
+      // wallet.php handles 'create_qr_deposit' — call it directly. ('create_deposit'
+      // is not a real action and 400s, which used to waste a round-trip.)
       try {
         response = await dio.post(
           '/wallet.php',
-          queryParameters: {'action': 'create_deposit'},
+          queryParameters: {'action': 'create_qr_deposit'},
           data: payloadData,
           options: Options(
             responseType: ResponseType.plain,
@@ -91,7 +93,7 @@ class WalletService {
       } on DioException {
         response = await dio.post(
           '/wallet.php',
-          queryParameters: {'action': 'create_qr_deposit'},
+          queryParameters: {'action': 'create_deposit'},
           data: payloadData,
           options: Options(
             responseType: ResponseType.plain,

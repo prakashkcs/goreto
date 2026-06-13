@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/config/app_env.dart';
+import 'package:love_vibe_pro/screens/profile_screen.dart';
+import 'package:love_vibe_pro/screens/chat/chat_screen.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
 import 'package:love_vibe_pro/widgets/gifter_badge.dart';
@@ -11,6 +13,7 @@ import 'package:love_vibe_pro/services/profile_service.dart';
 import 'package:love_vibe_pro/services/video_call/video_call_manager.dart';
 import 'package:love_vibe_pro/services/video_call/providers/zego_provider.dart';
 import 'package:love_vibe_pro/services/user_prefs_cache.dart';
+import 'package:love_vibe_pro/services/fcm_service.dart';
 import 'package:zego_uikit_prebuilt_live_streaming/zego_uikit_prebuilt_live_streaming.dart';
 
 String _giftEmojiFor(String name) {
@@ -174,6 +177,9 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    // Let a moderator force-end this stream remotely (FCM 'force_end_live').
+    FCMService.onForceEndLive = _handleForceEnd;
+
     _giftCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 3200));
     _giftFade = TweenSequence<double>([
@@ -227,17 +233,46 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     if (state == AppLifecycleState.paused) {
       _durationTimer?.cancel();
       _durationTimer = null;
-    } else if (state == AppLifecycleState.resumed && _durationTimer == null) {
-      _durationTimer = Timer.periodic(
+      // Stop heartbeats while backgrounded. If the host actually closed the app
+      // (Android often never fires `detached`), the server drops the stale live
+      // within ~60s and viewers leave automatically.
+      if (_isHost) { _heartbeatTimer?.cancel(); _heartbeatTimer = null; }
+    } else if (state == AppLifecycleState.resumed) {
+      _durationTimer ??= Timer.periodic(
           const Duration(seconds: 1), (_) { _durationNotifier.value++; });
+      // Host came back within the grace window — resume heartbeats so the live
+      // keeps running.
+      if (_isHost && !_hasEndedLive && _heartbeatTimer == null) {
+        _api.heartbeatLive();
+        _heartbeatTimer = Timer.periodic(
+            const Duration(seconds: 15), (_) => _api.heartbeatLive());
+      }
     } else if (state == AppLifecycleState.detached) {
       // App is being killed — end the live so viewers aren't stuck in a ghost room.
       if (_isHost && !_hasEndedLive) { _hasEndedLive = true; _api.endLive(); }
     }
   }
 
+  /// Invoked when a moderator force-ends this stream. Leaves the room and
+  /// informs the host.
+  void _handleForceEnd() {
+    if (!mounted) return;
+    _hasEndedLive = true; // suppress the duplicate endLive in dispose
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Your live stream was ended by a moderator.'),
+        backgroundColor: Color(0xFFB30000),
+      ));
+    } catch (_) {}
+    try {
+      _videoManager.activeProvider?.leaveCall();
+    } catch (_) {}
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
   @override
   void dispose() {
+    FCMService.onForceEndLive = null;
     WidgetsBinding.instance.removeObserver(this);
     _messageSub?.cancel();
     _heartbeatTimer?.cancel();
@@ -317,7 +352,8 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
         initialChildSize: 0.55,
         minChildSize: 0.3,
         maxChildSize: 0.85,
-        builder: (_, scroll) => Column(
+        builder: (_, scroll) => StatefulBuilder(
+          builder: (ctx2, setSheet) => Column(
           children: [
             Container(
               margin: const EdgeInsets.only(top: 10, bottom: 8),
@@ -355,7 +391,8 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
                         final vid = v.id.toString();
                         final vname = v.name.isEmpty ? 'User' : v.name;
                         if (!_userProfileCache.containsKey(vid)) {
-                          _fetchUserProfile(vid);
+                          _fetchUserProfile(vid)
+                              .then((_) { if (mounted) setSheet(() {}); });
                         }
                         final cached = _userProfileCache[vid];
                         final avatarUrl = cached?['avatar'] ?? '';
@@ -391,6 +428,23 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
                                           color: Colors.amber, fontSize: 12)),
                                 ])
                               : null,
+                          // Host can invite this viewer to join as a GUEST
+                          // (co-host) — their camera/mic go live once accepted.
+                          trailing: _isHost
+                              ? TextButton.icon(
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    _inviteGuest(v);
+                                  },
+                                  icon: const Icon(Icons.videocam_rounded,
+                                      size: 16, color: Color(0xFF22C55E)),
+                                  label: const Text('Guest',
+                                      style: TextStyle(
+                                          color: Color(0xFF22C55E),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700)),
+                                )
+                              : null,
                           onTap: () {
                             Navigator.pop(ctx);
                             _showUserProfilePreview(vid, vname, avatarUrl, rating);
@@ -400,7 +454,7 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
                     ),
             ),
           ],
-        ),
+        )),
       ),
     );
   }
@@ -431,56 +485,122 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     );
   }
 
+  /// Host invites a viewer to join the live as a GUEST (co-host). Once they
+  /// accept, Zego turns on their camera/mic and shows their video alongside the
+  /// host — like a video/audio call inside the live.
+  Future<void> _inviteGuest(ZegoUIKitUser viewer) async {
+    if (!_isHost) return;
+    try {
+      final ok = await ZegoUIKitPrebuiltLiveStreamingController()
+          .coHost
+          .hostSendCoHostInvitationToAudience(viewer, withToast: false);
+      if (!mounted) return;
+      _showSnack(ok
+          ? 'Guest invite sent to ${viewer.name}. They go live once they accept.'
+          : 'Could not invite ${viewer.name} right now.');
+    } catch (_) {
+      if (mounted) _showSnack('Could not send the guest invite.');
+    }
+  }
+
   void _showUserProfilePreview(
       String userId, String userName, String avatarUrl, double rating) {
+    final cached = _userProfileCache[userId];
+    final coinsSent =
+        int.tryParse((cached?['total_coins_sent'] ?? 0).toString()) ?? 0;
+    final screenH = MediaQuery.of(context).size.height;
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF1A1A2E),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-              radius: 44,
-              backgroundColor: const Color(0xFF2A1040),
-              backgroundImage: avatarUrl.isNotEmpty
-                  ? CachedNetworkImageProvider(avatarUrl)
-                  : null,
-              child: avatarUrl.isEmpty
-                  ? Text(userName.isNotEmpty ? userName[0].toUpperCase() : '?',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold))
-                  : null,
-            ),
-            const SizedBox(height: 12),
-            Text(userName,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold)),
-            if (rating > 0) ...[
-              const SizedBox(height: 6),
+      builder: (ctx) => SizedBox(
+        height: screenH * 0.5,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 18),
+              CircleAvatar(
+                radius: 50,
+                backgroundColor: const Color(0xFF2A1040),
+                backgroundImage: avatarUrl.isNotEmpty
+                    ? CachedNetworkImageProvider(avatarUrl)
+                    : null,
+                child: avatarUrl.isEmpty
+                    ? Text(userName.isNotEmpty ? userName[0].toUpperCase() : '?',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold))
+                    : null,
+              ),
+              const SizedBox(height: 14),
+              Text(userName,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
+                if (rating > 0) ...[
+                  const Icon(Icons.star_rounded, color: Colors.amber, size: 18),
+                  const SizedBox(width: 4),
+                  Text(rating.toStringAsFixed(1),
+                      style: const TextStyle(
+                          color: Colors.amber,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 18),
+                ],
+                const Icon(Icons.monetization_on_rounded,
+                    color: Color(0xFFFFC107), size: 18),
                 const SizedBox(width: 4),
-                Text(rating.toStringAsFixed(1),
-                    style: const TextStyle(color: Colors.amber, fontSize: 14)),
+                Text('$coinsSent sent',
+                    style: const TextStyle(color: Colors.white70, fontSize: 15)),
               ]),
+              const Spacer(),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                _profileActionBtn('Follow', Icons.person_add_rounded,
+                    const Color(0xFFFF2D55), () {
+                  _api.followUser(userId);
+                  Navigator.pop(ctx);
+                  _showSnack('Followed $userName');
+                }),
+                _profileActionBtn('Message', Icons.chat_bubble_rounded,
+                    const Color(0xFF8B5CF6), () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => ChatScreen(
+                              userId: userId,
+                              userName: userName,
+                              userAvatar: avatarUrl)));
+                }),
+              ]),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => ProfileScreen(userId: userId)));
+                },
+                child: const Text('View full profile',
+                    style: TextStyle(color: Colors.white60)),
+              ),
             ],
-            const SizedBox(height: 20),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-              _profileActionBtn('Follow', Icons.person_add_rounded,
-                  const Color(0xFFFF2D55), () {
-                _api.followUser(userId);
-                Navigator.pop(ctx);
-              }),
-            ]),
-          ],
+          ),
         ),
       ),
     );
@@ -795,6 +915,28 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     if (mounted) Navigator.pop(context);
   }
 
+  /// Viewer-side watchdog: if the host is no longer in the live list (they
+  /// ended the stream or closed their app, so their heartbeat stopped), leave
+  /// the room with an "ended" notice instead of staying on a frozen stream.
+  Future<void> _checkHostStillLive() async {
+    if (_isHost || _hasEndedLive || !mounted) return;
+    try {
+      final lives = await _api.getLiveUsers();
+      final stillLive = lives.any((l) =>
+          (l['user_id'] ?? l['id'] ?? '').toString() == widget.userId);
+      if (stillLive || !mounted) return;
+      _hasEndedLive = true;
+      _viewerPollTimer?.cancel();
+      try { _videoManager.activeProvider?.leaveCall(); } catch (_) {}
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Live stream ended.'),
+        backgroundColor: Color(0xFF333333),
+      ));
+      Navigator.of(context).maybePop();
+    } catch (_) {}
+  }
+
   Future<void> _initializeCamera() async {
     try {
       final currentUserId = UserPrefsCache.instance.userId ?? '';
@@ -850,6 +992,12 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
             const Duration(seconds: 15), (_) => _api.heartbeatLive());
         _viewerPollTimer = Timer.periodic(
             const Duration(seconds: 5), (_) => _checkNewViewers());
+      } else {
+        // Viewer: detect when the host ends the live or closes their app (their
+        // heartbeat stops and the server drops them from the live list) and
+        // leave the room instead of being stuck on a frozen stream.
+        _viewerPollTimer = Timer.periodic(
+            const Duration(seconds: 8), (_) => _checkHostStillLive());
       }
       if (mounted) {
         setState(() { _videoInitialized = true; _videoInitializing = false; });

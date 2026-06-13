@@ -99,12 +99,23 @@ class _ShareBottomSheetState extends State<ShareBottomSheet> {
     );
     if (!mounted) return;
     setState(() => _isReposting = false);
-    if (result != null) {
+    if (result != null && result['status'] == 'success') {
       Navigator.pop(context);
       if (ctx.mounted) NeonToast.success(ctx, 'Reposted to your feed');
       widget.onShared?.call();
-    } else {
-      if (ctx.mounted) NeonToast.error(ctx, 'Repost failed. Try again.');
+    } else if (ctx.mounted) {
+      // Show a clear reason when the owner has reposting turned off, instead
+      // of a generic failure.
+      final code = result?['code']?.toString();
+      final msg = result?['message']?.toString() ?? '';
+      if (code == 'repost_disabled' ||
+          msg.toLowerCase().contains('does not allow reposts')) {
+        NeonToast.error(ctx, 'Reposting is disabled by this user');
+      } else if (msg.isNotEmpty) {
+        NeonToast.error(ctx, msg);
+      } else {
+        NeonToast.error(ctx, 'Repost failed. Try again.');
+      }
     }
   }
 

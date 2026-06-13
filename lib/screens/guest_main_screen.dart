@@ -492,22 +492,27 @@ class _HomeFeedGuestViewState extends State<HomeFeedGuestView> {
           Padding(
             padding: const EdgeInsets.all(8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildLockedAction(
-                  Icons.favorite_border,
-                  'Like',
-                  () => _handleRestrictedAction('like posts'),
+                Expanded(
+                  child: _buildLockedAction(
+                    Icons.favorite_border,
+                    'Like',
+                    () => _handleRestrictedAction('like posts'),
+                  ),
                 ),
-                _buildLockedAction(
-                  Icons.chat_bubble_outline,
-                  'Comment',
-                  () => _handleRestrictedAction('comment on posts'),
+                Expanded(
+                  child: _buildLockedAction(
+                    Icons.chat_bubble_outline,
+                    'Comment',
+                    () => _handleRestrictedAction('comment on posts'),
+                  ),
                 ),
-                _buildLockedAction(
-                  Icons.share_outlined,
-                  'Share',
-                  () => _handleRestrictedAction('share posts'),
+                Expanded(
+                  child: _buildLockedAction(
+                    Icons.share_outlined,
+                    'Share',
+                    () => _handleRestrictedAction('share posts'),
+                  ),
                 ),
               ],
             ),
@@ -522,14 +527,19 @@ class _HomeFeedGuestViewState extends State<HomeFeedGuestView> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white54, size: 22),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            Icon(icon, color: Colors.white54, size: 20),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
             ),
             const SizedBox(width: 4),
             const Icon(Icons.lock, color: Colors.white24, size: 12),

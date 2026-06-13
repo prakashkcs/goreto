@@ -14,17 +14,99 @@ class AccountSecurityScreen extends StatefulWidget {
 
 class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
   String _email = '';
+  bool _twoFAEnabled = false;
+  bool _twoFALoading = true;
+  final ApiService _api = ApiService();
 
   @override
   void initState() {
     super.initState();
     _loadEmail();
+    _load2FAStatus();
   }
 
   Future<void> _loadEmail() async {
     final prefs = await SharedPreferences.getInstance();
     final e = prefs.getString('user_email') ?? '';
     if (mounted) setState(() => _email = e);
+  }
+
+  Future<void> _load2FAStatus() async {
+    try {
+      final res = await _api.get2FAStatus();
+      if (mounted) {
+        setState(() {
+          _twoFAEnabled = res['enabled'] == true;
+          _twoFALoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _twoFALoading = false);
+    }
+  }
+
+  void _show2FADialog() {
+    final enabling = !_twoFAEnabled;
+    final pwCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Color(0xFF10B981), width: 1.2),
+        ),
+        title: Text(enabling ? 'Enable 2FA' : 'Disable 2FA',
+            style: const TextStyle(color: Colors.white)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(
+            enabling
+                ? 'You\'ll receive a 6-digit code by email each time you sign in. Enter your password to confirm.'
+                : 'Two-factor authentication will be turned off. Enter your password to confirm.',
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          _input(pwCtrl, 'Current password', TextInputType.text, obscure: true),
+        ]),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              final pw = pwCtrl.text;
+              if (pw.isEmpty) return;
+              Navigator.pop(ctx);
+              try {
+                if (enabling) {
+                  await _api.enable2FA(pw);
+                } else {
+                  await _api.disable2FA(pw);
+                }
+                if (mounted) {
+                  setState(() => _twoFAEnabled = enabling);
+                  NeonToast.success(context,
+                      enabling ? 'Two-factor authentication enabled' : '2FA disabled');
+                }
+              } catch (e) {
+                if (mounted) {
+                  NeonToast.error(
+                      context, e.toString().replaceAll('Exception: ', ''));
+                }
+              }
+            },
+            child: Text(enabling ? 'Enable' : 'Disable'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -102,6 +184,29 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
               onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const _SessionsScreen())),
             ),
+            const SizedBox(height: 12),
+            _tile(
+              icon: _twoFAEnabled ? Icons.verified_user : Icons.security,
+              label: 'Two-Factor Authentication',
+              subtitle: _twoFALoading
+                  ? 'Checking…'
+                  : (_twoFAEnabled
+                      ? 'On · email code required at sign-in'
+                      : 'Off · add an email code at sign-in'),
+              color: const Color(0xFF10B981),
+              trailing: _twoFALoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Color(0xFF10B981)))
+                  : Switch(
+                      value: _twoFAEnabled,
+                      activeThumbColor: const Color(0xFF10B981),
+                      onChanged: (_) => _show2FADialog(),
+                    ),
+              onTap: _twoFALoading ? null : _show2FADialog,
+            ),
           ],
         ),
       ),
@@ -113,13 +218,16 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
     required String label,
     required String subtitle,
     required Color color,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
+    Widget? trailing,
   }) {
     return GestureDetector(
-      onTap: () {
-        HapticFeedback.mediumImpact();
-        onTap();
-      },
+      onTap: onTap == null
+          ? null
+          : () {
+              HapticFeedback.mediumImpact();
+              onTap();
+            },
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -148,7 +256,9 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                       color: Colors.white.withValues(alpha: 0.5), fontSize: 12)),
             ]),
           ),
-          Icon(Icons.chevron_right, color: Colors.white.withValues(alpha: 0.3)),
+          trailing ??
+              Icon(Icons.chevron_right,
+                  color: Colors.white.withValues(alpha: 0.3)),
         ]),
       ),
     );

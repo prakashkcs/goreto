@@ -43,6 +43,7 @@ class _AudioReportSheetState extends State<AudioReportSheet> {
     'Hate speech or discrimination',
     'Spam or misleading',
     'Violence or harmful content',
+    'Child sexual abuse / exploitation (CSAE)',
     'Other',
   ];
 

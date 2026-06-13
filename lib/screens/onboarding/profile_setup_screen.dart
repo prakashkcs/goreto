@@ -1,6 +1,7 @@
 // ignore_for_file: avoid_print
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -23,7 +24,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
     with SingleTickerProviderStateMixin {
   final _nameCtrl = TextEditingController();
   final _usernameCtrl = TextEditingController();
-  final _ageCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
@@ -33,6 +33,23 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
   bool _showOnMatch = true;
   bool _fetchingLocation = false;
   bool _saving = false;
+
+  // Date of birth — used to enforce the 18+ age gate.
+  DateTime? _selectedDob;
+
+  /// Minimum legal age to use the app.
+  static const int _minAge = 18;
+
+  int? get _ageFromDob {
+    if (_selectedDob == null) return null;
+    final now = DateTime.now();
+    var age = now.year - _selectedDob!.year;
+    if (now.month < _selectedDob!.month ||
+        (now.month == _selectedDob!.month && now.day < _selectedDob!.day)) {
+      age--;
+    }
+    return age;
+  }
 
   final _picker = ImagePicker();
   final _api = ApiService();
@@ -58,6 +75,22 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
     _slide = Tween(begin: const Offset(0, 0.06), end: Offset.zero).animate(
         CurvedAnimation(parent: _enterCtrl, curve: Curves.easeOutCubic));
     _enterCtrl.forward();
+    _preFillFromSignup();
+  }
+
+  // Pre-fill name and username from what was entered during signup
+  Future<void> _preFillFromSignup() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString('user_name') ?? '';
+    if (name.isEmpty || !mounted) return;
+    final suggested = name.toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    setState(() {
+      _nameCtrl.text = name;
+      if (suggested.isNotEmpty) _usernameCtrl.text = suggested;
+    });
   }
 
   @override
@@ -65,7 +98,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
     _enterCtrl.dispose();
     _nameCtrl.dispose();
     _usernameCtrl.dispose();
-    _ageCtrl.dispose();
     _locationCtrl.dispose();
     super.dispose();
   }
@@ -131,6 +163,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
 
   Future<void> _continue() async {
     if (!_formKey.currentState!.validate()) return;
+    // ── 18+ age gate ──────────────────────────────────────────────────────
+    if (_selectedDob == null) {
+      NeonToast.error(context, 'Please select your date of birth');
+      return;
+    }
+    final age = _ageFromDob ?? 0;
+    if (age < _minAge) {
+      NeonToast.error(
+          context, 'You must be at least $_minAge years old to use Goreto.');
+      return;
+    }
     HapticFeedback.mediumImpact();
     setState(() => _saving = true);
     try {
@@ -142,17 +185,28 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
       if (_coverFile != null) {
         try { coverUrl = await ProfileService.instance.uploadCover(_coverFile!); } catch (_) {}
       }
+      final dob = _selectedDob!;
+      final dobStr =
+          '${dob.year}-${dob.month.toString().padLeft(2, '0')}-${dob.day.toString().padLeft(2, '0')}';
       final fields = <String, dynamic>{
         'name': _nameCtrl.text.trim(),
         'username': _usernameCtrl.text.trim(),
         'gender': _gender,
         'location': _locationCtrl.text.trim(),
-        'age': int.tryParse(_ageCtrl.text.trim()) ?? 0,
+        'date_of_birth': dobStr,
+        'age': _ageFromDob ?? 0,
         'is_match_visible': _showOnMatch ? 1 : 0,
       };
       if (avatarUrl != null) fields['profile_pic'] = avatarUrl;
       if (coverUrl != null) fields['cover_photo'] = coverUrl;
       await _api.updateProfileFields(fields);
+      // Persist gender locally so gender-dependent features (cross-gender
+      // proposal button, nearby same-gender filter) work immediately without
+      // waiting for the match tab to populate it from the server.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('user_gender', _gender);
+      } catch (_) {}
       if (!mounted) return;
       Navigator.of(context).pushReplacement(MaterialPageRoute(
         builder: (_) => PrivacySetupScreen(onComplete: widget.onComplete),
@@ -275,22 +329,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
 
                   const SizedBox(height: 12),
 
-                  // ── Age & Location ────────────────────────────────────
+                  // ── Date of birth & Location ──────────────────────────
                   _buildCard(hPad: hPad, children: [
-                    _setupField(
-                      controller: _ageCtrl,
-                      label: 'Age',
-                      hint: 'Your age',
-                      icon: Icons.cake_outlined,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) return 'Required';
-                        final n = int.tryParse(v.trim());
-                        if (n == null || n < 13 || n > 100) return 'Enter a valid age (13–100)';
-                        return null;
-                      },
-                    ),
+                    _buildDobTile(),
                     const SizedBox(height: 16),
                     _buildLocationTile(),
                   ]),
@@ -341,28 +382,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
                     child: _ContinueButton(
                       isLoading: _saving,
                       onTap: _continue,
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  // ── Skip ──────────────────────────────────────────────
-                  Center(
-                    child: TextButton(
-                      onPressed: _saving
-                          ? null
-                          : () => Navigator.of(context).pushReplacement(
-                                MaterialPageRoute(
-                                  builder: (_) => PrivacySetupScreen(
-                                      onComplete: widget.onComplete),
-                                ),
-                              ),
-                      child: Text(
-                        'Skip for now',
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.4),
-                            fontSize: 13),
-                      ),
                     ),
                   ),
 
@@ -534,6 +553,95 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
   }
 
   // ── Location tile ─────────────────────────────────────────────────────────
+
+  // ── Date of birth picker (enforces 18+) ────────────────────────────────────
+
+  Future<void> _pickDob() async {
+    final now = DateTime.now();
+    // Default the picker to the latest date that still satisfies the age gate.
+    final maxDate = DateTime(now.year - _minAge, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDob ?? maxDate,
+      firstDate: DateTime(now.year - 100),
+      lastDate: maxDate,
+      helpText: 'Select your date of birth',
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: _pink,
+            onPrimary: Colors.white,
+            surface: _card,
+            onSurface: Colors.white,
+          ),
+          dialogTheme: const DialogThemeData(backgroundColor: _bg),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      setState(() => _selectedDob = picked);
+    }
+  }
+
+  Widget _buildDobTile() {
+    final has = _selectedDob != null;
+    final age = _ageFromDob;
+    final label = has
+        ? '${_selectedDob!.year}-${_selectedDob!.month.toString().padLeft(2, '0')}-${_selectedDob!.day.toString().padLeft(2, '0')}'
+            '${age != null ? '  ·  $age yrs' : ''}'
+        : 'Tap to select your date of birth';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel('Date of birth'),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: _pickDob,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: has
+                    ? _pink.withValues(alpha: 0.55)
+                    : Colors.white.withValues(alpha: 0.1),
+                width: has ? 1.5 : 1.0,
+              ),
+            ),
+            child: Row(children: [
+              Icon(Icons.cake_outlined,
+                  color: has ? _pink : _pink.withValues(alpha: 0.7), size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: has
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.35),
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              Icon(Icons.calendar_today_rounded,
+                  color: _pink.withValues(alpha: 0.8), size: 18),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'You must be at least $_minAge years old to use Goreto.',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.4),
+            fontSize: 11.5,
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _buildLocationTile() {
     final has = _locationCtrl.text.isNotEmpty;

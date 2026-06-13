@@ -28,10 +28,10 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
   bool _privacyShareDistance = false;       // OFF by default
 
   // ── Communication ──
-  bool _subscriberOnlyDm = false;           // OFF by default
   bool _privacyDirectRandomCall = false;    // OFF by default
   bool _privacyAllowDirectCall = false;     // "show name on random call" — OFF by default
   bool _privacyAllowUnknownInbox = true;    // ON by default
+  bool _crossGenderProposal = true; // cross-gender primary: Send Proposal (ON) vs Follow (OFF)
 
   // ── Visibility ──
   bool _privacyShowOnline = true;           // ON by default
@@ -153,6 +153,9 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
           _isLoading = false;
         });
         _applying = false;
+        // Cache nearby visibility so home feed can read it without a network call.
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('privacy_nearby_visible', _privacyNearbyVisible);
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
@@ -172,10 +175,10 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
     _privacyNearbyVisible  = _asBool(user['privacy_nearby_visible'],   defaultValue: true);
     _privacyNearbyAlert    = _asBool(user['privacy_nearby_alert'],     defaultValue: true);
     _privacyShareDistance  = _asBool(user['privacy_share_distance'],   defaultValue: false);
-    _subscriberOnlyDm      = _asBool(user['subscriber_only_dm'],       defaultValue: false);
     _privacyDirectRandomCall = _asBool(user['privacy_direct_random_call'], defaultValue: false);
     _privacyAllowDirectCall  = _asBool(user['privacy_allow_direct_call'],  defaultValue: false);
     _privacyAllowUnknownInbox = _asBool(user['privacy_allow_unknown_inbox'], defaultValue: true);
+    _crossGenderProposal = _asBool(user['cross_gender_proposal'], defaultValue: true);
     _privacyShowOnline     = _asBool(user['privacy_show_online'],      defaultValue: true);
     _privacyShowLastSeen   = _asBool(user['privacy_show_last_seen'],   defaultValue: true);
     _privacyShowProfileViews = _asBool(user['privacy_show_profile_views'], defaultValue: true);
@@ -205,6 +208,11 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
       _applyServerValues(result);
     } else {
       setState(() => setter(oldValue));
+      if (key == 'privacy_allow_direct_call') _cacheDirectCallPref(oldValue);
+      if (key == 'privacy_nearby_visible') {
+        SharedPreferences.getInstance()
+            .then((p) => p.setBool('privacy_nearby_visible', oldValue));
+      }
       NeonToast.error(context, 'Failed to update. Reverted.');
     }
   }
@@ -274,10 +282,10 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
               case 'privacy_nearby_visible':    _privacyNearbyVisible = v;
               case 'privacy_nearby_alert':      _privacyNearbyAlert = v;
               case 'privacy_share_distance':    _privacyShareDistance = v;
-              case 'subscriber_only_dm':        _subscriberOnlyDm = v;
               case 'privacy_direct_random_call':_privacyDirectRandomCall = v;
               case 'privacy_allow_direct_call': _privacyAllowDirectCall = v;
               case 'privacy_allow_unknown_inbox':_privacyAllowUnknownInbox = v;
+              case 'cross_gender_proposal':_crossGenderProposal = v;
               case 'privacy_show_online':       _privacyShowOnline = v;
               case 'privacy_show_last_seen':    _privacyShowLastSeen = v;
               case 'privacy_show_profile_views':_privacyShowProfileViews = v;
@@ -286,16 +294,20 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
             extraEffect?.call(v);
           });
           _updateSetting(key, v, old, (r) {
+            if (key == 'privacy_nearby_visible') {
+              SharedPreferences.getInstance()
+                  .then((p) => p.setBool('privacy_nearby_visible', r));
+            }
             setState(() {
               switch (key) {
                 case 'privacy_allow_find_id':     _privacyAllowFindId = r;
                 case 'privacy_nearby_visible':    _privacyNearbyVisible = r;
                 case 'privacy_nearby_alert':      _privacyNearbyAlert = r;
                 case 'privacy_share_distance':    _privacyShareDistance = r;
-                case 'subscriber_only_dm':        _subscriberOnlyDm = r;
                 case 'privacy_direct_random_call':_privacyDirectRandomCall = r;
                 case 'privacy_allow_direct_call': _privacyAllowDirectCall = r;
                 case 'privacy_allow_unknown_inbox':_privacyAllowUnknownInbox = r;
+                case 'cross_gender_proposal':_crossGenderProposal = r;
                 case 'privacy_show_online':       _privacyShowOnline = r;
                 case 'privacy_show_last_seen':    _privacyShowLastSeen = r;
                 case 'privacy_show_profile_views':_privacyShowProfileViews = r;
@@ -339,11 +351,6 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
       // ── COMMUNICATION ──────────────────────────────────────────
       const SizedBox(height: 20),
       _buildSectionHeader('Communication', Icons.chat_bubble_outline),
-      tog('subscriber_only_dm',
-          'Subscriber-only messages',
-          'OFF — turn ON so only your subscribers can send you messages.',
-          Icons.lock_outline, const Color(0xFFFF007F),
-          _subscriberOnlyDm, false),
       tog('privacy_direct_random_call',
           'Direct random video calls',
           'OFF — turn ON so random matches connect straight to video without a confirm step.',
@@ -355,11 +362,30 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
           Icons.badge_outlined, const Color(0xFF8B5CF6),
           _privacyAllowDirectCall, false,
           (r) => _cacheDirectCallPref(r)),
-      tog('privacy_allow_unknown_inbox',
-          'Allow messages from strangers',
-          'ON — people who don\'t follow you can still send you a message request.',
-          Icons.message_outlined, const Color(0xFF22C55E),
-          _privacyAllowUnknownInbox, true),
+      // Inverted toggle: "friends only" ON == privacy_allow_unknown_inbox OFF.
+      _buildToggle(
+        icon: Icons.group_outlined,
+        label: 'Allow only messages from friends',
+        subtitle:
+            'ON — only your friends can message you. Strangers can\'t message you or even send a message request.',
+        value: !_privacyAllowUnknownInbox,
+        color: const Color(0xFF22C55E),
+        onChanged: (v) {
+          if (_applying) return;
+          // v = friends-only ON → block strangers (allow_unknown_inbox = false)
+          final newAllow = !v;
+          final old = _privacyAllowUnknownInbox;
+          setState(() => _privacyAllowUnknownInbox = newAllow);
+          _updateSetting('privacy_allow_unknown_inbox', newAllow, old, (r) {
+            setState(() => _privacyAllowUnknownInbox = r);
+          });
+        },
+      ),
+      tog('cross_gender_proposal',
+          'Show "Send Proposal" to other gender',
+          'ON — opposite-gender visitors see "Send Proposal" as the main button on your profile (Follow moves into the ⋮ menu). OFF — they see "Follow" as the main button.',
+          Icons.favorite_outline, const Color(0xFFFF2D55),
+          _crossGenderProposal, true),
 
       // ── VISIBILITY ─────────────────────────────────────────────
       const SizedBox(height: 20),

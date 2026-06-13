@@ -29,7 +29,9 @@ import 'package:provider/provider.dart';
 import 'package:love_vibe_pro/providers/auth_provider.dart';
 import 'package:love_vibe_pro/screens/settings/settings_screen.dart';
 import 'package:love_vibe_pro/screens/chat/chat_list_screen.dart';
+import 'package:love_vibe_pro/services/chat_service.dart';
 import 'package:love_vibe_pro/widgets/login_required_sheet.dart';
+import 'package:love_vibe_pro/widgets/consent_dialogs.dart';
 import 'package:love_vibe_pro/widgets/gift_preview_overlay.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:love_vibe_pro/services/profile_service.dart';
@@ -114,7 +116,10 @@ class _HomeScreenState extends State<HomeScreen> {
   final AudioPlayer _preloadPlayer = AudioPlayer();
   final ScrollController _feedScrollController = ScrollController();
   double _feedHeaderHeight = 0;  // set once by the header-end marker
+  int _activeFeedIndex = 0;      // centered feed card — drives audio autoplay
   int _currentIndex = 0;
+  int _dailyStreak = 0;          // current daily streak (for header chip)
+  int _streakSecondsLeft = 0;    // seconds until the streak breaks
   List<dynamic> _stories = [];
   List<dynamic> _homeLiveUsers = [];
   final ApiService _apiService = ApiService();
@@ -131,6 +136,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _permissionsGranted = false;
   bool _locationUpdatesStarted = false;
   bool _blinkEnabled = false;
+  bool _showNearbyStrip = true; // false when user has "appear in nearby" OFF
 
   // Persistent tab screens — never recreated on tab switch
   late final Widget _profileScreen;
@@ -177,6 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _startLivePolling();
       _startIncomingCallPolling();
       _processOfflineGiftNotifications();
+      _doStreakCheckin();
     });
 
     // â”€â”€ Global location update (nearby notifications on ALL tabs) â”€â”€
@@ -186,6 +193,79 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     _initBlinkService();
+    _loadNearbyVisibility();
+  }
+
+  Future<void> _loadNearbyVisibility() async {
+    final prefs = await SharedPreferences.getInstance();
+    final visible = prefs.getBool('privacy_nearby_visible') ?? true;
+    if (mounted) setState(() => _showNearbyStrip = visible);
+  }
+
+  /// Records today's daily streak; celebrates any coins awarded.
+  Future<void> _doStreakCheckin() async {
+    try {
+      final res = await ApiService().streakCheckin();
+      if (res == null || !mounted) return;
+      final coins = int.tryParse('${res['reward_coins'] ?? 0}') ?? 0;
+      final streakMap = res['streak'] is Map ? res['streak'] as Map : const {};
+      final streak = int.tryParse('${streakMap['current_streak'] ?? 0}') ?? 0;
+      final secs = int.tryParse('${streakMap['seconds_left'] ?? 0}') ?? 0;
+      setState(() {
+        _dailyStreak = streak;
+        _streakSecondsLeft = secs;
+      });
+      if (coins > 0) {
+        NeonToast.success(
+            context, '🔥 $streak-day streak! +$coins coins added to wallet');
+      }
+    } catch (_) {}
+  }
+
+  String _fmtStreakLeft(int s) {
+    final h = s ~/ 3600, m = (s % 3600) ~/ 60;
+    if (h >= 24) {
+      final d = h ~/ 24, rh = h % 24;
+      return rh > 0 ? '${d}d ${rh}h' : '${d}d';
+    }
+    if (h > 0) return m > 0 ? '${h}h ${m}m' : '${h}h';
+    return '${m}m';
+  }
+
+  /// Compact daily-streak chip for the feed header. Tap → shows remaining time.
+  Widget _buildStreakChip() {
+    return GestureDetector(
+      onTap: () {
+        final left = _streakSecondsLeft > 0
+            ? 'Resets in ${_fmtStreakLeft(_streakSecondsLeft)} — open daily to keep it.'
+            : 'Open the app daily to keep your streak.';
+        NeonToast.info(context, '🔥 $_dailyStreak-day streak. $left');
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF6B35).withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFFFF6B35).withValues(alpha: 0.5),
+            width: 0.8,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.local_fire_department_rounded,
+                color: Color(0xFFFF6B35), size: 15),
+            const SizedBox(width: 3),
+            Text('$_dailyStreak',
+                style: const TextStyle(
+                    color: Color(0xFFFF6B35),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800)),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _initBlinkService() async {
@@ -204,6 +284,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _checkPermissions() async {
     try {
+      // Google Play policy: show a prominent in-app disclosure of sensitive
+      // data use (location/camera/mic/photos) BEFORE the OS permission prompt.
+      if (mounted) {
+        await ConsentDialogs.ensureDataDisclosure(context);
+      }
       // Always request permissions on first open
       final status =
           await PermissionService.instance.requestEssentialPermissions();
@@ -685,7 +770,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         NeonToast.success(
           context,
-          'Call ended â€¢ $m:${s.toString().padLeft(2, '0')}',
+          'Call ended • $m:${s.toString().padLeft(2, '0')}',
         );
 
         if (session.isRandomCall) {
@@ -704,6 +789,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   int _unreadNotificationCount = 0;
+  int _unreadChatCount = 0;
 
   Future<void> _fetchLiveAppNotifications() async {
     if (!mounted) return;
@@ -716,6 +802,14 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _unreadNotificationCount = count);
       }
     } catch (e) {}
+
+    // Unread chat count for the Chat tab badge.
+    try {
+      final chatUnread = await ChatService.instance.getGlobalUnreadCount();
+      if (mounted && chatUnread != _unreadChatCount) {
+        setState(() => _unreadChatCount = chatUnread);
+      }
+    } catch (_) {}
   }
 
   Future<void> _processOfflineGiftNotifications() async {
@@ -725,23 +819,43 @@ class _HomeScreenState extends State<HomeScreen> {
       final auth = Provider.of<AuthProvider>(context, listen: false);
       if (!auth.isAuthenticated || auth.isGuest) return;
 
+      // Scope keys to the logged-in user so switching accounts doesn't
+      // re-show the old account's gifts, and a new device login doesn't
+      // flood the screen with all historical gifts.
+      final userId = auth.userId ?? '';
+      if (userId.isEmpty) return;
+
       final notifications = await _apiService.fetchGiftNotifications();
       if (notifications.isEmpty) return;
 
       final prefs = await SharedPreferences.getInstance();
-      final shownIds = prefs.getStringList('shown_gift_ids') ?? [];
+      final userKey = 'shown_gift_ids_$userId';
+      final firstCheckKey = 'gift_first_check_$userId';
+
+      final isFirstCheck = !prefs.containsKey(firstCheckKey);
+      if (isFirstCheck) {
+        // First time this user is seen on this device — mark every existing
+        // gift as already shown so we don't replay historical gifts as overlays.
+        await prefs.setBool(firstCheckKey, true);
+        final allIds = notifications
+            .map((n) => (n['id'] ?? '').toString())
+            .where((id) => id.isNotEmpty)
+            .toList();
+        await prefs.setStringList(userKey, allIds);
+        return;
+      }
+
+      final shownIds = List<String>.from(prefs.getStringList(userKey) ?? []);
 
       for (final notif in notifications) {
-        final giftId = notif['id']?.toString() ?? '';
+        final giftId = (notif['id'] ?? '').toString();
         if (giftId.isEmpty || shownIds.contains(giftId)) continue;
 
         shownIds.add(giftId);
-        // Save immediately to prevent duplicate fetches in fast loops
-        await prefs.setStringList('shown_gift_ids', shownIds);
+        await prefs.setStringList(userKey, shownIds);
 
         if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
           GiftPreviewOverlay.show(context, notif);
-          // Wait to show the next one
           await Future.delayed(const Duration(seconds: 4));
         }
       }
@@ -762,7 +876,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   double _cardHeight(BuildContext context) =>
-      MediaQuery.sizeOf(context).height - 80;
+      MediaQuery.sizeOf(context).height * 0.72;
 
   Map<String, dynamic>? _currentFeedPost() {
     if (_feed.isEmpty) return null;
@@ -812,6 +926,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final cardH = _cardHeight(context);
     final feedOffset = (position.pixels - _feedHeaderHeight).clamp(0.0, double.infinity);
     final nearest = (feedOffset / cardH).round();
+    // Mark the centered card active so it autoplays its custom audio.
+    if (nearest != _activeFeedIndex && mounted) {
+      setState(() => _activeFeedIndex = nearest);
+    }
     final target = (_feedHeaderHeight + nearest * cardH).clamp(
       0.0,
       position.maxScrollExtent,
@@ -861,7 +979,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Opens the story viewer with ALL stories for a user, played in sequence.
-  void _openStoryViewer(List<dynamic> userStories) {
+  Future<void> _openStoryViewer(List<dynamic> userStories) async {
     if (userStories.isEmpty) return;
     final first = userStories.first;
     final username = (first['author_name'] ??
@@ -870,13 +988,22 @@ class _HomeScreenState extends State<HomeScreen> {
             first['name'] ??
             'Story')
         .toString();
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (p4_0) =>
             StoryViewScreen(stories: userStories, username: username),
       ),
     );
+    // Refresh the story tray on return so deleted/expired stories disappear.
+    if (mounted) await _refreshStories();
+  }
+
+  Future<void> _refreshStories() async {
+    try {
+      final s = await _apiService.getActiveStories();
+      if (mounted) setState(() => _stories = s);
+    } catch (_) {}
   }
 
   Future<void> _fetchData({bool force = false}) async {
@@ -964,7 +1091,9 @@ class _HomeScreenState extends State<HomeScreen> {
               backgroundColor: const Color(0xFF0D0B14),
               activeControlsWidgetColor: const Color(0xFFD946EF),
               lockAspectRatio: true,
-              hideBottomControls: false,
+              // Hide uCrop's bottom rotate/scale bar — it overlaps the Android
+              // navigation bar on edge-to-edge devices. Aspect is locked anyway.
+              hideBottomControls: true,
             ),
             IOSUiSettings(
               title: 'Crop Photo',
@@ -1174,34 +1303,12 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (picked == null || !mounted) return;
 
-      final croppedFile = await ImageCropper().cropImage(
-        sourcePath: picked.path,
-        aspectRatio: const CropAspectRatio(ratioX: 9, ratioY: 16),
-        compressQuality: 90,
-        uiSettings: [
-          AndroidUiSettings(
-            toolbarTitle: 'Crop Story',
-            toolbarColor: const Color(0xFF0D0B14),
-            toolbarWidgetColor: Colors.white,
-            backgroundColor: const Color(0xFF0D0B14),
-            activeControlsWidgetColor: const Color(0xFFD946EF),
-            lockAspectRatio: true,
-            hideBottomControls: false,
-          ),
-          IOSUiSettings(
-            title: 'Crop Story',
-            aspectRatioLockEnabled: true,
-            resetAspectRatioEnabled: false,
-            aspectRatioPickerButtonHidden: true,
-          ),
-        ],
-      );
-      if (croppedFile == null || !mounted) return;
-
+      // No forced crop — the editor shows the photo uncropped (contain) over a
+      // blurred fill, so any aspect ratio looks full without distortion.
       final result = await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => StoryEditorScreen(mediaFile: File(croppedFile.path), type: 'image'),
+          builder: (_) => StoryEditorScreen(mediaFile: File(picked.path), type: 'image'),
         ),
       );
       if (result == true && mounted) _fetchData();
@@ -1402,7 +1509,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  _buildNavItem(Icons.chat_bubble_outline_rounded, "Chat", 3),
+                  _buildNavItem(Icons.chat_bubble_outline_rounded, "Chat", 3,
+                      badgeCount: _unreadChatCount),
                   _buildNavItem(Icons.person_outline_rounded, "Profile", 4),
                 ],
               ),
@@ -1433,7 +1541,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, int index) {
+  Widget _buildNavItem(IconData icon, String label, int index,
+      {int badgeCount = 0}) {
     final isSelected = _currentIndex == index;
     return GestureDetector(
       onTap: () => _onTabTapped(index),
@@ -1452,12 +1561,45 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: isSelected
-                  ? GalacticTheme.laserPink
-                  : const Color(0xCCFFFFFF),
-              size: 20,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  icon,
+                  color: isSelected
+                      ? GalacticTheme.laserPink
+                      : const Color(0xCCFFFFFF),
+                  size: 20,
+                ),
+                if (badgeCount > 0)
+                  Positioned(
+                    right: -6,
+                    top: -5,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 1),
+                      constraints:
+                          const BoxConstraints(minWidth: 15, minHeight: 15),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF0055),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: const Color(0xFF0A0A0A), width: 1.2),
+                      ),
+                      child: Center(
+                        child: Text(
+                          badgeCount > 99 ? '99+' : '$badgeCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w800,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 1),
             if (isSelected)
@@ -1515,6 +1657,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     SoundService().playTap();
     setState(() => _currentIndex = index);
+    // Refresh the chat-tab badge shortly after opening Chat (messages get
+    // marked read there) or returning to Home.
+    if (index == 3 || index == 0) {
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (mounted) _fetchLiveAppNotifications();
+      });
+    }
   }
 
   Widget _buildBody() {
@@ -1606,8 +1755,14 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: const Color(0xFF1A1A2E),
       displacement: 60,
       child: NotificationListener<ScrollEndNotification>(
-        onNotification: (_) {
-          _snapToNearestCard();
+        onNotification: (notification) {
+          // Only snap on the feed's OWN vertical scroll (depth 0). Nested
+          // horizontal scrollables — e.g. the "People you may know" strip —
+          // bubble up ScrollEndNotifications at depth > 0; ignoring them stops
+          // a horizontal swipe from auto-scrolling the feed vertically.
+          if (notification.depth == 0) {
+            _snapToNearestCard();
+          }
           return false;
         },
         child: CustomScrollView(
@@ -1629,17 +1784,26 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Logo
-                  GradientText(
-                    'Goreto',
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    colors: const [
-                      Color(0xFFD946EF),
-                      Color(0xFF06B6D4),
-                    ], // Pink to Cyan
+                  // Logo + daily-streak chip
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GradientText(
+                        'Goreto',
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        colors: const [
+                          Color(0xFFD946EF),
+                          Color(0xFF06B6D4),
+                        ], // Pink to Cyan
+                      ),
+                      if (_dailyStreak > 0) ...[
+                        const SizedBox(width: 10),
+                        _buildStreakChip(),
+                      ],
+                    ],
                   ),
                   // Neon Header Buttons
                   Row(
@@ -1719,15 +1883,16 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // 2d. Nearby friends
-          SliverToBoxAdapter(
-            child: DiscoveryStrip(
-              type: 'nearby',
-              title: 'Nearby friends',
-              icon: Icons.near_me_outlined,
-              accentColor: const Color(0xFF22C55E),
+          // 2d. Nearby friends — hidden when user has "Appear in Nearby" OFF
+          if (_showNearbyStrip)
+            const SliverToBoxAdapter(
+              child: DiscoveryStrip(
+                type: 'nearby',
+                title: 'Nearby friends',
+                icon: Icons.near_me_outlined,
+                accentColor: Color(0xFF22C55E),
+              ),
             ),
-          ),
 
           // Marker to measure where the feed starts for snap calculations
           SliverToBoxAdapter(
@@ -1820,6 +1985,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     : PhotoFeedItem(
                         key: ValueKey('feed_$stablePostKey'),
                         post: post,
+                        isActive: index == _activeFeedIndex,
                         onLike: () {},
                         onComment: () {},
                         onShare: () => _feedController.loadFeed(force: true),
@@ -2077,13 +2243,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             borderRadius: const BorderRadius.vertical(
                               top: Radius.circular(18),
                             ),
-                            child: Container(
+                            child: ColoredBox(
                               color: const Color(0xFF0D0D0D),
-                              child: _safeStoryImage(
-                                photoUrl,
-                                fit: BoxFit.cover,
-                                memCacheWidth: 220,
-                                memCacheHeight: 220,
+                              child: SizedBox.expand(
+                                child: _safeStoryImage(
+                                  photoUrl,
+                                  fit: BoxFit.cover,
+                                  // width-only decode preserves aspect ratio
+                                  // (passing both stretches the preview photo).
+                                  memCacheWidth: 220,
+                                ),
                               ),
                             ),
                           ),
@@ -2452,7 +2621,9 @@ class _HomeScreenState extends State<HomeScreen> {
     String url, {
     bool showPlay = false,
     int memCacheWidth = 400,
-    int memCacheHeight = 400,
+    // Width-only decode preserves aspect ratio. Setting both forces a square
+    // decode that STRETCHES the thumbnail.
+    int? memCacheHeight,
     BoxFit fit = BoxFit.cover,
   }) {
     if (url.isEmpty) {
@@ -2513,9 +2684,15 @@ class _HomeScreenState extends State<HomeScreen> {
         ? Map<String, dynamic>.from(storyRaw)
         : <String, dynamic>{};
     final imageUrl = _resolveStoryPreviewMediaUrl(story);
-    final name =
-        (story['author_name'] ?? story['username'] ?? story['name'] ?? 'User')
-            .toString();
+    // stories.php returns the display name as `user_name` (and handle as
+    // `user_handle`) — include them so the tray shows the real name, not 'User'.
+    final name = (story['author_name'] ??
+            story['user_name'] ??
+            story['name'] ??
+            story['username'] ??
+            story['user_handle'] ??
+            'User')
+        .toString();
     final userAvatar = _normalizeStoryUrl(
       story['author_avatar'] ??
           story['avatar_url'] ??

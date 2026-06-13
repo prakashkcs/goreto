@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
+import 'package:love_vibe_pro/screens/audio/audio_picker_sheet.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:video_player/video_player.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -96,12 +97,39 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
   // Filter
   StoryFilterType _filter = StoryFilterType.none;
 
-  // Music
+  // Music — now backed by the user-uploaded trending-audio library.
   String _musicTitle = '';
+  String _musicUrl = ''; // selected sound's audio_url (≤60s clip)
+  int _soundId = 0; // selected sound id (for use-tracking + virality)
   List<Map<String, String>> _songs = _kFallbackSongs;
   bool _songsLoading = false;
   AudioPlayer? _musicPreviewPlayer;
   bool _musicPlaying = false;
+
+  Future<void> _openMusicPicker() async {
+    _stopMusicPreview();
+    final sound = await AudioPickerSheet.show(context);
+    if (sound == null || !mounted) return;
+    setState(() {
+      _musicTitle = (sound['title'] ?? '').toString();
+      _musicUrl = (sound['audio_url'] ?? '').toString();
+      _soundId = (sound['id'] as num?)?.toInt() ?? 0;
+    });
+    if (_musicUrl.isNotEmpty) {
+      try {
+        await _musicPreviewPlayer?.stop();
+        _musicPreviewPlayer?.dispose();
+        _musicPreviewPlayer = AudioPlayer();
+        await _musicPreviewPlayer!.play(UrlSource(_musicUrl));
+        if (mounted) setState(() => _musicPlaying = true);
+        _musicPreviewPlayer!.onPlayerStateChanged.listen((s) {
+          if (s == PlayerState.completed && mounted) {
+            setState(() => _musicPlaying = false);
+          }
+        });
+      } catch (_) {}
+    }
+  }
 
   static const List<Map<String, String>> _kFallbackSongs = [
     {'title': 'Nasayo',            'artist': 'Albatross'},
@@ -366,6 +394,8 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
         fileToUpload,
         type: widget.type,
         music: _musicTitle.isNotEmpty ? _musicTitle : null,
+        musicUrl: _musicUrl.isNotEmpty ? _musicUrl : null,
+        soundId: _soundId > 0 ? _soundId : null,
         tags: tags.isNotEmpty ? tags : null,
         filterName: _filter != StoryFilterType.none ? _filter.name : null,
         textOverlays: textMeta.isNotEmpty ? jsonEncode(textMeta) : null,
@@ -376,7 +406,12 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
         Navigator.pop(context, true);
       }
     } catch (e) {
-      if (mounted) NeonToast.error(context, 'Upload failed: $e');
+      if (mounted) {
+        final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        final isPolicy = msg.toLowerCase().contains('content policy') ||
+            msg.toLowerCase().contains('community guidelines');
+        NeonToast.error(context, isPolicy ? msg : 'Upload failed: $msg');
+      }
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
@@ -508,8 +543,9 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
     return Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
+      // Full-screen immersive canvas; the top bar and bottom toolbar add their
+      // own status-bar / nav-bar insets so their buttons are never hidden.
+      body: Stack(
           fit: StackFit.expand,
           children: [
             // 1 ── Captured canvas ─────────────────────────────────────────
@@ -522,19 +558,36 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
                   if (widget.type == 'image')
                     ColorFiltered(
                       colorFilter: _activeColorFilter,
-                      child: Image.file(widget.mediaFile,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity),
+                      // The sharp photo is shown uncropped/unstretched (contain).
+                      // A blurred cover copy fills the letterbox area so there are
+                      // no black bars — without cropping or distorting the photo
+                      // itself. Captured into the uploaded image via ImageFiltered
+                      // (renders correctly in RepaintBoundary.toImage).
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ImageFiltered(
+                            imageFilter:
+                                ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                            child: Image.file(widget.mediaFile,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: double.infinity),
+                          ),
+                          Container(color: Colors.black.withValues(alpha: 0.18)),
+                          Image.file(widget.mediaFile,
+                              fit: BoxFit.contain,
+                              width: double.infinity,
+                              height: double.infinity),
+                        ],
+                      ),
                     )
                   else if (widget.type == 'video' && _videoReady && _videoCtrl != null)
                     ColorFiltered(
                       colorFilter: _activeColorFilter,
-                      child: FittedBox(
-                        fit: BoxFit.cover,
-                        child: SizedBox(
-                          width: _videoCtrl!.value.size.width,
-                          height: _videoCtrl!.value.size.height,
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: _videoCtrl!.value.aspectRatio,
                           child: VideoPlayer(_videoCtrl!),
                         ),
                       ),
@@ -608,7 +661,9 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
                 duration: const Duration(milliseconds: 150),
                 bottom: () {
                   final kb = MediaQuery.of(context).viewInsets.bottom;
-                  return kb > 0 ? kb + 8.0 : 90.0;
+                  return kb > 0
+                      ? kb + 8.0
+                      : 90.0 + MediaQuery.of(context).padding.bottom;
                 }(),
                 left: 0,
                 right: 0,
@@ -620,14 +675,14 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
               Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomToolbar()),
           ],
         ),
-      ),
     );
   }
 
   // ── Top bar ────────────────────────────────────────────────────────────────
   Widget _buildTopBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: EdgeInsets.fromLTRB(
+          16, MediaQuery.of(context).padding.top + 10, 16, 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -1271,8 +1326,11 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
             onTap: () {
               if (tool == _Tool.text) {
                 _openTextCompose();
+              } else if (tool == _Tool.music) {
+                // Open the trending audio library / upload-your-own picker.
+                _openMusicPicker();
               } else {
-                if (tool != _Tool.music) _stopMusicPreview();
+                _stopMusicPreview();
                 setState(() => _activeTool = active ? _Tool.none : tool);
               }
             },

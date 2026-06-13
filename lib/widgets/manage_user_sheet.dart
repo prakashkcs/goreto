@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
+import 'package:love_vibe_pro/services/profile_service.dart';
 import 'package:love_vibe_pro/providers/match_provider.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 
@@ -17,12 +18,28 @@ class ManageUserSheet extends StatefulWidget {
   /// parent may want to pop or refresh.
   final VoidCallback? onActionTaken;
 
+  /// When viewing a cross-gender profile the primary button is "Send Proposal",
+  /// so the Follow action moves here into the 3-dot menu.
+  final bool showFollow;
+  final bool isFollowing;
+  final VoidCallback? onFollow;
+
+  /// When the owner set Follow as the cross-gender primary button, the
+  /// "Send Proposal" action lives here in the 3-dot menu instead.
+  final bool showProposal;
+  final VoidCallback? onSendProposal;
+
   const ManageUserSheet({
     super.key,
     required this.userId,
     required this.userName,
     this.userAvatar,
     this.onActionTaken,
+    this.showFollow = false,
+    this.isFollowing = false,
+    this.onFollow,
+    this.showProposal = false,
+    this.onSendProposal,
   });
 
   /// Convenience method to show the sheet from anywhere.
@@ -32,6 +49,11 @@ class ManageUserSheet extends StatefulWidget {
     required String userName,
     String? userAvatar,
     VoidCallback? onActionTaken,
+    bool showFollow = false,
+    bool isFollowing = false,
+    VoidCallback? onFollow,
+    bool showProposal = false,
+    VoidCallback? onSendProposal,
   }) {
     showModalBottomSheet(
       context: context,
@@ -42,6 +64,11 @@ class ManageUserSheet extends StatefulWidget {
         userName: userName,
         userAvatar: userAvatar,
         onActionTaken: onActionTaken,
+        showFollow: showFollow,
+        isFollowing: isFollowing,
+        onFollow: onFollow,
+        showProposal: showProposal,
+        onSendProposal: onSendProposal,
       ),
     );
   }
@@ -63,11 +90,25 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
   // it survives reinstalls.
   bool _ppmOverrideOn = false;
   bool _ppmCheckedRemote = false;
+  // "Make paid chat only" is a monetization feature — only KYC-verified users
+  // (creators) may use it.
+  bool _isKycVerified = false;
 
   @override
   void initState() {
     super.initState();
+    _loadKyc();
     _loadStatus();
+  }
+
+  Future<void> _loadKyc() async {
+    try {
+      final me = await ProfileService.instance.getCachedProfile();
+      final k = (me?.kycStatus ?? '').toLowerCase();
+      if (mounted) {
+        setState(() => _isKycVerified = (k == 'verified' || k == 'approved'));
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadStatus() async {
@@ -345,6 +386,7 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
       'Harassment',
       'Fake Profile',
       'Inappropriate Content',
+      'Child sexual abuse / exploitation (CSAE)',
       'Scam / Fraud',
       'Underage User',
       'Other',
@@ -542,6 +584,42 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
                 child: CircularProgressIndicator(color: Color(0xFF6366F1)),
               )
             else ...[
+              // Follow / Unfollow — shown here for cross-gender profiles where
+              // the primary on-profile button is "Send Proposal" instead.
+              if (widget.showFollow)
+                _buildOption(
+                  icon: widget.isFollowing
+                      ? Icons.person_remove_alt_1
+                      : Icons.person_add_alt_1,
+                  label: widget.isFollowing ? 'Unfollow' : 'Follow',
+                  subtitle: widget.isFollowing
+                      ? 'Stop seeing their posts in your feed'
+                      : 'Follow to see their posts in your feed',
+                  color: const Color(0xFF3B82F6),
+                  onTap: _isActionLoading
+                      ? null
+                      : () {
+                          widget.onFollow?.call();
+                          Navigator.pop(context);
+                        },
+                ),
+
+              // Send Proposal — shown here for cross-gender profiles where the
+              // primary on-profile button is "Follow" instead.
+              if (widget.showProposal)
+                _buildOption(
+                  icon: Icons.favorite_rounded,
+                  label: 'Send Proposal',
+                  subtitle: 'Send ${widget.userName} a proposal',
+                  color: const Color(0xFFFF2D55),
+                  onTap: _isActionLoading
+                      ? null
+                      : () {
+                          widget.onSendProposal?.call();
+                          Navigator.pop(context);
+                        },
+                ),
+
               // Block / Unblock
               _buildOption(
                 icon: _isBlocked ? Icons.check_circle_outline : Icons.block,
@@ -564,8 +642,9 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
                 onTap: _isActionLoading ? null : _toggleMute,
               ),
 
-              // PPM override — force this user into paid chat even if friend
-              if (_ppmCheckedRemote)
+              // PPM override — force this user into paid chat even if friend.
+              // KYC-verified users only (monetization feature).
+              if (_ppmCheckedRemote && _isKycVerified)
                 _buildOption(
                   icon: _ppmOverrideOn
                       ? Icons.lock_open_rounded
