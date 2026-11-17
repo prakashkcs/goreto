@@ -13,7 +13,10 @@
 #      Issuer ID). Code signing below fetches the profile through this.
 #
 #   2. Environment variables group `goreto_ios`:
-#        APP_STORE_APPLE_ID   numeric Apple ID of the app in App Store Connect
+#        APP_STORE_APPLE_ID   6835568733 — the numeric id of "Goreto Nepali
+#                             Dating App" in App Store Connect. Not a secret;
+#                             it is the number in the console URL
+#                             appstoreconnect.apple.com/apps/<id>/
 #        GOOGLE_SERVICES_IOS  base64 of ios/Runner/GoogleService-Info.plist,
 #                             marked Secure. Firebase will not initialise on
 #                             iOS without this file, so push and Google
