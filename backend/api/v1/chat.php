@@ -344,6 +344,38 @@ try {
             $filename = uniqid('chat_') . '.' . $ext;
             $dest     = __DIR__ . '/../../uploads/' . $filename;
             if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
+                // NSFW scan: same check used on post/story uploads, so nudity sent
+                // privately through chat doesn't slip past moderation entirely.
+                $nsfwImg = ['jpg','jpeg','png','gif','webp'];
+                $nsfwVid = ['mp4','mov','avi','webm','m4v'];
+                $extLower = strtolower($ext);
+                $nsfwKind = in_array($extLower, $nsfwVid, true) ? 'video' : (in_array($extLower, $nsfwImg, true) ? 'image' : '');
+                if ($nsfwKind !== '') {
+                    $nch = curl_init('http://127.0.0.1:8000/scan/local');
+                    curl_setopt_array($nch, [
+                        CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
+                        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                        CURLOPT_POSTFIELDS => json_encode(['path' => $dest, 'kind' => $nsfwKind]),
+                        CURLOPT_TIMEOUT => 35,
+                    ]);
+                    $nresp = curl_exec($nch);
+                    $ncode = curl_getinfo($nch, CURLINFO_HTTP_CODE);
+                    curl_close($nch);
+                    $nj = ($nresp !== false && $ncode === 200) ? json_decode($nresp, true) : null;
+                    if (is_array($nj) && ($nj['status'] ?? '') === 'rejected') {
+                        try {
+                            $pdo->prepare('INSERT INTO nsfw_violations (user_id, content_type, reason, details) VALUES (?,?,?,?)')
+                                ->execute([$userId, $nsfwKind, $nj['reason'] ?? 'nsfw', json_encode($nj['detections'] ?? [])]);
+                            $pdo->prepare('UPDATE users SET nsfw_strikes = nsfw_strikes + 1 WHERE id = ?')->execute([$userId]);
+                            $pdo->prepare('UPDATE users SET upload_blocked = 1 WHERE id = ?')->execute([$userId]);
+                        } catch (Throwable $e) {}
+                        @unlink($dest);
+                        http_response_code(403);
+                        echo json_encode(['status' => 'error', 'error_code' => 'nsfw_rejected',
+                            'message' => 'Your upload was removed for violating our content policy. Repeated violations may lead to your account being banned.']);
+                        exit;
+                    }
+                }
                 $proto    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
                 $host     = $_SERVER['HTTP_HOST'] ?? 'goreto.org';
                 $mediaUrl = $proto . '://' . $host . '/ekloadmin/uploads/' . $filename;

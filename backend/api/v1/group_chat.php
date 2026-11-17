@@ -540,6 +540,35 @@ try {
         $filename = uniqid('media_') . '.' . $ext;
 
         if (move_uploaded_file($_FILES['media']['tmp_name'], $uploadsDir . '/' . $filename)) {
+            // NSFW scan: same check used on post/story/1:1-chat uploads.
+            $nsfwImg = ['jpg','jpeg','png','gif','webp'];
+            $nsfwVid = ['mp4','mov','avi','webm','m4v'];
+            $nsfwKind = in_array($ext, $nsfwVid, true) ? 'video' : (in_array($ext, $nsfwImg, true) ? 'image' : '');
+            if ($nsfwKind !== '') {
+                $nch = curl_init('http://127.0.0.1:8000/scan/local');
+                curl_setopt_array($nch, [
+                    CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
+                    CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                    CURLOPT_POSTFIELDS => json_encode(['path' => $uploadsDir . '/' . $filename, 'kind' => $nsfwKind]),
+                    CURLOPT_TIMEOUT => 35,
+                ]);
+                $nresp = curl_exec($nch);
+                $ncode = curl_getinfo($nch, CURLINFO_HTTP_CODE);
+                curl_close($nch);
+                $nj = ($nresp !== false && $ncode === 200) ? json_decode($nresp, true) : null;
+                if (is_array($nj) && ($nj['status'] ?? '') === 'rejected') {
+                    try {
+                        $pdo->prepare('INSERT INTO nsfw_violations (user_id, content_type, reason, details) VALUES (?,?,?,?)')
+                            ->execute([$userId, $nsfwKind, $nj['reason'] ?? 'nsfw', json_encode($nj['detections'] ?? [])]);
+                        $pdo->prepare('UPDATE users SET nsfw_strikes = nsfw_strikes + 1 WHERE id = ?')->execute([$userId]);
+                        $pdo->prepare('UPDATE users SET upload_blocked = 1 WHERE id = ?')->execute([$userId]);
+                    } catch (Throwable $e) {}
+                    @unlink($uploadsDir . '/' . $filename);
+                    out_json(403, ['status' => 'error', 'error_code' => 'nsfw_rejected',
+                        'message' => 'Your upload was removed for violating our content policy. Repeated violations may lead to your account being banned.']);
+                }
+            }
+
             $mediaUrl = '/uploads/chat/' . $filename;
 
             $pdo->prepare("INSERT INTO chat_group_messages (group_id, sender_id, message, type, voice_duration) VALUES (?, ?, ?, ?, ?)")

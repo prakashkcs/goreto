@@ -467,7 +467,8 @@ try {
     if ($reqAction === 'get' && $reqPostId > 0) {
       // Resolve viewer
       $vid = 0;
-      try { $vr = requireUser($pdo); $vid = (int)$vr['id']; } catch(Throwable $_){}
+      $vr = optionalUser($pdo);
+      if ($vr) $vid = (int)$vr['id'];
 
       $stmt = $pdo->prepare("SELECT p.*, u.name AS author_name, u.username AS author_username, u.profile_pic AS author_avatar,
         COALESCE((SELECT COUNT(*) FROM likes WHERE post_id = p.id),0) AS likes_count,
@@ -536,12 +537,11 @@ try {
 
   // Resolve viewer from token for subscription check
   $authViewerId = 0;
-  try {
-    $authViewer = requireUser($pdo);
+  $authViewer = optionalUser($pdo);
+  if ($authViewer) {
     $authViewerId = (int) $authViewer['id'];
     if ($viewerId <= 0)
       $viewerId = $authViewerId;
-  } catch (Throwable $e) {
   }
 
   // Columns

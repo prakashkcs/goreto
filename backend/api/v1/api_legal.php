@@ -103,7 +103,7 @@ function default_terms(): string
 <p>Welcome to <strong>Eklo</strong> ("App", "Platform", "we", "us", or "our"), a social entertainment and live streaming application operated under the laws of Nepal. By downloading, installing, registering, or using this App, you ("User", "you") agree to be legally bound by these Terms &amp; Conditions ("Terms"). If you do not agree, do not use the App.</p>
 
 <h3>1. Eligibility &amp; Age Requirement</h3>
-<p>You must be at least <strong>18 years of age</strong> to register and use Eklo. By creating an account, you confirm that you are 18 or older. We do not knowingly permit minors to use the App. If we discover a user is under 18, their account will be permanently terminated and any wallet balance forfeited. Parents or guardians who discover their minor child has registered must contact us immediately at <strong>support@eklo.app</strong>.</p>
+<p>You must be at least <strong>18 years of age</strong> to register and use Eklo. By creating an account, you confirm that you are 18 or older. We do not knowingly permit minors to use the App. If we discover a user is under 18, their account will be permanently terminated and any wallet balance forfeited. Parents or guardians who discover their minor child has registered must contact us immediately at <strong>help@goreto.org</strong>.</p>
 
 <h3>2. Account Registration &amp; Security</h3>
 <p>You agree to provide accurate, truthful, and complete information during registration. You are solely responsible for maintaining the confidentiality of your login credentials. You must notify us immediately of any unauthorized access to your account. We are not liable for any loss resulting from unauthorized use of your account. One person may hold only one account; duplicate accounts will be removed.</p>
@@ -170,7 +170,7 @@ function default_terms(): string
 <p>Violations may result in immediate stream termination, temporary suspension, or permanent ban. Repeated violations will result in permanent account termination.</p>
 
 <h3>11. Intellectual Property &amp; Copyright</h3>
-<p>All App content, design, logos, trademarks, software, and features (excluding user-generated content) are the exclusive property of Eklo and are protected under Nepal's Copyright Act 2059 and international intellectual property laws. You may not copy, modify, distribute, sell, or create derivative works from our proprietary content without express written permission. If you believe your copyright has been infringed, contact us at <strong>legal@eklo.app</strong> with details of the alleged infringement.</p>
+<p>All App content, design, logos, trademarks, software, and features (excluding user-generated content) are the exclusive property of Eklo and are protected under Nepal's Copyright Act 2059 and international intellectual property laws. You may not copy, modify, distribute, sell, or create derivative works from our proprietary content without express written permission. If you believe your copyright has been infringed, contact us at <strong>legal@goreto.org</strong> with details of the alleged infringement.</p>
 
 <h3>12. Privacy &amp; Data Protection</h3>
 <p>Your use of the App is governed by our Privacy Policy, which is incorporated into these Terms by reference. We comply with Nepal's Individual Privacy Act 2075 (Byaktigat Gupta ta Sambandhi Ain). By using the App, you consent to the collection and processing of your data as described in our Privacy Policy.</p>
@@ -206,8 +206,8 @@ function default_terms(): string
 <h3>20. Contact Us</h3>
 <p>For questions, complaints, or legal notices regarding these Terms, contact us:</p>
 <ul>
-  <li>Email: <strong>support@eklo.app</strong></li>
-  <li>Legal: <strong>legal@eklo.app</strong></li>
+  <li>Email: <strong>help@goreto.org</strong></li>
+  <li>Legal: <strong>legal@goreto.org</strong></li>
   <li>Address: Kathmandu, Nepal</li>
 </ul>
 HTML;
@@ -303,7 +303,7 @@ function default_privacy(): string
 <p>Despite these measures, no internet transmission is 100% secure. We cannot guarantee absolute security and are not liable for unauthorized access beyond our reasonable control.</p>
 
 <h3>9. Children's Privacy</h3>
-<p>Eklo is strictly for users aged <strong>18 and older</strong>. We do not knowingly collect personal information from anyone under 18. If we become aware that a minor has created an account, we will immediately delete all their data and terminate the account. If you believe a minor is using the App, please report it to <strong>support@eklo.app</strong> immediately.</p>
+<p>Eklo is strictly for users aged <strong>18 and older</strong>. We do not knowingly collect personal information from anyone under 18. If we become aware that a minor has created an account, we will immediately delete all their data and terminate the account. If you believe a minor is using the App, please report it to <strong>help@goreto.org</strong> immediately.</p>
 
 <h3>10. Your Rights Under Nepal's Privacy Act 2075</h3>
 <p>Under Nepal's Individual Privacy Act 2075, you have the following rights regarding your personal data:</p>
@@ -316,7 +316,7 @@ function default_privacy(): string
   <li><strong>Right to Object:</strong> Object to processing of your data for certain purposes</li>
   <li><strong>Right to Withdraw Consent:</strong> Withdraw consent at any time without affecting prior processing</li>
 </ul>
-<p>To exercise any of these rights, contact us at <strong>privacy@eklo.app</strong>. We will respond within 30 days.</p>
+<p>To exercise any of these rights, contact us at <strong>legal@goreto.org</strong>. We will respond within 30 days.</p>
 
 <h3>11. Push Notifications</h3>
 <p>We use Firebase Cloud Messaging (FCM) to send push notifications about matches, messages, gifts, and App updates. You can disable push notifications at any time in your device settings or within the App's notification preferences. Disabling notifications will not affect your ability to use the App.</p>
@@ -349,8 +349,8 @@ function default_privacy(): string
 <h3>18. Contact &amp; Grievance Officer</h3>
 <p>For privacy-related questions, requests, or complaints, contact our Privacy Officer:</p>
 <ul>
-  <li>Email: <strong>privacy@eklo.app</strong></li>
-  <li>Support: <strong>support@eklo.app</strong></li>
+  <li>Email: <strong>legal@goreto.org</strong></li>
+  <li>Support: <strong>help@goreto.org</strong></li>
   <li>Address: Kathmandu, Nepal</li>
 </ul>
 <p>We are committed to resolving privacy concerns promptly and in accordance with Nepal's Individual Privacy Act 2075.</p>
@@ -397,7 +397,7 @@ function default_content_policy(): string
 <p>Violations may result in content removal, feature restrictions, temporary suspension, or permanent account termination and device ban, depending on severity. We may preserve and disclose information to law enforcement where required by law.</p>
 
 <h3>6. Reporting &amp; Contact</h3>
-<p>To report content or appeal a decision, use the in-app report tools or contact <strong>support@eklo.app</strong>. Child-safety concerns: <strong>childsafety@eklo.app</strong>.</p>
+<p>To report content or appeal a decision, use the in-app report tools or contact <strong>help@goreto.org</strong>. Child-safety concerns: <strong>help@goreto.org</strong>.</p>
 HTML;
 }
 
@@ -434,6 +434,6 @@ function default_child_safety(): string
 <p>We report confirmed CSAE to the <strong>Nepal Police Cyber Bureau</strong> and cooperate with lawful requests from law enforcement. Where applicable we also report to international bodies such as the National Center for Missing &amp; Exploited Children (NCMEC).</p>
 
 <h3>6. Child Safety Point of Contact</h3>
-<p>Our designated Child Safety contact can be reached at <strong>childsafety@eklo.app</strong>. We respond to child-safety reports as a top priority, within 24 hours.</p>
+<p>Our designated Child Safety contact can be reached at <strong>help@goreto.org</strong>. We respond to child-safety reports as a top priority, within 24 hours.</p>
 HTML;
 }

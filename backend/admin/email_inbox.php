@@ -5,11 +5,14 @@ admin_require_login();
 $pageTitle  = 'Email Inbox';
 $activeNav  = 'email_inbox';
 
-// IMAP connection config — goreto.org mail is hosted on Google Workspace
+// IMAP connection config — goreto.org mail is hosted on Google Workspace.
+// Reuses the same mailbox credentials already configured for SMTP (config.php),
+// instead of a second hardcoded copy.
+$mailConfig = require __DIR__ . '/../../config/config.php';
 define('IMAP_HOST',     'imap.gmail.com');
 define('IMAP_PORT',     993);
-define('IMAP_USER',     'help@goreto.org');
-define('IMAP_PASS',     'EkloHelp2024!');
+define('IMAP_USER',     $mailConfig['smtp']['username']);
+define('IMAP_PASS',     $mailConfig['smtp']['password']);
 define('IMAP_MAILBOX',  '{' . IMAP_HOST . ':' . IMAP_PORT . '/imap/ssl}INBOX');
 
 $error   = '';

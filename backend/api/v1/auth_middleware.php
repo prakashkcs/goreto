@@ -96,6 +96,21 @@ function is_blocked_between(PDO $pdo, int $a, int $b): bool
 // Main auth middleware
 // ---------------------------------------------
 
+/**
+ * Resolve the caller only if they supplied credentials.
+ *
+ * requireUser() answers 401 and exits, so wrapping it in try/catch never means
+ * "anonymous is acceptable" -- endpoints guests are allowed to read need this
+ * instead. A token that is present but invalid is still rejected.
+ */
+function optionalUser(PDO $pdo): ?array
+{
+    if (!getBearerToken()) {
+        return null;
+    }
+    return requireUser($pdo);
+}
+
 function requireUser(PDO $pdo): array
 {
     $auth = getBearerToken();

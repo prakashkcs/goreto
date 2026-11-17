@@ -20,6 +20,105 @@ $action = $_GET['action'] ?? $_POST['action'] ?? $data->action ?? '';
 
 include_once 'db_connect.php';
 
+// ── Sign in with Apple: verify the native identity token (RS256 JWT) ──────────
+// Apple has no "tokeninfo" REST endpoint like Google, so this verifies the
+// signature ourselves against Apple's published JWKS.
+function apple_b64url_decode(string $s): string
+{
+  $s = strtr($s, '-_', '+/');
+  $pad = strlen($s) % 4;
+  if ($pad) $s .= str_repeat('=', 4 - $pad);
+  return base64_decode($s);
+}
+
+function apple_fetch_jwks(): array
+{
+  static $cache = null;
+  if ($cache !== null) return $cache;
+  $ch = curl_init('https://appleid.apple.com/auth/keys');
+  curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10, CURLOPT_SSL_VERIFYPEER => true,
+  ]);
+  $resp = curl_exec($ch);
+  curl_close($ch);
+  $json = $resp !== false ? json_decode($resp, true) : null;
+  $cache = $json['keys'] ?? [];
+  return $cache;
+}
+
+function apple_asn1_length(int $len): string
+{
+  if ($len < 128) return chr($len);
+  $bytes = '';
+  while ($len > 0) { $bytes = chr($len & 0xFF) . $bytes; $len >>= 8; }
+  return chr(0x80 | strlen($bytes)) . $bytes;
+}
+
+function apple_asn1_integer(string $bin): string
+{
+  if ($bin === '' || ord($bin[0]) > 0x7F) $bin = "\x00" . $bin;
+  return "\x02" . apple_asn1_length(strlen($bin)) . $bin;
+}
+
+function apple_asn1_sequence(string $bin): string
+{
+  return "\x30" . apple_asn1_length(strlen($bin)) . $bin;
+}
+
+function apple_asn1_bitstring(string $bin): string
+{
+  $bin = "\x00" . $bin; // 0 unused bits
+  return "\x03" . apple_asn1_length(strlen($bin)) . $bin;
+}
+
+// Builds a PEM public key from a JWK's RSA (n, e) components -- PHP has no
+// built-in "JWK to key" helper, so this hand-encodes the minimal ASN.1
+// SubjectPublicKeyInfo structure openssl needs.
+function apple_jwk_to_pem(array $jwk): ?string
+{
+  if (!isset($jwk['n'], $jwk['e'])) return null;
+  $modulus = apple_asn1_integer(apple_b64url_decode($jwk['n']));
+  $exponent = apple_asn1_integer(apple_b64url_decode($jwk['e']));
+  $rsaPublicKey = apple_asn1_sequence($modulus . $exponent);
+  // SEQUENCE { OID 1.2.840.113549.1.1.1 (rsaEncryption), NULL }
+  $algIdentifier = "\x30\x0D\x06\x09\x2A\x86\x48\x86\xF7\x0D\x01\x01\x01\x05\x00";
+  $publicKeyInfo = apple_asn1_sequence($algIdentifier . apple_asn1_bitstring($rsaPublicKey));
+  return "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($publicKeyInfo), 64, "\n") . "-----END PUBLIC KEY-----\n";
+}
+
+// Verifies signature + standard claims (iss/aud/exp) and returns the decoded
+// payload, or null if the token is missing, malformed, or fails verification.
+function verify_apple_identity_token(string $jwt, string $expectedAud): ?array
+{
+  $parts = explode('.', $jwt);
+  if (count($parts) !== 3) return null;
+  [$h64, $p64, $s64] = $parts;
+
+  $header = json_decode(apple_b64url_decode($h64), true);
+  $payload = json_decode(apple_b64url_decode($p64), true);
+  $signature = apple_b64url_decode($s64);
+  if (!is_array($header) || !is_array($payload) || ($header['alg'] ?? '') !== 'RS256') return null;
+
+  $jwk = null;
+  foreach (apple_fetch_jwks() as $k) {
+    if (($k['kid'] ?? null) === ($header['kid'] ?? null)) { $jwk = $k; break; }
+  }
+  if (!$jwk) return null;
+
+  $pem = apple_jwk_to_pem($jwk);
+  $pubKey = $pem ? openssl_pkey_get_public($pem) : false;
+  if (!$pubKey) return null;
+
+  $ok = openssl_verify($h64 . '.' . $p64, $signature, $pubKey, OPENSSL_ALGO_SHA256);
+  if ($ok !== 1) return null;
+
+  if (($payload['iss'] ?? '') !== 'https://appleid.apple.com') return null;
+  if (($payload['aud'] ?? null) !== $expectedAud) return null;
+  if (((int) ($payload['exp'] ?? 0)) < time()) return null;
+
+  return $payload;
+}
+
 function ensure_auth_schema(PDO $db): void
 {
   try {
@@ -513,6 +612,137 @@ try {
         require_once __DIR__ . '/email_helper.php';
         (new EmailHelper())->sendOtp((string) $user['email'], $otpCode, (string) ($user['name'] ?? ''), 'sign in');
       } catch (Throwable $e) { error_log('2FA(google) send error: ' . $e->getMessage()); }
+      echo json_encode(['status' => '2fa_required', 'message' => 'Enter the 6-digit code we emailed you.', 'email' => $user['email']]);
+      exit;
+    }
+
+    $token = issue_token($db, (int) $user['id']);
+
+    echo json_encode([
+      "status" => "success",
+      "is_new_user" => $isNewUser,
+      "data" => ["token" => $token, "user" => $user]
+    ]);
+    exit;
+  }
+
+  if ($action === 'apple') {
+    if (!isset($data->identity_token) || empty($data->identity_token)) {
+      echo json_encode(["status" => "error", "message" => "Missing identity_token"]);
+      exit;
+    }
+
+    // Native Sign in with Apple on iOS uses the app's bundle ID as the token audience.
+    $claims = verify_apple_identity_token($data->identity_token, 'com.nex.ekloapp');
+    if (!$claims) {
+      http_response_code(401);
+      echo json_encode(["status" => "error", "message" => "Invalid Apple identity token"]);
+      exit;
+    }
+
+    $appleSub = (string) $claims['sub'];
+    // Apple only sends the email in the token; the display name (if the user
+    // shared it) is only sent ONCE, in the client's authorization payload,
+    // never inside the token itself -- so it's accepted as a separate field.
+    $email = $claims['email'] ?? null;
+    $name = trim((string) ($data->full_name ?? '')) ?: 'Apple User';
+    // Apple's "Hide My Email" relay addresses end in @privaterelay.appleid.com --
+    // still a real, usable inbox, just routed through Apple.
+
+    $cols = users_cols($db);
+    $hasDel = in_array('delete_requested_at', $cols, true) && in_array('delete_scheduled_at', $cols, true);
+
+    if (!in_array('apple_sub', $cols, true)) {
+      try { $db->exec("ALTER TABLE users ADD COLUMN apple_sub VARCHAR(64) NULL"); $cols[] = 'apple_sub'; } catch (Throwable $e) {}
+    }
+    if (!in_array('apple_email', $cols, true)) {
+      try { $db->exec("ALTER TABLE users ADD COLUMN apple_email VARCHAR(255) NULL"); $cols[] = 'apple_email'; } catch (Throwable $e) {}
+    }
+    $hasSub = in_array('apple_sub', $cols, true);
+    $hasAEmail = in_array('apple_email', $cols, true);
+    $sel = 'id, name, email, username, profile_pic, subscription_status';
+    if ($hasDel)
+      $sel .= ', delete_requested_at, delete_scheduled_at';
+    if (in_array('deactivated_type', $cols, true))
+      $sel .= ', deactivated_type, deactivated_until';
+    if (in_array('twofa_enabled', $cols, true))
+      $sel .= ', twofa_enabled';
+
+    // Resolve account by stable Apple identity (sub -> apple_email -> email)
+    // so a later email change on Apple's side never spawns a duplicate account.
+    $user = null;
+    if ($hasSub && $appleSub) {
+      $stmt = $db->prepare("SELECT $sel FROM users WHERE apple_sub = :sub LIMIT 1");
+      $stmt->execute([":sub" => $appleSub]);
+      $user = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    if (!$user && $hasAEmail && $email) {
+      $stmt = $db->prepare("SELECT $sel FROM users WHERE apple_email = :aem LIMIT 1");
+      $stmt->execute([":aem" => $email]);
+      $user = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    if (!$user && $email) {
+      $stmt = $db->prepare("SELECT $sel FROM users WHERE email = :email LIMIT 1");
+      $stmt->execute([":email" => $email]);
+      $user = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    if ($user) {
+      try {
+        $db->prepare("UPDATE users SET apple_sub = COALESCE(NULLIF(apple_sub, ''), ?), apple_email = COALESCE(NULLIF(apple_email, ''), ?) WHERE id = ?")->execute([$appleSub, $email, (int) $user['id']]);
+      } catch (Throwable $e) {}
+    }
+    $isNewUser = !$user;
+
+    if (!$user) {
+      if (!$email) {
+        // First-time sign-in with no email at all (should not normally happen --
+        // Apple always supplies either a real or private-relay address).
+        http_response_code(400);
+        echo json_encode(["status" => "error", "message" => "Apple did not provide an email for this account."]);
+        exit;
+      }
+      $randomPass = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
+
+      $baseUname = preg_replace('/[^a-zA-Z0-9]/', '', strtolower($name));
+      if (strlen($baseUname) < 5) $baseUname = str_pad($baseUname, 5, 'u');
+      if (strlen($baseUname) > 10) $baseUname = substr($baseUname, 0, 10);
+
+      $username = '';
+      for ($i = 0; $i < 20; $i++) {
+        $temp = $baseUname . rand(100, 9999);
+        if (strlen($temp) > 15) $temp = substr($temp, 0, 15);
+        $chk = $db->prepare("SELECT id FROM users WHERE username = ?");
+        $chk->execute([$temp]);
+        if ($chk->rowCount() === 0) { $username = $temp; break; }
+      }
+      if (!$username) $username = substr($baseUname, 0, 5) . time();
+
+      $db->prepare("INSERT INTO users (name, email, username, password_hash) VALUES (:name,:email,:uname,:pass)")
+        ->execute([":name" => $name, ":email" => $email, ":uname" => $username, ":pass" => $randomPass]);
+
+      $newId = (int) $db->lastInsertId();
+      try { $db->prepare("UPDATE users SET apple_sub = ?, apple_email = ? WHERE id = ?")->execute([$appleSub, $email, $newId]); } catch (Throwable $e) {}
+      $stmt = $db->prepare("SELECT id, name, email, profile_pic FROM users WHERE id = :id");
+      $stmt->execute([":id" => $newId]);
+      $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    if ($hasDel && !empty($user['delete_requested_at']) && !empty($user['delete_scheduled_at'])) {
+      try {
+        $db->prepare('UPDATE users SET delete_requested_at = NULL, delete_scheduled_at = NULL WHERE id = ?')
+          ->execute([(int) $user['id']]);
+      } catch (Throwable $e) {}
+    }
+
+    if (!$isNewUser && in_array('twofa_enabled', $cols, true) && (int) ($user['twofa_enabled'] ?? 0) === 1) {
+      try {
+        $db->exec("CREATE TABLE IF NOT EXISTS twofa_otps (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, email VARCHAR(255) NOT NULL, code VARCHAR(10) NOT NULL, expires_at DATETIME NOT NULL, used_at DATETIME DEFAULT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_user (user_id), INDEX idx_email (email)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $db->prepare('UPDATE twofa_otps SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL')->execute([(int) $user['id']]);
+        $otpCode = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $db->prepare('INSERT INTO twofa_otps (user_id, email, code, expires_at) VALUES (?,?,?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE))')->execute([(int) $user['id'], $user['email'], $otpCode]);
+        require_once __DIR__ . '/email_helper.php';
+        (new EmailHelper())->sendOtp((string) $user['email'], $otpCode, (string) ($user['name'] ?? ''), 'sign in');
+      } catch (Throwable $e) { error_log('2FA(apple) send error: ' . $e->getMessage()); }
       echo json_encode(['status' => '2fa_required', 'message' => 'Enter the 6-digit code we emailed you.', 'email' => $user['email']]);
       exit;
     }
