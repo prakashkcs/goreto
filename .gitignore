@@ -54,7 +54,11 @@ db_connect_*.php
 downloaded_db_connect.php
 config.php
 downloaded_config.php
-bunny_config.php
+# bunny_config.php is tracked again: it used to carry the BunnyCDN storage key
+# inline, which is why it was ignored. It now reads credentials from
+# config.php (still ignored above) and holds no secrets, so keeping it out of
+# git only meant a fresh deploy would be missing it and Bunny uploads would
+# break.
 *.env
 .env*
 
@@ -167,7 +171,10 @@ remote_*.php
 *_patched.php
 *_clean.php
 pristine_*.php
-profile_v*.php
+# Versioned scratch copies (profile_v19.php and friends). The pattern below
+# needs a digit after _v, so it catches those without also swallowing real
+# endpoints like profile_views.php — which this used to do, keeping a live
+# file out of version control entirely.
 *_v[0-9]*.php
 v[0-9]*.php
 live_*.php
