@@ -11,6 +11,9 @@
 #      API key (Apple Developer → Users and Access → Integrations → App Store
 #      Connect API → generate a key, upload the .p8 with its Key ID and
 #      Issuer ID). Code signing below fetches the profile through this.
+#      Name it exactly `goreto_app_store_connect` — the ios-release workflow
+#      refers to it by that name, and a mismatch fails validation rather than
+#      falling back to anything.
 #
 #   2. Environment variables group `goreto_ios`:
 #        APP_STORE_APPLE_ID   6835568733 — the numeric id of "Goreto Nepali
@@ -48,6 +51,12 @@ workflows:
         - goreto_ios
       vars:
         BUNDLE_ID: "com.nex.ekloapp"
+      # Name of the App Store Connect API key as it is saved under
+      # Teams -> Integrations -> Developer Portal. It must match exactly, and
+      # it is what both ios_signing and the TestFlight upload authenticate
+      # with — "auth: integration" below refers back to this.
+      integrations:
+        app_store_connect: goreto_app_store_connect
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.nex.ekloapp
