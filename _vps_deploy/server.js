@@ -43,6 +43,25 @@ const io = new Server(httpServer, {
 // userId → Set<socketId>
 const onlineUsers = new Map();
 
+// liveRoomId (host's user id) → Map<userId, {id, name}>
+// Backs live-room viewer list + chat relay for providers (e.g. Agora) that
+// don't come with their own signaling/messaging, mirroring what ZegoUIKit's
+// in-room message stream + getAllUsers() provide for the Zego path.
+const liveRooms = new Map();
+
+function _liveRoomLeave(socket, roomIdOverride) {
+  const roomId = roomIdOverride || socket.liveRoomId;
+  if (!roomId) return;
+  socket.leave(`live:${roomId}`);
+  const room = liveRooms.get(roomId);
+  if (room) {
+    room.delete(socket.userId);
+    io.to(`live:${roomId}`).emit('live_viewers', Array.from(room.values()));
+    if (room.size === 0) liveRooms.delete(roomId);
+  }
+  if (socket.liveRoomId === roomId) socket.liveRoomId = null;
+}
+
 function addOnline(userId, socketId) {
   if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
   onlineUsers.get(userId).add(socketId);
@@ -219,8 +238,39 @@ io.on('connection', (socket) => {
     ack(result);
   });
 
+  // ── live_join / live_leave / live_message ────────────────────────────────────
+  // Room-based chat + viewer list for live streams, used when the active
+  // video provider (e.g. Agora) has no built-in signaling of its own.
+  socket.on('live_join', (data) => {
+    const { room_id, name } = data || {};
+    if (!room_id) return;
+    if (socket.liveRoomId && socket.liveRoomId !== String(room_id)) {
+      _liveRoomLeave(socket);
+    }
+    const roomId = String(room_id);
+    socket.join(`live:${roomId}`);
+    socket.liveRoomId = roomId;
+    if (!liveRooms.has(roomId)) liveRooms.set(roomId, new Map());
+    liveRooms.get(roomId).set(userId, { id: userId, name: name || 'User' });
+    io.to(`live:${roomId}`).emit('live_viewers', Array.from(liveRooms.get(roomId).values()));
+  });
+
+  socket.on('live_leave', (data) => {
+    const roomId = (data && data.room_id) ? String(data.room_id) : undefined;
+    _liveRoomLeave(socket, roomId);
+  });
+
+  socket.on('live_message', (data) => {
+    const roomId = (data && data.room_id) ? String(data.room_id) : socket.liveRoomId;
+    const text = data && data.text;
+    if (!roomId || !text) return;
+    const name = (liveRooms.get(roomId) && liveRooms.get(roomId).get(userId)?.name) || 'User';
+    io.to(`live:${roomId}`).emit('live_message', { sender_id: userId, sender_name: name, text: String(text) });
+  });
+
   // ── disconnect ───────────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
+    _liveRoomLeave(socket);
     removeOnline(userId, socket.id);
     const stillOnline = isOnline(userId);
 
