@@ -34,6 +34,15 @@ class ApiService {
   bool _isInitialized = false;
   final Completer<void> _initCompleter = Completer<void>();
   String? _cachedToken;
+
+  /// Bumped every time a new token is installed. Session teardown captures
+  /// this on entry and aborts if it changed, so a slow logout triggered by an
+  /// old token can't wipe the session that replaced it mid-flight.
+  int _sessionEpoch = 0;
+
+  /// True while the 401 handler is double-checking the session, so the
+  /// validate call it makes can't recurse back into that same handler.
+  bool _verifyingSession = false;
   final EngagementTracker _engagementTracker = EngagementTracker();
 
   // Singleton pattern
@@ -127,10 +136,46 @@ class ApiService {
 
           final status = e.response?.statusCode;
 
+          // A 401/403 can belong to a request that went out under an *older*
+          // token -- startup calls made with a stale token are often still in
+          // flight when the user signs in again. Acting on those would wipe the
+          // session that just replaced it (the user lands back in guest mode),
+          // so only react when the failure is about the token we're using now.
+          final usedAuth = e.requestOptions.headers['Authorization']?.toString();
+          final currentAuth = (_cachedToken != null && _cachedToken!.isNotEmpty)
+              ? 'Bearer ${_cachedToken!}'
+              : null;
+          final isStaleAuthFailure = usedAuth != null && usedAuth != currentAuth;
+
+          // No Authorization header at all means the caller was browsing as a
+          // guest. Auth-only endpoints answering 401 is the expected outcome
+          // there -- reacting would clear a session that never existed and
+          // shove the guest onto the login screen mid-browse.
+          final wasAnonymous = usedAuth == null || usedAuth.isEmpty;
+
           // 401 — token invalid / account deleted: clear session and go to login.
-          if (status == 401) {
-            await _clearSession();
-            _navigateToLogin();
+          if (status == 401 && !wasAnonymous && !isStaleAuthFailure && !_verifyingSession) {
+            // One endpoint answering 401 is not proof the session is dead --
+            // api_referral.php?action=apply does it on every launch. Confirm
+            // against the authoritative validate endpoint first, otherwise a
+            // single misbehaving call logs the user out right after they sign
+            // in and drops them back into guest mode.
+            var sessionDead = true;
+            final tokenNow = _cachedToken;
+            if (tokenNow != null && tokenNow.isNotEmpty) {
+              _verifyingSession = true;
+              try {
+                sessionDead = !await validateToken(tokenNow);
+              } catch (_) {
+                sessionDead = false; // network trouble — fail open
+              } finally {
+                _verifyingSession = false;
+              }
+            }
+            if (sessionDead) {
+              await _clearSession();
+              _navigateToLogin();
+            }
           }
 
           // 403 — account banned, device banned, or pending delete.
@@ -138,7 +183,7 @@ class ApiService {
           // a ban state. Generic 403s (permission denied on another user's profile,
           // private content, etc.) must fall through as normal errors so they do
           // not incorrectly log the current user out.
-          if (status == 403) {
+          if (status == 403 && !wasAnonymous && !isStaleAuthFailure) {
             try {
               final data = e.response?.data;
               Map<String, dynamic> body = {};
@@ -202,6 +247,7 @@ class ApiService {
 
   void setToken(String token) async {
     _cachedToken = token;
+    _sessionEpoch++;
     // Persist to both secure storage (primary) and SharedPreferences (legacy
     // fallback — some internal methods still read the token directly from prefs).
     await SecureStorageService.instance.writeToken(token);
@@ -1119,6 +1165,60 @@ class ApiService {
       }
 
       // Fallback: return raw payload if status is missing but has token
+      return payload;
+    } on DioException catch (e) {
+      final errorMsg = _handleError(e);
+      final responseBody = e.response?.data?.toString() ?? 'No response body';
+      throw Exception('Network error: $errorMsg. Body: $responseBody');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> authApple(
+      String identityToken, String? fullName) async {
+    const String endpoint = 'auth.php?action=apple';
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        endpoint,
+        data: {
+          'identity_token': identityToken,
+          if (fullName != null && fullName.isNotEmpty) 'full_name': fullName,
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      if (response.statusCode != 200) {
+        final errorMsg = 'HTTP ${response.statusCode}: ${response.data}';
+        throw Exception(errorMsg);
+      }
+
+      dynamic payload = response.data;
+      if (payload is String) {
+        payload = jsonDecode(payload);
+      }
+
+      if (payload is! Map<String, dynamic>) {
+        throw Exception('Invalid response format: expected JSON object');
+      }
+
+      if (payload['status'] == 'error') {
+        final errorMsg = payload['message'] ?? 'Unknown backend error';
+        throw Exception(errorMsg);
+      }
+
+      if (payload['status'] == 'success') {
+        final data = payload['data'] as Map<String, dynamic>?;
+        if (data == null) {
+          throw Exception('Missing "data" field in response');
+        }
+        final token = data['token']?.toString();
+        if (token == null || token.isEmpty) {
+          throw Exception('Missing "token" in response data');
+        }
+        return payload;
+      }
+
       return payload;
     } on DioException catch (e) {
       final errorMsg = _handleError(e);
@@ -2124,10 +2224,12 @@ class ApiService {
       'post_count',
       'total_posts',
     ]);
+    final proposals = pickInt(['total_proposals', 'proposals_count']);
 
     if (followers != null) result['followers_count'] = followers;
     if (following != null) result['following_count'] = following;
     if (posts != null) result['posts_count'] = posts;
+    if (proposals != null) result['total_proposals'] = proposals;
 
     if (includeFollowState) {
       final followRaw = parsed['is_following'] ??
@@ -2136,6 +2238,19 @@ class ApiService {
           data['following'];
       final followBool = _toBool(followRaw);
       if (followBool != null) result['is_following'] = followBool;
+
+      // The reverse direction, so callers can tell a mutual follow ("Friends")
+      // from a one-way one, and offer "Follow back" when only they follow us.
+      final followsMeBool =
+          _toBool(parsed['follows_me'] ?? data['follows_me']);
+      if (followsMeBool != null) result['follows_me'] = followsMeBool;
+
+      final friendBool = _toBool(parsed['is_friend'] ?? data['is_friend']);
+      if (friendBool != null) {
+        result['is_friend'] = friendBool;
+      } else if (followBool != null && followsMeBool != null) {
+        result['is_friend'] = followBool && followsMeBool;
+      }
     }
 
     final socialLinksRaw = data['social_links'] ?? parsed['social_links'];
@@ -2178,6 +2293,26 @@ class ApiService {
       result['income_status'] = data['income_status'];
     } else if (parsed.containsKey('income_status'))
       result['income_status'] = parsed['income_status'];
+
+    if (data.containsKey('rating')) {
+      result['rating'] = data['rating'];
+    } else if (parsed.containsKey('rating'))
+      result['rating'] = parsed['rating'];
+
+    // Pass through the avatar so callers like the live-room viewer list / chat
+    // (which call getProfileStats to resolve a user's picture) get it. Without
+    // this, profile_pic is dropped and avatars fall back to letter circles.
+    final avatarRaw = (data['profile_pic'] ??
+            data['avatar'] ??
+            data['profile_pic_url'] ??
+            parsed['profile_pic'] ??
+            '')
+        .toString()
+        .trim();
+    if (avatarRaw.isNotEmpty) {
+      result['profile_pic'] = avatarRaw;
+      result['avatar'] = avatarRaw;
+    }
 
     return result.isEmpty ? null : result;
   }
@@ -2984,6 +3119,32 @@ class ApiService {
   }
 
   // --- Live Stream APIs ---
+
+  /// Timed reward-box config for the live host (admin-configured).
+  Future<Map<String, dynamic>> getLiveRewardConfig() async {
+    try {
+      final dio = await _ensureInitializedDio();
+      final r = await dio.post('api_live_stream.php',
+          data: {'action': 'reward_config'},
+          options: Options(responseType: ResponseType.plain));
+      final d = _asJsonMap(r.data);
+      if (d != null && d['status'] == 'success') return d;
+    } catch (_) {}
+    return {};
+  }
+
+  /// Host claims the reward box after the timer completes.
+  Future<Map<String, dynamic>> claimLiveReward() async {
+    try {
+      final dio = await _ensureInitializedDio();
+      final r = await dio.post('api_live_stream.php',
+          data: {'action': 'claim_reward'},
+          options: Options(responseType: ResponseType.plain));
+      final d = _asJsonMap(r.data);
+      if (d != null) return d;
+    } catch (_) {}
+    return {'status': 'error'};
+  }
 
   Future<bool> startLive() async {
     final dio = await _ensureInitializedDio();
@@ -4233,8 +4394,14 @@ class ApiService {
   // --- Session helpers (used by 401/403 interceptor) -----------------------
 
   Future<void> _clearSession() async {
+    final epoch = _sessionEpoch;
     try {
       final prefs = await SharedPreferences.getInstance();
+      // A sign-in can land while we were awaiting the prefs handle. Wiping now
+      // would delete that brand-new token instead of the dead one.
+      if (_sessionEpoch != epoch) {
+        return;
+      }
       await prefs.remove('app_token');
       await prefs.remove('auth_token');
       await prefs.remove('user_id');
@@ -4248,7 +4415,18 @@ class ApiService {
 
     try {
       // Use addPostFrameCallback to avoid using BuildContext across async gap
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        // This runs a frame later, and frames stop while the Google/Apple
+        // sign-in sheet is up -- so by the time it fires the user may already
+        // have signed in again. Logging out here would wipe that brand-new
+        // session and drop them into guest mode, so bail if one now exists.
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final freshToken = prefs.getString('app_token');
+          if (_sessionEpoch != epoch) return;
+          if (freshToken != null && freshToken.isNotEmpty) return;
+        } catch (_) {}
+
         final ctx = navigatorKey.currentContext;
         if (ctx == null) return;
         try {
@@ -4260,10 +4438,19 @@ class ApiService {
 
   void _navigateToLogin() {
     try {
-      navigatorKey.currentState?.pushNamedAndRemoveUntil(
-        '/login',
-        (route) => false,
-      );
+      final nav = navigatorKey.currentState;
+      if (nav == null) return;
+
+      // Several failing requests can land at once; without this the login
+      // route gets pushed once per failure and visibly loads twice.
+      var alreadyOnLogin = false;
+      nav.popUntil((route) {
+        if (route.settings.name == '/login') alreadyOnLogin = true;
+        return true; // inspect only, never actually pop
+      });
+      if (alreadyOnLogin) return;
+
+      nav.pushNamedAndRemoveUntil('/login', (route) => false);
     } catch (_) {}
   }
 

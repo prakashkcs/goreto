@@ -57,9 +57,11 @@ function norm_url(?string $url, string $baseUrl): string
   if ($url === '')
     return '';
 
-  // CDN Redirection for relative upload paths
+  // Relative upload paths resolve against this install's own base URL. This
+  // used to be hardcoded to coinzop.com, the host from two migrations ago, so
+  // any stored relative path produced a dead link.
   if (strpos($url, 'uploads/') !== false && !preg_match('~^https?://~i', $url)) {
-    return 'https://coinzop.com/ekloadmin/' . ltrim($url, '/');
+    return rtrim(str_replace('/api/v1', '', $baseUrl), '/') . '/' . ltrim($url, '/');
   }
 
   if (preg_match('~^https?://~i', $url))
@@ -261,7 +263,7 @@ if ($method === 'GET') {
   if (!empty($u['is_banned']) && (int)$u['is_banned'] === 1) {
       // Only block if viewing someone else's profile
       $viewerUser = null;
-      try { $viewerUser = requireUser($pdo); } catch(Throwable $_) {}
+      $viewerUser = optionalUser($pdo);
       if (!$viewerUser || (int)$viewerUser['id'] !== (int)$u['id']) {
           echo json_encode(['status' => false, 'message' => 'User not found']);
           exit;
@@ -291,10 +293,19 @@ if ($method === 'GET') {
   $u['social_links'] = get_social_links($pdo, (int)$u['id']);
 
   $u['is_following'] = 0;
+  $u['follows_me']   = 0;
+  $u['is_friend']    = 0;
   if ($vid > 0 && $vid !== (int)$u['id'] && table_exists_local($pdo, 'follows')) {
     $st = $pdo->prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1");
     $st->execute([$vid, (int)$u['id']]);
     $u['is_following'] = $st->fetchColumn() ? 1 : 0;
+
+    // Reverse direction: lets the client say "Friends" on a mutual follow and
+    // "Follow back" when only the other person follows the viewer.
+    $st2 = $pdo->prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1");
+    $st2->execute([(int)$u['id'], $vid]);
+    $u['follows_me'] = $st2->fetchColumn() ? 1 : 0;
+    $u['is_friend']  = ($u['is_following'] && $u['follows_me']) ? 1 : 0;
   }
 
   // Referral code fields

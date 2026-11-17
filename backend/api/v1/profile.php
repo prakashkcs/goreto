@@ -57,9 +57,11 @@ function norm_url(?string $url, string $baseUrl): string
   if ($url === '')
     return '';
 
-  // CDN Redirection for relative upload paths
+  // Relative upload paths resolve against this install's own base URL. This
+  // used to be hardcoded to coinzop.com, the host from two migrations ago, so
+  // any stored relative path produced a dead link.
   if (strpos($url, 'uploads/') !== false && !preg_match('~^https?://~i', $url)) {
-    return 'https://coinzop.com/ekloadmin/' . ltrim($url, '/');
+    return rtrim(str_replace('/api/v1', '', $baseUrl), '/') . '/' . ltrim($url, '/');
   }
 
   if (preg_match('~^https?://~i', $url))
@@ -256,7 +258,7 @@ if ($method === 'GET') {
   if (!empty($u['is_banned']) && (int)$u['is_banned'] === 1) {
       // Only block if viewing someone else's profile
       $viewerUser = null;
-      try { $viewerUser = requireUser($pdo); } catch(Throwable $_) {}
+      $viewerUser = optionalUser($pdo);
       if (!$viewerUser || (int)$viewerUser['id'] !== (int)$u['id']) {
           echo json_encode(['status' => false, 'message' => 'User not found']);
           exit;

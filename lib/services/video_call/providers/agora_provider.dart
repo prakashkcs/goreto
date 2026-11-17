@@ -4,6 +4,7 @@ import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'video_call_provider.dart';
+import '../video_call_manager.dart';
 
 class AgoraProvider implements VideoCallProvider {
   @override
@@ -14,8 +15,22 @@ class AgoraProvider implements VideoCallProvider {
   String _baseUrl = '';
   String _authToken = '';
   String _currentUserId = '';
+
+  /// Agora needs a numeric uid, and the *same* value must be used when minting
+  /// the token and when joining -- a mismatch is rejected as an invalid token.
+  /// The account id is that value; 0 ("let Agora assign one") can't be used
+  /// because the token has to be bound to a concrete uid.
+  int get _agoraUid => int.tryParse(_currentUserId) ?? 0;
   String _channelId = '';
+  String _serviceType = 'call';
   bool _isInitialized = false;
+
+  // Bridges to the currently-mounted _AgoraCallViewState's real engine calls --
+  // registered by the view in initState() and cleared in dispose(), since this
+  // provider object outlives any single view instance across rebuilds.
+  void Function(bool isMuted)? _micHandler;
+  void Function(bool isVideoOff)? _videoHandler;
+  VoidCallback? _switchCameraHandler;
 
   @override
   Future<void> initialize({
@@ -26,6 +41,7 @@ class AgoraProvider implements VideoCallProvider {
     _appId          = config['app_id']?.toString() ?? '';
     _appCertificate = config['server_secret']?.toString() ?? '';
     _currentUserId  = currentUserId;
+    _serviceType    = config['service_type']?.toString() ?? 'call';
 
     final prefs = await SharedPreferences.getInstance();
     _baseUrl    = prefs.getString('api_base_url') ?? 'https://goreto.org/ekloadmin/api/v1/';
@@ -44,13 +60,13 @@ class AgoraProvider implements VideoCallProvider {
   Future<void> leaveCall() async {}
 
   @override
-  void switchCamera() {}
+  void switchCamera() => _switchCameraHandler?.call();
 
   @override
-  void toggleMic(bool isMuted) {}
+  void toggleMic(bool isMuted) => _micHandler?.call(isMuted);
 
   @override
-  void toggleVideo(bool isVideoOff) {}
+  void toggleVideo(bool isVideoOff) => _videoHandler?.call(isVideoOff);
 
   /// Fetch a short-lived RTC token from the PHP backend.
   /// Falls back to empty string (trial / no-certificate mode) on any error.
@@ -65,7 +81,7 @@ class AgoraProvider implements VideoCallProvider {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $_authToken',
         },
-        body: jsonEncode({'channel': channelName, 'uid': uid, 'expire': 86400}),
+        body: jsonEncode({'channel': channelName, 'uid': uid, 'expire': 86400, 'service_type': _serviceType}),
       ).timeout(const Duration(seconds: 8));
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
@@ -87,10 +103,12 @@ class AgoraProvider implements VideoCallProvider {
       return _notConfiguredWidget('Agora not configured.\nCheck Admin → Video Providers.');
     }
     return _AgoraCallView(
+      owner: this,
       appId: _appId,
       channelId: _channelId,
       isVideoCall: isVideoCall,
       isAudience: false,
+      uid: _agoraUid,
       tokenFetcher: _fetchToken,
       onCallEnded: onCallEnded,
       onProviderError: onProviderError,
@@ -114,15 +132,25 @@ class AgoraProvider implements VideoCallProvider {
     final isHost = _channelId == 'live_$_currentUserId';
 
     return _AgoraCallView(
+      owner: this,
       appId: _appId,
       channelId: _channelId,
       isVideoCall: isVideoCall,
       isAudience: !isHost,
+      uid: _agoraUid,
       tokenFetcher: _fetchToken,
       onCallEnded: onLeaveCall,
-      onProviderError: onProviderError != null ? (_) => onProviderError() : null,
+      // Keep the SDK's own text — the live callback takes no argument, so
+      // without this the real reason never reaches the server.
+      onProviderError: onProviderError != null
+          ? (msg) {
+              VideoCallManager().lastProviderError = 'Agora: $msg';
+              onProviderError();
+            }
+          : null,
       onLiveStarted: onLiveStarted,
       foreground: foreground,
+      isLiveMode: true,
     );
   }
 
@@ -153,26 +181,37 @@ class AgoraProvider implements VideoCallProvider {
 // ── Agora call/live view widget ───────────────────────────────────────────────
 
 class _AgoraCallView extends StatefulWidget {
+  final AgoraProvider owner;
   final String appId;
   final String channelId;
   final bool isVideoCall;
   final bool isAudience;  // false = broadcaster (host/caller), true = viewer
+  final int uid;          // numeric Agora uid; must match the token's uid
   final Future<String> Function(String channel, int uid) tokenFetcher;
   final VoidCallback? onCallEnded;
   final VoidCallback? onLiveStarted;
   final void Function(String)? onProviderError;
   final Widget? foreground;
+  // true when rendered via buildVideoView() for the live-room screen, which
+  // has its own outer mic/camera/flip bar and a separate close button --
+  // this view's internal call-style control bar is only needed for 1:1 calls
+  // (buildCallView(), webrtc_call_screen.dart) which have no controls of
+  // their own.
+  final bool isLiveMode;
 
   const _AgoraCallView({
+    required this.owner,
     required this.appId,
     required this.channelId,
     required this.isVideoCall,
     required this.isAudience,
+    required this.uid,
     required this.tokenFetcher,
     this.onCallEnded,
     this.onLiveStarted,
     this.onProviderError,
     this.foreground,
+    this.isLiveMode = false,
   });
 
   @override
@@ -191,6 +230,12 @@ class _AgoraCallViewState extends State<_AgoraCallView> {
   void initState() {
     super.initState();
     _initAgora();
+    // Let the owning AgoraProvider forward VideoCallProvider interface calls
+    // (from the live-room screen's own control buttons) to this view's real
+    // engine actions.
+    widget.owner._micHandler = _setMic;
+    widget.owner._videoHandler = _setVideo;
+    widget.owner._switchCameraHandler = _switchCamera;
   }
 
   Future<void> _initAgora() async {
@@ -221,7 +266,10 @@ class _AgoraCallViewState extends State<_AgoraCallView> {
           if (code == ErrorCodeType.errInvalidToken ||
               code == ErrorCodeType.errTokenExpired ||
               code == ErrorCodeType.errInvalidAppId) {
-            widget.onProviderError?.call('Agora auth error: $msg');
+            // Agora usually sends an empty msg here, so the code itself is the
+            // only thing that says which of the three went wrong — keep it.
+            widget.onProviderError?.call(
+                'Agora auth error: ${code.name}${msg.isEmpty ? '' : ' — $msg'}');
           }
         },
         onLeaveChannel: (_, __) {
@@ -246,13 +294,14 @@ class _AgoraCallViewState extends State<_AgoraCallView> {
         await engine.enableAudio();
       }
 
-      // Fetch token from PHP backend
-      final rtcToken = await widget.tokenFetcher(widget.channelId, 0);
+      // The token is minted for this exact uid, and joinChannel must use the
+      // same one -- otherwise Agora rejects it as an invalid token.
+      final rtcToken = await widget.tokenFetcher(widget.channelId, widget.uid);
 
       await engine.joinChannel(
         token: rtcToken,
         channelId: widget.channelId,
-        uid: 0,
+        uid: widget.uid,
         options: ChannelMediaOptions(
           clientRoleType: role,
           channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
@@ -262,40 +311,62 @@ class _AgoraCallViewState extends State<_AgoraCallView> {
           autoSubscribeVideo: widget.isVideoCall,
         ),
       );
-    } catch (e) {
+    } catch (e, st) {
       widget.onProviderError?.call('Agora init error: $e');
     }
   }
 
   @override
   void dispose() {
+    // Unregister so the provider never calls back into a disposed State.
+    if (identical(widget.owner._micHandler, _setMic)) widget.owner._micHandler = null;
+    if (identical(widget.owner._videoHandler, _setVideo)) widget.owner._videoHandler = null;
+    if (identical(widget.owner._switchCameraHandler, _switchCamera)) {
+      widget.owner._switchCameraHandler = null;
+    }
     _engine?.leaveChannel();
     _engine?.release();
     super.dispose();
   }
 
-  void _toggleMic() {
-    setState(() => _micMuted = !_micMuted);
-    _engine?.muteLocalAudioStream(_micMuted);
+  void _toggleMic() => _setMic(!_micMuted);
+  void _toggleVideo() => _setVideo(!_videoOff);
+
+  void _setMic(bool isMuted) {
+    if (!mounted) return;
+    setState(() => _micMuted = isMuted);
+    _engine?.muteLocalAudioStream(isMuted);
   }
 
-  void _toggleVideo() {
-    setState(() => _videoOff = !_videoOff);
-    _engine?.muteLocalVideoStream(_videoOff);
+  void _setVideo(bool isOff) {
+    if (!mounted) return;
+    setState(() => _videoOff = isOff);
+    _engine?.muteLocalVideoStream(isOff);
   }
 
   void _switchCamera() {
+    if (!mounted) return;
     setState(() => _switchedCamera = !_switchedCamera);
     _engine?.switchCamera();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Live streaming, not a 1:1 call: the host IS the broadcast, so their own
+    // camera is the full-screen main content -- never a tiny corner preview.
+    // A remote feed only exists once a co-host actually joins, at which point
+    // it takes the main spot and the host's own camera becomes the small
+    // preview instead (same convention as Zego's prebuilt live UI).
+    final hasCoHost = _remoteUid != null && widget.isVideoCall;
+    final showLocalFullScreen =
+        !widget.isAudience && widget.isVideoCall && !hasCoHost;
+
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Remote video (full screen)
-        if (_remoteUid != null && widget.isVideoCall)
+        // Main content: co-host's feed once one joins, otherwise the host's
+        // own camera (broadcaster) or a waiting message (audience).
+        if (hasCoHost)
           AgoraVideoView(
             controller: VideoViewController.remote(
               rtcEngine: _engine!,
@@ -303,6 +374,27 @@ class _AgoraCallViewState extends State<_AgoraCallView> {
               connection: RtcConnection(channelId: widget.channelId),
             ),
           )
+        else if (showLocalFullScreen)
+          _localJoined
+              ? (_videoOff
+                  // muteLocalVideoStream() only stops what's SENT to remote
+                  // viewers -- the local capture keeps running, so without this
+                  // the host's own full-screen preview would look unchanged
+                  // when they tap "Camera off", making the button look broken.
+                  ? Container(
+                      color: Colors.black,
+                      child: const Center(
+                        child: Icon(Icons.videocam_off,
+                            color: Colors.white38, size: 56),
+                      ),
+                    )
+                  : AgoraVideoView(
+                      controller: VideoViewController(
+                        rtcEngine: _engine!,
+                        canvas: const VideoCanvas(uid: 0),
+                      ),
+                    ))
+              : Container(color: Colors.black)
         else if (widget.isAudience)
           const Center(
             child: Column(
@@ -317,8 +409,9 @@ class _AgoraCallViewState extends State<_AgoraCallView> {
         else
           Container(color: Colors.black),
 
-        // Local preview (broadcaster only, top-left)
-        if (!widget.isAudience && widget.isVideoCall && _engine != null)
+        // Host's own camera as a small corner preview -- only needed once a
+        // co-host is on screen and occupying the main area instead.
+        if (!widget.isAudience && widget.isVideoCall && hasCoHost && _engine != null)
           Positioned(
             top: 60,
             left: 16,
@@ -327,12 +420,20 @@ class _AgoraCallViewState extends State<_AgoraCallView> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: _localJoined
-                  ? AgoraVideoView(
-                      controller: VideoViewController(
-                        rtcEngine: _engine!,
-                        canvas: const VideoCanvas(uid: 0),
-                      ),
-                    )
+                  ? (_videoOff
+                      ? Container(
+                          color: Colors.black54,
+                          child: const Center(
+                            child: Icon(Icons.videocam_off,
+                                color: Colors.white38, size: 28),
+                          ),
+                        )
+                      : AgoraVideoView(
+                          controller: VideoViewController(
+                            rtcEngine: _engine!,
+                            canvas: const VideoCanvas(uid: 0),
+                          ),
+                        ))
                   : Container(
                       color: Colors.black54,
                       child: const Center(
@@ -346,8 +447,11 @@ class _AgoraCallViewState extends State<_AgoraCallView> {
         // Foreground overlay (chat, gifts, etc.)
         if (widget.foreground != null) widget.foreground!,
 
-        // Controls bar (broadcaster only)
-        if (!widget.isAudience)
+        // Controls bar (broadcaster only, and only for 1:1 calls -- the
+        // live-room screen renders its own outer mic/camera/flip bar plus a
+        // separate close button, so this would just be a redundant, call-
+        // styled duplicate there).
+        if (!widget.isAudience && !widget.isLiveMode)
           Positioned(
             bottom: 40,
             left: 0,

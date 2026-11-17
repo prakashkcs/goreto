@@ -315,6 +315,7 @@ class _UserTile extends StatelessWidget {
             // Follow button
             _FollowButton(
               isFollowing: user.isFollowing,
+              followsMe: user.followsMe,
               isLoading: user.isFollowLoading,
               onTap: onFollowTap,
             ),
@@ -327,11 +328,13 @@ class _UserTile extends StatelessWidget {
 
 class _FollowButton extends StatelessWidget {
   final bool isFollowing;
+  final bool followsMe;
   final bool isLoading;
   final VoidCallback onTap;
 
   const _FollowButton({
     required this.isFollowing,
+    this.followsMe = false,
     required this.isLoading,
     required this.onTap,
   });
@@ -365,7 +368,9 @@ class _FollowButton extends StatelessWidget {
                 ),
               )
             : Text(
-                isFollowing ? 'Following' : 'Follow',
+                isFollowing
+                    ? (followsMe ? 'Friends' : 'Following')
+                    : (followsMe ? 'Follow back' : 'Follow'),
                 style: TextStyle(
                   color: isFollowing
                       ? Colors.white.withValues(alpha: 0.6)
@@ -441,6 +446,9 @@ class _FollowUser {
   final String username;
   final String avatar;
   final bool isFollowing;
+  /// True when this person follows the viewer. Together with [isFollowing]
+  /// it gives the mutual case, shown as "Friends".
+  final bool followsMe;
   final bool isFollowLoading;
 
   const _FollowUser({
@@ -449,6 +457,7 @@ class _FollowUser {
     required this.username,
     required this.avatar,
     required this.isFollowing,
+    this.followsMe = false,
     this.isFollowLoading = false,
   });
 
@@ -458,6 +467,7 @@ class _FollowUser {
         username: j['username']?.toString() ?? '',
         avatar: j['avatar']?.toString() ?? '',
         isFollowing: j['is_following'] == 1 || j['is_following'] == true,
+        followsMe: j['follows_me'] == 1 || j['follows_me'] == true,
       );
 
   _FollowUser copyWith({bool? isFollowing, bool? isFollowLoading}) => _FollowUser(
@@ -466,6 +476,7 @@ class _FollowUser {
         username: username,
         avatar: avatar,
         isFollowing: isFollowing ?? this.isFollowing,
+        followsMe: followsMe,
         isFollowLoading: isFollowLoading ?? this.isFollowLoading,
       );
 }

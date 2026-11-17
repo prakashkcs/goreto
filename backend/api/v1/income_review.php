@@ -146,8 +146,9 @@ endif; ?>
       if (empty($url))
         continue;
       if (!str_starts_with($url, 'http')) {
-        // Prepend api/v1/ so local images load properly
-        $url = "https://coinzop.com/ekloadmin/api/v1/" . ltrim($url, '/');
+        // Resolve against this install, not the long-dead coinzop.com host.
+        $incomeBase = rtrim(($config['base_url'] ?? 'https://goreto.org/ekloadmin'), '/');
+        $url = $incomeBase . '/api/v1/' . ltrim($url, '/');
       }
 ?>
                     <a class="btn" target="_blank" href="<?php echo htmlspecialchars($url); ?>">Document <?php echo $idx + 1; ?></a>

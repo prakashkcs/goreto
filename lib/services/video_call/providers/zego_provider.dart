@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:zego_uikit_prebuilt_live_streaming/zego_uikit_prebuilt_live_streaming.dart';
 import 'package:zego_uikit_prebuilt_call/zego_uikit_prebuilt_call.dart';
+import 'package:zego_uikit_signaling_plugin/zego_uikit_signaling_plugin.dart';
 import 'video_call_provider.dart';
+import '../video_call_manager.dart';
 
 class ZegoProvider implements VideoCallProvider {
   @override
@@ -70,13 +72,26 @@ class ZegoProvider implements VideoCallProvider {
   Future<void> leaveCall() async {}
 
   @override
-  void switchCamera() {}
+  void switchCamera() {
+    try {
+      final notifier = ZegoUIKit().getUseFrontFacingCameraStateNotifier(_currentUserId);
+      ZegoUIKit().useFrontFacingCamera(!notifier.value);
+    } catch (_) {}
+  }
 
   @override
-  void toggleMic(bool isMuted) {}
+  void toggleMic(bool isMuted) {
+    try {
+      ZegoUIKit().turnMicrophoneOn(!isMuted);
+    } catch (_) {}
+  }
 
   @override
-  void toggleVideo(bool isVideoOff) {}
+  void toggleVideo(bool isVideoOff) {
+    try {
+      ZegoUIKit().turnCameraOn(!isVideoOff);
+    } catch (_) {}
+  }
 
   bool _streamEverStarted = false;
   bool _errorFired = false;
@@ -204,10 +219,20 @@ class ZegoProvider implements VideoCallProvider {
         ? ZegoUIKitPrebuiltLiveStreamingConfig.host()
         : ZegoUIKitPrebuiltLiveStreamingConfig.audience();
 
-    // Video quality — 1080p for host broadcast, 720p for audience receive
+    // Signaling plugin: required so the host's "add as guest" co-host
+    // invitation is actually delivered to the audience. Without it the invite
+    // goes nowhere and tapping "add" does nothing.
+    config.plugins = [ZegoUIKitSignalingPlugin()];
+
+    // Video quality. The built-in presets use only 15 fps and a low bitrate
+    // (1080p@3000kbps), which looks soft/blurry. Use explicit higher bitrate +
+    // 24 fps for a sharper, smoother stream. Host broadcasts 1080p; co-host
+    // guests (audience who join) publish 720p to stay light on weaker phones.
     config.video = isHost
-        ? ZegoUIKitVideoConfig.preset1080P()
-        : ZegoUIKitVideoConfig.preset720P();
+        ? ZegoUIKitVideoConfig(
+            width: 1080, height: 1920, bitrate: 4500, fps: 24)
+        : ZegoUIKitVideoConfig(
+            width: 720, height: 1280, bitrate: 2500, fps: 24);
 
     // 1. Disable host preview (we have our own LivePreviewScreen)
     config.preview.showPreviewForHost = false;
@@ -345,6 +370,10 @@ class ZegoProvider implements VideoCallProvider {
           debugPrint('Zego live error: code=${error.code} msg=${error.message}');
           if (!_streamEverStarted && !_errorFired) {
             _errorFired = true;
+            // Carry the real code through — the callback itself takes no
+            // argument, so the server would otherwise only see a generic error.
+            VideoCallManager().lastProviderError =
+                'Zego live code:${error.code} ${error.message}';
             onProviderError?.call();
           }
         },

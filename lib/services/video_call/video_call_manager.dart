@@ -18,10 +18,22 @@ class VideoCallManager {
   VideoCallProvider? activeProvider;
   Map<String, dynamic>? activeConfig;
 
-  /// Fetches the active video provider from the remote API and initializes it
+  /// Last error text reported by an SDK (e.g. "Zego code:1002001 LoginFailed").
+  /// The live view's onProviderError is a VoidCallback, so the SDK's own
+  /// message would otherwise be lost and the server would only ever record a
+  /// generic failure. Providers stash the real text here and [reinitialize]
+  /// sends it to the admin panel, which is what makes the cause diagnosable
+  /// without attaching a phone.
+  String? lastProviderError;
+
+  /// Fetches the active video provider from the remote API and initializes it.
+  /// [serviceType] is 'call' (1:1/random voice+video calls, the default) or
+  /// 'live' (Go Live broadcast) -- each is configured independently in the
+  /// admin panel and is very often a different SDK project entirely.
   Future<bool> initialize({
     required String currentUserId,
     required String currentUserName,
+    String serviceType = 'call',
   }) async {
     try {
       final apiService = ApiService();
@@ -31,7 +43,7 @@ class VideoCallManager {
       // We need a leading slash if the base URL doesn't have a trailing slash
       final response = await dio.get(
         'api_video_providers.php',
-        queryParameters: {'action': 'get_active'},
+        queryParameters: {'action': 'get_active', 'service_type': serviceType},
         options: Options(responseType: ResponseType.plain),
       );
 
@@ -62,6 +74,7 @@ class VideoCallManager {
         config['app_id'] = appId;
         config['app_sign'] = appSign; // 64 hex chars for client SDK
         config['server_secret'] = serverSecret; // 32 chars for server API
+        config['service_type'] = serviceType; // so providers know which token/config scope to use server-side
 
         activeConfig = config;
 
@@ -106,9 +119,14 @@ class VideoCallManager {
   Future<bool> reinitialize({
     required String currentUserId,
     required String currentUserName,
+    String serviceType = 'call',
   }) async {
     if (activeProvider == null) {
-      return initialize(currentUserId: currentUserId, currentUserName: currentUserName);
+      return initialize(
+        currentUserId: currentUserId,
+        currentUserName: currentUserName,
+        serviceType: serviceType,
+      );
     }
 
     try {
@@ -119,11 +137,15 @@ class VideoCallManager {
       final token = prefs.getString('app_token') ?? prefs.getString('auth_token');
       if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
 
+      final realError = lastProviderError;
+      lastProviderError = null;
+
       final resp = await dio.get('api_video_providers.php', queryParameters: {
-        'action':      'report_error',
-        'provider':    activeProvider!.name,
-        'error':       'SDK connection failed - requesting rotation',
-        'auto_rotate': '1',
+        'action':       'report_error',
+        'provider':     activeProvider!.name,
+        'error':        realError ?? 'SDK connection failed - requesting rotation',
+        'auto_rotate':  '1',
+        'service_type': serviceType,
       });
 
       dynamic data = resp.data;
@@ -135,25 +157,32 @@ class VideoCallManager {
           providerData:    pd,
           currentUserId:   currentUserId,
           currentUserName: currentUserName,
+          serviceType:     serviceType,
         );
       }
     } catch (_) {}
 
     activeProvider = null;
     activeConfig = null;
-    return initialize(currentUserId: currentUserId, currentUserName: currentUserName);
+    return initialize(
+      currentUserId: currentUserId,
+      currentUserName: currentUserName,
+      serviceType: serviceType,
+    );
   }
 
   Future<bool> _initFromProviderData({
     required Map<String, dynamic> providerData,
     required String currentUserId,
     required String currentUserName,
+    String serviceType = 'call',
   }) async {
     final providerName = providerData['name']?.toString();
     final Map<String, dynamic> config = {
       'app_id':        providerData['app_id']?.toString(),
       'app_sign':      providerData['app_sign']?.toString(),
       'server_secret': providerData['server_secret']?.toString(),
+      'service_type':  serviceType,
       ...((providerData['config'] is Map)
           ? Map<String, dynamic>.from(providerData['config'] as Map)
           : <String, dynamic>{}),
@@ -178,7 +207,10 @@ class VideoCallManager {
 
   /// Called from the client when joining a call fails unexpectedly.
   /// Logs the error on the server so the admin panel shows it.
-  Future<void> reportProviderError({String error = 'SDK login/connection failed'}) async {
+  Future<void> reportProviderError({
+    String error = 'SDK login/connection failed',
+    String serviceType = 'call',
+  }) async {
     if (activeProvider == null) return;
 
     try {
@@ -196,9 +228,10 @@ class VideoCallManager {
       await dio.get(
         'api_video_providers.php',
         queryParameters: {
-          'action':   'report_error',
-          'provider': activeProvider!.name,
-          'error':    error,
+          'action':       'report_error',
+          'provider':     activeProvider!.name,
+          'error':        error,
+          'service_type': serviceType,
         },
       );
     } catch (_) {}

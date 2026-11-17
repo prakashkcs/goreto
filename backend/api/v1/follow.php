@@ -90,9 +90,18 @@ if ($action === 'status') {
   $st = $pdo->prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1");
   $st->execute([$me, $target]);
   $isFollowing = $st->fetchColumn() ? 1 : 0;
+
+  // The other direction, so the client can show "Friends" when the follow is
+  // mutual and "Follow back" when only they follow us.
+  $fb = $pdo->prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1");
+  $fb->execute([$target, $me]);
+  $followsMe = $fb->fetchColumn() ? 1 : 0;
+
   out([
     "status" => true,
     "is_following" => $isFollowing,
+    "follows_me" => $followsMe,
+    "is_friend" => ($isFollowing && $followsMe) ? 1 : 0,
     "counts" => counts($pdo, $target),
     "my_counts" => counts($pdo, $me)
   ]);
@@ -116,26 +125,28 @@ if ($action === 'followers' || $action === 'following') {
         $fetch_offset = (int)$off;
         $st = $pdo->prepare("
             SELECT u.id, u.name, u.username, u.profile_pic AS avatar,
-                   COALESCE((SELECT 1 FROM follows WHERE follower_id=? AND following_id=u.id LIMIT 1), 0) AS is_following
+                   COALESCE((SELECT 1 FROM follows WHERE follower_id=? AND following_id=u.id LIMIT 1), 0) AS is_following,
+                   COALESCE((SELECT 1 FROM follows WHERE follower_id=u.id AND following_id=? LIMIT 1), 0) AS follows_me
             FROM follows f
             JOIN users u ON u.id = f.follower_id
             WHERE f.following_id = ? AND u.is_banned = 0
             ORDER BY f.created_at DESC
             LIMIT $fetch_limit OFFSET $fetch_offset");
-        $st->execute([$me, $uid]);
+        $st->execute([$me, $me, $uid]);
     } else {
         // People $uid follows
         $fetch_limit = (int)($limit + 1);
         $fetch_offset = (int)$off;
         $st = $pdo->prepare("
             SELECT u.id, u.name, u.username, u.profile_pic AS avatar,
-                   COALESCE((SELECT 1 FROM follows WHERE follower_id=? AND following_id=u.id LIMIT 1), 0) AS is_following
+                   COALESCE((SELECT 1 FROM follows WHERE follower_id=? AND following_id=u.id LIMIT 1), 0) AS is_following,
+                   COALESCE((SELECT 1 FROM follows WHERE follower_id=u.id AND following_id=? LIMIT 1), 0) AS follows_me
             FROM follows f
             JOIN users u ON u.id = f.following_id
             WHERE f.follower_id = ? AND u.is_banned = 0
             ORDER BY f.created_at DESC
             LIMIT $fetch_limit OFFSET $fetch_offset");
-        $st->execute([$me, $uid]);
+        $st->execute([$me, $me, $uid]);
     }
 
     $rows    = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -154,6 +165,8 @@ if ($action === 'followers' || $action === 'following') {
             'username'     => $r['username'] ?? '',
             'avatar'       => $av,
             'is_following' => (bool)$r['is_following'],
+            'follows_me'   => (bool)$r['follows_me'],
+            'is_friend'    => ((bool)$r['is_following'] && (bool)$r['follows_me']),
         ];
     }, $rows);
 

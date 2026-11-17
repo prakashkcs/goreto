@@ -14,6 +14,7 @@ import 'package:love_vibe_pro/services/video_call/video_call_manager.dart';
 import 'package:love_vibe_pro/services/video_call/providers/zego_provider.dart';
 import 'package:love_vibe_pro/services/user_prefs_cache.dart';
 import 'package:love_vibe_pro/services/fcm_service.dart';
+import 'package:love_vibe_pro/services/socket_service.dart';
 import 'package:zego_uikit_prebuilt_live_streaming/zego_uikit_prebuilt_live_streaming.dart';
 
 String _giftEmojiFor(String name) {
@@ -108,6 +109,16 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   // ── Video ──────────────────────────────────────────────────────────
   final VideoCallManager _videoManager = VideoCallManager();
+  /// True only when Zego is the active provider for THIS live session. Zego's
+  /// prebuilt widget brings its own signaling (chat/viewers/co-host); every
+  /// other provider (e.g. Agora) has none, so chat/viewers/gifts fall back to
+  /// the app's own Socket.IO service instead -- see _sendRoomText,
+  /// _currentViewers, and the live_join/live_message socket subscriptions.
+  bool get _isZegoActive => _videoManager.activeProvider is ZegoProvider;
+  List<ZegoUIKitUser> _socketViewers = [];
+  StreamSubscription<Map<String, dynamic>>? _socketLiveMsgSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _socketLiveViewersSub;
+  bool _joinedSocketLiveRoom = false;
   bool _videoInitialized = false;
   bool _videoInitializing = true;
   String _initError = '';
@@ -115,6 +126,10 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
   bool _hasStartedLive = false;
   bool _hasEndedLive = false;
   bool _isFollowingHost = false;
+
+  /// Whether the host follows the viewer back. With [_isFollowingHost] this
+  /// gives the three states the button shows: Follow / Follow back / Friends.
+  bool _hostFollowsMe = false;
   Timer? _heartbeatTimer;
   String _currentUserName = 'User';
   String _currentUserId = '';
@@ -158,6 +173,13 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
   Timer? _durationTimer;
   final ValueNotifier<int> _durationNotifier = ValueNotifier(0);
 
+  // ── Live reward boxes (admin-configured milestones) ────────────────
+  bool _rewardEnabled = false;
+  List<int> _rewardTierMinutes = []; // sorted minutes for each milestone
+  int _claimedTiers = 0; // milestones already claimed this live
+  bool _rewardReady = false;
+  bool _claimingReward = false;
+
   // ── User profile cache (avatar + rating, keyed by userId) ─────────
   final Map<String, Map<String, dynamic>> _userProfileCache = {};
 
@@ -168,6 +190,11 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
   final Set<String> _invitedUserIds = {};
   Timer? _viewerPollTimer;
   Set<String> _prevViewerIds = {};
+
+  /// Display name of every viewer we have seen, kept so a "left the live"
+  /// line can still name them — once someone leaves they are gone from the
+  /// roster, so their name is no longer available to look up.
+  final Map<String, String> _viewerNames = {};
 
   // ── Zego messages ─────────────────────────────────────────────────
   StreamSubscription<ZegoInRoomMessage>? _messageSub;
@@ -223,9 +250,85 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     _loadGifts();
     _loadCoinBalance();
     _subscribeMessages();
+    _loadRewardConfig();
 
     _durationTimer = Timer.periodic(
-        const Duration(seconds: 1), (_) { _durationNotifier.value++; });
+        const Duration(seconds: 1), (_) {
+      _durationNotifier.value++;
+      _checkRewardTimer();
+    });
+  }
+
+  Future<void> _loadRewardConfig() async {
+    final cfg = await _api.getLiveRewardConfig();
+    if (!mounted || cfg.isEmpty) return;
+    final tiers = (cfg['tiers'] as List?) ?? const [];
+    final mins = <int>[];
+    for (final t in tiers) {
+      if (t is Map && t['minutes'] != null) {
+        final m = (t['minutes'] is int)
+            ? t['minutes'] as int
+            : int.tryParse('${t['minutes']}') ?? 0;
+        if (m > 0) mins.add(m);
+      }
+    }
+    mins.sort();
+    setState(() {
+      _rewardEnabled = cfg['enabled'] == 1 || cfg['enabled'] == true;
+      _rewardTierMinutes = mins;
+    });
+  }
+
+  // Show the reward box once the host reaches the next unclaimed milestone.
+  void _checkRewardTimer() {
+    if (!_isHost || !_rewardEnabled || _rewardReady) return;
+    if (_claimedTiers >= _rewardTierMinutes.length) return;
+    final needSec = _rewardTierMinutes[_claimedTiers] * 60;
+    if (_durationNotifier.value >= needSec) {
+      setState(() => _rewardReady = true);
+    }
+  }
+
+  Future<void> _claimReward() async {
+    if (_claimingReward) return;
+    setState(() => _claimingReward = true);
+    final res = await _api.claimLiveReward();
+    if (!mounted) return;
+    setState(() => _claimingReward = false);
+    if (res['status'] == 'success') {
+      final coins = (res['coins'] is int)
+          ? res['coins'] as int
+          : int.tryParse('${res['coins']}') ?? 0;
+      if (res['balance'] is int) _coinBalance = res['balance'] as int;
+      setState(() {
+        _rewardReady = false;
+        _claimedTiers = (res['tier_index'] is int)
+            ? (res['tier_index'] as int) + 1
+            : _claimedTiers + 1;
+      });
+      _showRewardWon(coins);
+    } else {
+      // Not ready yet / error — re-arm so the host can try again shortly.
+      setState(() => _rewardReady = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text(res['message']?.toString() ?? 'Reward not ready yet'),
+          duration: const Duration(seconds: 2),
+        ));
+      }
+    }
+  }
+
+  void _showRewardWon(int coins) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: const Color(0xFFFFB300),
+      content: Text('🎉 You earned $coins coins!',
+          style: const TextStyle(
+              color: Colors.black, fontWeight: FontWeight.w800)),
+      duration: const Duration(seconds: 3),
+    ));
   }
 
   @override
@@ -275,6 +378,11 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     FCMService.onForceEndLive = null;
     WidgetsBinding.instance.removeObserver(this);
     _messageSub?.cancel();
+    _socketLiveMsgSub?.cancel();
+    _socketLiveViewersSub?.cancel();
+    if (_joinedSocketLiveRoom) {
+      try { SocketService.instance.leaveLiveRoom(widget.userId); } catch (_) {}
+    }
     _heartbeatTimer?.cancel();
     _viewerPollTimer?.cancel();
     _durationTimer?.cancel();
@@ -304,7 +412,12 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
           result?['is_following'] == true ||
           result?['following'] == 1 ||
           result?['following'] == true;
-      setState(() => _isFollowingHost = following);
+      final hostFollowsMe = result?['follows_me'] == 1 ||
+          result?['follows_me'] == true;
+      setState(() {
+        _isFollowingHost = following;
+        _hostFollowsMe = hostFollowsMe;
+      });
     } catch (_) {}
   }
 
@@ -340,7 +453,7 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
 
   void _showViewerList() {
     List<ZegoUIKitUser> viewers = [];
-    try { viewers = ZegoUIKit().getAllUsers(); } catch (_) {}
+    try { viewers = _currentViewers(); } catch (_) {}
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF111111),
@@ -460,6 +573,15 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
   }
 
   void _showInviteSheet() {
+    // Current viewers the host can add directly as a guest (co-host).
+    List<ZegoUIKitUser> viewers = [];
+    if (_isHost) {
+      try {
+        viewers = _currentViewers()
+            .where((u) => u.id.toString() != _currentUserId)
+            .toList();
+      } catch (_) {}
+    }
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF111111),
@@ -470,6 +592,11 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
         api: _api,
         currentUserId: _currentUserId,
         invitedUserIds: _invitedUserIds,
+        viewers: viewers,
+        // Co-host invitations are delivered via Zego's signaling plugin --
+        // not implemented for other providers, so hide the action for them
+        // rather than offer a button that does nothing.
+        onInviteGuest: (_isHost && _isZegoActive) ? (v) => _inviteGuest(v) : null,
         onInvite: (selectedIds) async {
           final newIds = selectedIds
               .where((id) => !_invitedUserIds.contains(id))
@@ -657,35 +784,56 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
 
   // ── Messages ───────────────────────────────────────────────────────
   void _subscribeMessages() {
-    try {
-      _messageSub =
-          ZegoUIKit().getInRoomMessageStream().listen(_onMessage);
-    } catch (_) {}
+    if (_isZegoActive) {
+      try {
+        _messageSub = ZegoUIKit().getInRoomMessageStream().listen(
+            (msg) => _onMessage(msg.message, msg.user.id, msg.user.name));
+      } catch (_) {}
+      return;
+    }
+    _socketLiveMsgSub = SocketService.instance.onLiveMessage.listen((data) {
+      final text = (data['text'] ?? '').toString();
+      if (text.isEmpty) return;
+      _onMessage(text, (data['sender_id'] ?? '').toString(),
+          (data['sender_name'] ?? '').toString());
+    });
+    _socketLiveViewersSub =
+        SocketService.instance.onLiveViewers.listen((viewers) {
+      if (!mounted) return;
+      _socketViewers = viewers
+          .map((v) => ZegoUIKitUser(
+              id: (v['id'] ?? '').toString(),
+              name: (v['name'] ?? '').toString()))
+          .toList();
+      _checkNewViewers();
+    });
   }
 
-  void _onMessage(ZegoInRoomMessage msg) {
-    if (msg.message.startsWith('GIFT|')) {
-      final parts = msg.message.split('|');
+  /// Fires the current live provider's own audio cue + centers/queues gift
+  /// animations for a chat/gift message, whichever transport delivered it
+  /// (Zego's in-room stream, or the Socket.IO relay for other providers).
+  void _onMessage(String text, String senderId, String senderName) {
+    if (text.startsWith('GIFT|')) {
+      final parts = text.split('|');
       if (parts.length >= 5) {
         final coins    = int.tryParse(parts[2]) ?? 0;
-        final senderId = parts.length > 5 ? parts[5] : '';
+        final gSenderId = parts.length > 5 ? parts[5] : '';
         // Skip echoes of our own gifts — handled locally in _onQuickGiftTap
-        if (senderId == _currentUserId) return;
+        if (gSenderId == _currentUserId) return;
         final avatar   = parts.length > 6 ? parts[6] : '';
         final emoji    = parts.length > 7 ? parts[7] : '';
         final g = _GiftAnim(
           name: parts[1], coins: coins, senderName: parts[3],
-          gifUrl: parts[4], senderId: senderId, senderAvatar: avatar,
+          gifUrl: parts[4], senderId: gSenderId, senderAvatar: avatar,
           emoji: emoji.isNotEmpty ? emoji : null,
         );
-        _updateTopGifter(senderId, parts[3], avatar, coins);
+        _updateTopGifter(gSenderId, parts[3], avatar, coins);
         SoundService().playGiftSound(coins);
         _enqueueNotif(g);
         if (coins >= 100) _enqueueGift(g);
       }
-    } else if (msg.message.isNotEmpty) {
-      final sender = msg.user.name.isEmpty ? 'User' : msg.user.name;
-      final senderId = msg.user.id;
+    } else if (text.isNotEmpty) {
+      final sender = senderName.isEmpty ? 'User' : senderName;
       // Own messages are added optimistically in _sendChat(); skip here.
       if (senderId == _currentUserId) return;
       if (!_userColors.containsKey(sender)) {
@@ -699,7 +847,7 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
           _chatMessages.add(_ChatMsg(
               sender: sender,
               senderUserId: senderId,
-              text: msg.message,
+              text: text,
               color: _userColors[sender]!));
           if (_chatMessages.length > 15) _chatMessages.removeAt(0);
         });
@@ -708,10 +856,28 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     }
   }
 
+  /// Unified viewer list regardless of which live provider is active: Zego's
+  /// own room roster, or the Socket.IO-relayed list for other providers.
+  List<ZegoUIKitUser> _currentViewers() =>
+      _isZegoActive ? ZegoUIKit().getAllUsers() : _socketViewers;
+
+  /// Broadcasts a chat/gift message to everyone in the room, over whichever
+  /// transport backs the active provider. Gift messages keep the same
+  /// pipe-delimited 'GIFT|name|coins|senderName|gifUrl|senderId|avatar|emoji'
+  /// format either way, since _onMessage's parsing doesn't care which
+  /// transport delivered it.
+  void _sendRoomText(String text) {
+    if (_isZegoActive) {
+      ZegoUIKit().sendInRoomMessage(text);
+    } else {
+      SocketService.instance.sendLiveMessage(widget.userId, text);
+    }
+  }
+
   void _checkNewViewers() {
     if (!mounted) return;
     try {
-      final users = ZegoUIKit().getAllUsers();
+      final users = _currentViewers();
       final currentIds = users.map((u) => u.id.toString()).toSet();
       final newIds = currentIds.difference(_prevViewerIds);
       for (final uid in newIds) {
@@ -721,16 +887,41 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
           orElse: () => ZegoUIKitUser(id: uid, name: ''),
         );
         final name = user.name.isNotEmpty ? user.name : 'Someone';
+        _viewerNames[uid] = name;
+        // Fetch the joiner's avatar + rating so the join message shows their
+        // profile pic and star rating (not a "?" placeholder).
+        _fetchUserProfile(uid);
         setState(() {
           _chatMessages.add(_ChatMsg(
-            sender: '',
-            text: '$name joined the live!',
+            sender: name,
+            senderUserId: uid,
+            text: 'joined the live!',
             color: const Color(0xFF69F0AE),
           ));
           if (_chatMessages.length > 15) _chatMessages.removeAt(0);
         });
         _scrollChat();
       }
+
+      // Anyone who was in the roster a moment ago and is not any more has
+      // left. Their name comes from _viewerNames because they are no longer
+      // in the list to look up.
+      final goneIds = _prevViewerIds.difference(currentIds);
+      for (final uid in goneIds) {
+        if (uid == _currentUserId) continue;
+        final name = _viewerNames[uid] ?? 'Someone';
+        setState(() {
+          _chatMessages.add(_ChatMsg(
+            sender: name,
+            senderUserId: uid,
+            text: 'left the live',
+            color: const Color(0xFFFF8A80),
+          ));
+          if (_chatMessages.length > 15) _chatMessages.removeAt(0);
+        });
+        _scrollChat();
+      }
+
       _prevViewerIds = currentIds;
     } catch (_) {}
   }
@@ -834,7 +1025,7 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
       } else if (coins > 0) {
         setState(() => _coinBalance = (_coinBalance - coins).clamp(0, 999999));
       }
-      ZegoUIKit().sendInRoomMessage('GIFT|$name|$coins|$_currentUserName|$gifUrl|$_currentUserId|$_currentUserAvatar|$emoji');
+      _sendRoomText('GIFT|$name|$coins|$_currentUserName|$gifUrl|$_currentUserId|$_currentUserAvatar|$emoji');
       _updateTopGifter(_currentUserId, _currentUserName, _currentUserAvatar, coins);
       SoundService().playGiftSound(coins);
       final g = _GiftAnim(name: name, senderName: _currentUserName, senderId: _currentUserId, senderAvatar: _currentUserAvatar, coins: coins, gifUrl: gifUrl, emoji: emoji);
@@ -861,7 +1052,7 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
         if (coins > 0) {
           setState(() => _coinBalance = (_coinBalance - coins).clamp(0, 999999));
         }
-        ZegoUIKit().sendInRoomMessage('GIFT|$name|$coins|$_currentUserName|$gifUrl|$_currentUserId|$_currentUserAvatar|$emoji');
+        _sendRoomText('GIFT|$name|$coins|$_currentUserName|$gifUrl|$_currentUserId|$_currentUserAvatar|$emoji');
         _updateTopGifter(_currentUserId, _currentUserName, _currentUserAvatar, coins);
         final g = _GiftAnim(name: name, senderName: _currentUserName, senderId: _currentUserId, senderAvatar: _currentUserAvatar, coins: coins, gifUrl: gifUrl, emoji: emoji);
         _enqueueNotif(g);
@@ -875,7 +1066,7 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
   void _sendChat() {
     final text = _chatController.text.trim();
     if (text.isEmpty) return;
-    ZegoUIKit().sendInRoomMessage(text);
+    _sendRoomText(text);
     if (!_userColors.containsKey(_currentUserName)) {
       _userColors[_currentUserName] = const Color(0xFFFF6B9D);
     }
@@ -962,7 +1153,9 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
       }
 
       final success = await _videoManager.initialize(
-          currentUserId: currentUserId, currentUserName: userName);
+          currentUserId: currentUserId,
+          currentUserName: userName,
+          serviceType: 'live');
       if (!success) {
         if (mounted) {
           setState(() {
@@ -985,6 +1178,12 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
       } catch (_) {}
 
       await _videoManager.activeProvider!.joinCall('live_${widget.userId}');
+      if (!_isZegoActive) {
+        // Non-Zego providers (e.g. Agora) have no signaling of their own --
+        // use the app's Socket.IO service for chat/gifts/viewer list instead.
+        SocketService.instance.joinLiveRoom(widget.userId, _currentUserName);
+        _joinedSocketLiveRoom = true;
+      }
       if (_isHost) {
         _hasStartedLive = true;
         _api.startLive();
@@ -1066,6 +1265,18 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
             left: 12, right: 12,
             child: _buildStreamerHeader(),
           ),
+
+          // Glowing timed reward box — host only, appears when the admin timer
+          // completes. Tapping it claims coins (fixed or random per admin).
+          if (_isHost && _rewardReady)
+            Positioned(
+              right: 14,
+              bottom: 210,
+              child: _LiveRewardBox(
+                busy: _claimingReward,
+                onTap: _claimReward,
+              ),
+            ),
 
           // Center animation (premium gifts ≥ 100 coins)
           if (_currentGift != null)
@@ -1512,7 +1723,9 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
                       ],
                     ),
               child: Text(
-                _isFollowingHost ? 'Following' : 'Follow',
+                _isFollowingHost
+                    ? (_hostFollowsMe ? 'Friends' : 'Following')
+                    : (_hostFollowsMe ? 'Follow back' : 'Follow'),
                 style: const TextStyle(
                     color: Colors.white,
                     fontSize: 11,
@@ -1818,6 +2031,7 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
   }
 
   Future<void> _handleProviderError() async {
+    debugPrint('[AgoraDebug] _handleProviderError called');
     if (!mounted) return;
     setState(() {
       _videoInitialized = false;
@@ -1826,7 +2040,9 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     });
     final userId = UserPrefsCache.instance.userId ?? widget.userId;
     final switched = await _videoManager.reinitialize(
-        currentUserId: userId, currentUserName: _currentUserName);
+        currentUserId: userId,
+        currentUserName: _currentUserName,
+        serviceType: 'live');
     if (!mounted) return;
     if (switched) {
       try {
@@ -2013,14 +2229,10 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
         g.senderId != widget.currentUserId &&
         g.senderId != widget.hostUserId;
 
-    return GestureDetector(
-      onTap: g.senderId.isNotEmpty
-          ? () {
-              HapticFeedback.lightImpact();
-              widget.onGifterTap?.call(g.senderId, g.senderName, g.senderAvatar);
-            }
-          : null,
-      child: Container(
+    // Gift notification is display-only: it animates the gift + gifter for all
+    // viewers but does NOT open the gifter's profile (that interrupted the live).
+    // Use the Follow button to follow the gifter.
+    return Container(
       constraints: const BoxConstraints(maxWidth: 260),
       padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
       decoration: BoxDecoration(
@@ -2165,7 +2377,6 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
           ],
         ],
       ),
-      ),
     );
   }
 
@@ -2184,7 +2395,14 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
           final rating = (cached?['rating'] ?? 0.0) as double;
           final gifterLevel = GifterBadge.levelFromCoins(
               int.tryParse((cached?['total_coins_sent'] ?? '0').toString()) ?? 0);
-          return Padding(
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            // Tap a chat message to open the sender's small profile preview.
+            onTap: m.senderUserId.isEmpty
+                ? null
+                : () => widget.onGifterTap
+                    ?.call(m.senderUserId, m.sender, avatarUrl),
+            child: Padding(
             padding: const EdgeInsets.only(bottom: 5),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -2271,6 +2489,7 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
                   ),
                 ),
               ],
+            ),
             ),
           );
         },
@@ -2587,6 +2806,14 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
     );
   }
 
+  // Local mic/camera/front-camera state for non-Zego providers, which have no
+  // equivalent to ZegoUIKit's reactive state notifiers -- the provider's
+  // toggleMic/toggleVideo/switchCamera calls are fire-and-forget from here,
+  // so the button appearance is tracked locally instead.
+  bool _localMicOn = true;
+  bool _localCamOn = true;
+  bool _localFrontCam = true;
+
   Widget _buildHostControls() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -2600,41 +2827,85 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
   }
 
   Widget _buildHostControlBar() {
-    final userId = ZegoUIKit().getLocalUser().id;
-    if (userId.isEmpty) return const SizedBox(height: 48);
+    final isZegoActive = VideoCallManager().activeProvider is ZegoProvider;
+    if (isZegoActive) {
+      final userId = ZegoUIKit().getLocalUser().id;
+      if (userId.isEmpty) return const SizedBox(height: 48);
+      return Padding(
+        padding: const EdgeInsets.only(left: 12, right: 12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            ValueListenableBuilder<bool>(
+              valueListenable: ZegoUIKit().getMicrophoneStateNotifier(userId),
+              builder: (_, micOn, __) => _hostControlBtn(
+                icon: micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
+                label: 'Mic',
+                active: micOn,
+                onTap: () => ZegoUIKit().turnMicrophoneOn(!micOn),
+              ),
+            ),
+            const SizedBox(width: 14),
+            ValueListenableBuilder<bool>(
+              valueListenable: ZegoUIKit().getCameraStateNotifier(userId),
+              builder: (_, camOn, __) => _hostControlBtn(
+                icon: camOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+                label: 'Camera',
+                active: camOn,
+                onTap: () => ZegoUIKit().turnCameraOn(!camOn),
+              ),
+            ),
+            const SizedBox(width: 14),
+            ValueListenableBuilder<bool>(
+              valueListenable: ZegoUIKit().getUseFrontFacingCameraStateNotifier(userId),
+              builder: (_, isFront, __) => _hostControlBtn(
+                icon: Icons.flip_camera_ios_rounded,
+                label: 'Flip',
+                active: true,
+                onTap: () => ZegoUIKit().useFrontFacingCamera(!isFront),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Non-Zego provider (e.g. Agora): same bar, driven by local state and the
+    // generic VideoCallProvider interface instead of ZegoUIKit's globals.
+    final provider = VideoCallManager().activeProvider;
     return Padding(
       padding: const EdgeInsets.only(left: 12, right: 12),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          ValueListenableBuilder<bool>(
-            valueListenable: ZegoUIKit().getMicrophoneStateNotifier(userId),
-            builder: (_, micOn, __) => _hostControlBtn(
-              icon: micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
-              label: 'Mic',
-              active: micOn,
-              onTap: () => ZegoUIKit().turnMicrophoneOn(!micOn),
-            ),
+          _hostControlBtn(
+            icon: _localMicOn ? Icons.mic_rounded : Icons.mic_off_rounded,
+            label: 'Mic',
+            active: _localMicOn,
+            onTap: () => setState(() {
+              _localMicOn = !_localMicOn;
+              provider?.toggleMic(!_localMicOn);
+            }),
           ),
           const SizedBox(width: 14),
-          ValueListenableBuilder<bool>(
-            valueListenable: ZegoUIKit().getCameraStateNotifier(userId),
-            builder: (_, camOn, __) => _hostControlBtn(
-              icon: camOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
-              label: 'Camera',
-              active: camOn,
-              onTap: () => ZegoUIKit().turnCameraOn(!camOn),
-            ),
+          _hostControlBtn(
+            icon: _localCamOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+            label: 'Camera',
+            active: _localCamOn,
+            onTap: () => setState(() {
+              _localCamOn = !_localCamOn;
+              provider?.toggleVideo(!_localCamOn);
+            }),
           ),
           const SizedBox(width: 14),
-          ValueListenableBuilder<bool>(
-            valueListenable: ZegoUIKit().getUseFrontFacingCameraStateNotifier(userId),
-            builder: (_, isFront, __) => _hostControlBtn(
-              icon: Icons.flip_camera_ios_rounded,
-              label: 'Flip',
-              active: true,
-              onTap: () => ZegoUIKit().useFrontFacingCamera(!isFront),
-            ),
+          _hostControlBtn(
+            icon: Icons.flip_camera_ios_rounded,
+            label: 'Flip',
+            active: true,
+            onTap: () => setState(() {
+              _localFrontCam = !_localFrontCam;
+              provider?.switchCamera();
+            }),
           ),
         ],
       ),
@@ -2699,12 +2970,17 @@ class _InviteToLiveSheet extends StatefulWidget {
   final String currentUserId;
   final Set<String> invitedUserIds;
   final Future<void> Function(List<String> selectedIds) onInvite;
+  // Current live viewers the host can add as a GUEST (co-host) directly.
+  final List<ZegoUIKitUser> viewers;
+  final Future<void> Function(ZegoUIKitUser viewer)? onInviteGuest;
 
   const _InviteToLiveSheet({
     required this.api,
     required this.currentUserId,
     required this.invitedUserIds,
     required this.onInvite,
+    this.viewers = const [],
+    this.onInviteGuest,
   });
 
   @override
@@ -2817,6 +3093,85 @@ class _InviteToLiveSheetState extends State<_InviteToLiveSheet> {
               ),
             ),
           ),
+          // Current viewers — host can add any of them as a GUEST (co-host).
+          if (widget.viewers.isNotEmpty && widget.onInviteGuest != null) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                child: Row(children: const [
+                  Icon(Icons.videocam_rounded,
+                      color: Color(0xFF22C55E), size: 16),
+                  SizedBox(width: 6),
+                  Text('Currently watching — tap to add as guest',
+                      style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600)),
+                ]),
+              ),
+            ),
+            SizedBox(
+              height: 84,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: widget.viewers.length,
+                itemBuilder: (_, i) {
+                  final v = widget.viewers[i];
+                  final vname = v.name.isEmpty ? 'User' : v.name;
+                  return GestureDetector(
+                    onTap: () => widget.onInviteGuest!(v),
+                    child: Container(
+                      width: 64,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              CircleAvatar(
+                                radius: 24,
+                                backgroundColor: const Color(0xFF2A1040),
+                                child: Text(
+                                  vname[0].toUpperCase(),
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              Positioned(
+                                right: -2,
+                                bottom: -2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF22C55E),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.add,
+                                      color: Colors.white, size: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            vname,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
           const Divider(color: Colors.white12),
           Expanded(
             child: _loading
@@ -2893,5 +3248,107 @@ class _InviteToLiveSheetState extends State<_InviteToLiveSheet> {
     setState(() => _sending = true);
     await widget.onInvite(_selected.toList());
     if (mounted) Navigator.pop(context);
+  }
+}
+
+/// Glowing, pulsing reward box shown to the live host when the timer completes.
+class _LiveRewardBox extends StatefulWidget {
+  final bool busy;
+  final VoidCallback onTap;
+  const _LiveRewardBox({required this.busy, required this.onTap});
+
+  @override
+  State<_LiveRewardBox> createState() => _LiveRewardBoxState();
+}
+
+class _LiveRewardBoxState extends State<_LiveRewardBox>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1100))
+      ..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.busy ? null : widget.onTap,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) {
+          final t = _c.value;
+          final glow = 12.0 + 16.0 * t;
+          final scale = 0.96 + 0.08 * t;
+          return Transform.scale(
+            scale: scale,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFFFFD54F),
+                        Color(0xFFFFA000),
+                        Color(0xFFFF6F00),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.85), width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                          color: const Color(0xFFFFC107).withValues(alpha: 0.75),
+                          blurRadius: glow,
+                          spreadRadius: 2),
+                      BoxShadow(
+                          color: const Color(0xFFFF6F00).withValues(alpha: 0.5),
+                          blurRadius: glow * 1.7,
+                          spreadRadius: 1),
+                    ],
+                  ),
+                  child: widget.busy
+                      ? const Center(
+                          child: SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2.5, color: Colors.white)))
+                      : const Icon(Icons.card_giftcard_rounded,
+                          color: Colors.white, size: 34),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(10)),
+                  child: const Text('Tap to claim',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 }

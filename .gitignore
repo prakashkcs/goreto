@@ -216,3 +216,6 @@ backend/config/
 backend/**/service_account*.json
 backend/**/*.local.php
 backend/**/.env
+
+# Locally kept release APKs (hundreds of MB, rebuildable)
+apk_keep/

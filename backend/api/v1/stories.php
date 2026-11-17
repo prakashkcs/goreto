@@ -32,9 +32,11 @@ function norm_url(?string $url, string $baseUrl): ?string
     if ($url === '')
         return '';
 
-    // CDN Redirection for relative upload paths
+    // Relative upload paths resolve against this install's own base URL.
+    // This used to be hardcoded to coinzop.com, the host from two migrations
+    // ago, so any stored relative path produced a dead link.
     if (strpos($url, 'uploads/') !== false && !preg_match('~^https?://~i', $url)) {
-        return 'https://coinzop.com/ekloadmin/' . ltrim($url, '/');
+        return rtrim(str_replace('/api/v1', '', $baseUrl), '/') . '/' . ltrim($url, '/');
     }
 
     if (preg_match('~^https?://~i', $url))

@@ -16,7 +16,8 @@ if (isset($pdo)) {
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS video_providers (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                provider_name  VARCHAR(50)  NOT NULL UNIQUE,
+                provider_name  VARCHAR(50)  NOT NULL,
+                service_type   VARCHAR(10)  NOT NULL DEFAULT 'call',
                 is_active      TINYINT(1)   DEFAULT 0,
                 auto_rotate    TINYINT(1)   DEFAULT 1,
                 app_id         VARCHAR(255) DEFAULT '',
@@ -25,15 +26,28 @@ if (isset($pdo)) {
                 additional_config TEXT,
                 last_error_time DATETIME NULL,
                 created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_provider_service (provider_name, service_type)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
         try { $pdo->exec("ALTER TABLE video_providers ADD COLUMN app_sign VARCHAR(255) DEFAULT '' AFTER app_id"); }
         catch (Throwable $_) {}
-        // Seed default rows
-        foreach (['zego','agora','dyte','twilio'] as $i => $p) {
-            $pdo->prepare("INSERT IGNORE INTO video_providers (provider_name,is_active,auto_rotate) VALUES (?,?,1)")
-                ->execute([$p, $i === 0 ? 1 : 0]);
+        // Migrate older installs: add service_type, default existing rows to
+        // 'call' (their original meaning), then swap the old single-column
+        // UNIQUE(provider_name) for the new composite key so 'live' rows can
+        // coexist with 'call' rows for the same provider_name.
+        try { $pdo->exec("ALTER TABLE video_providers ADD COLUMN service_type VARCHAR(10) NOT NULL DEFAULT 'call' AFTER provider_name"); }
+        catch (Throwable $_) {}
+        try { $pdo->exec("ALTER TABLE video_providers DROP INDEX provider_name"); }
+        catch (Throwable $_) {}
+        try { $pdo->exec("ALTER TABLE video_providers ADD UNIQUE KEY uniq_provider_service (provider_name, service_type)"); }
+        catch (Throwable $_) {}
+        // Seed default rows for both service types
+        foreach (['call', 'live'] as $svc) {
+            foreach (['zego','agora','dyte','twilio'] as $i => $p) {
+                $pdo->prepare("INSERT IGNORE INTO video_providers (provider_name,service_type,is_active,auto_rotate) VALUES (?,?,?,1)")
+                    ->execute([$p, $svc, $i === 0 ? 1 : 0]);
+            }
         }
     } catch (Throwable $e) { /* table already exists */ }
 }
@@ -43,36 +57,65 @@ $activeNav = 'video_settings';
 $msg = '';
 
 // ── Handle form POST ─────────────────────────────────────────────────────────
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo) && empty($_POST['_test_agora'])) {
     try { $pdo->exec("ALTER TABLE video_providers ADD COLUMN trial_started_at DATETIME NULL"); } catch (Throwable $_) {}
+
+    // Trial start dates as they stand before this save. Needed so the auto-pick
+    // below only stamps a provider that has never had one — it must never move
+    // an existing date, or the 30-day countdown would restart on every save.
+    $existingTrials = [];
+    try {
+        foreach ($pdo->query("SELECT provider_name, service_type, trial_started_at FROM video_providers") as $r) {
+            $existingTrials[$r['provider_name'] . '_' . $r['service_type']] = $r['trial_started_at'];
+        }
+    } catch (Throwable $_) {}
+
     $pdo->beginTransaction();
     try {
-        $pdo->exec("UPDATE video_providers SET is_active = 0");
-        foreach (['zego','agora','dyte','twilio'] as $p) {
-            $isActive    = !empty($_POST[$p.'_is_active']) ? 1 : 0;
-            $trialRaw    = trim($_POST[$p.'_trial_started_at'] ?? '');
-            $trialDate   = ($trialRaw !== '') ? date('Y-m-d H:i:s', strtotime($trialRaw)) : null;
-            $stmt = $pdo->prepare("
-                INSERT INTO video_providers (provider_name, is_active, auto_rotate, app_id, app_sign, server_secret, trial_started_at)
-                VALUES (?,?,?,?,?,?,?)
-                ON DUPLICATE KEY UPDATE
-                    is_active        = VALUES(is_active),
-                    auto_rotate      = VALUES(auto_rotate),
-                    app_id           = VALUES(app_id),
-                    app_sign         = VALUES(app_sign),
-                    server_secret    = VALUES(server_secret),
-                    trial_started_at = COALESCE(VALUES(trial_started_at), trial_started_at),
-                    last_error_time  = NULL
-            ");
-            $stmt->execute([
-                $p,
-                $isActive,
-                !empty($_POST[$p.'_auto_rotate']) ? 1 : 0,
-                trim($_POST[$p.'_app_id']         ?? ''),
-                trim($_POST[$p.'_app_sign']        ?? ''),
-                trim($_POST[$p.'_server_secret']   ?? ''),
-                $trialDate,
-            ]);
+        foreach (['call', 'live'] as $svc) {
+            $pdo->prepare("UPDATE video_providers SET is_active = 0 WHERE service_type = ?")->execute([$svc]);
+            foreach (['zego','agora','dyte','twilio'] as $p) {
+                $prefix      = $p . '_' . $svc;
+                $isActive    = !empty($_POST[$prefix.'_is_active']) ? 1 : 0;
+                $trialRaw    = trim($_POST[$prefix.'_trial_started_at'] ?? '');
+                $appIdVal    = trim($_POST[$prefix.'_app_id'] ?? '');
+
+                if ($trialRaw !== '') {
+                    // Admin picked a date explicitly — always honour it.
+                    $trialDate = date('Y-m-d H:i:s', strtotime($trialRaw));
+                } elseif ($appIdVal !== '' && empty($existingTrials[$prefix])) {
+                    // Auto-pick: the field was left blank, this provider has just
+                    // been given credentials, and no start date was ever recorded.
+                    // Stamp today so the 30-day trial countdown starts on its own.
+                    $trialDate = date('Y-m-d H:i:s');
+                } else {
+                    // Blank and already set (or no credentials): change nothing.
+                    // COALESCE in the UPDATE below keeps the stored value.
+                    $trialDate = null;
+                }
+                $stmt = $pdo->prepare("
+                    INSERT INTO video_providers (provider_name, service_type, is_active, auto_rotate, app_id, app_sign, server_secret, trial_started_at)
+                    VALUES (?,?,?,?,?,?,?,?)
+                    ON DUPLICATE KEY UPDATE
+                        is_active        = VALUES(is_active),
+                        auto_rotate      = VALUES(auto_rotate),
+                        app_id           = VALUES(app_id),
+                        app_sign         = VALUES(app_sign),
+                        server_secret    = VALUES(server_secret),
+                        trial_started_at = COALESCE(VALUES(trial_started_at), trial_started_at),
+                        last_error_time  = NULL
+                ");
+                $stmt->execute([
+                    $p,
+                    $svc,
+                    $isActive,
+                    !empty($_POST[$prefix.'_auto_rotate']) ? 1 : 0,
+                    trim($_POST[$prefix.'_app_id']         ?? ''),
+                    trim($_POST[$prefix.'_app_sign']        ?? ''),
+                    trim($_POST[$prefix.'_server_secret']   ?? ''),
+                    $trialDate,
+                ]);
+            }
         }
         $pdo->commit();
         $msg = 'success';
@@ -83,10 +126,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
 }
 
 // ── Fetch current values ─────────────────────────────────────────────────────
+// Keyed by "{provider}_{service_type}" so calls and live streaming can each
+// have their own independent active provider + credentials.
 $providersMap = [];
 if (isset($pdo)) {
     foreach ($pdo->query("SELECT * FROM video_providers ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $providersMap[$row['provider_name']] = $row;
+        $providersMap[$row['provider_name'] . '_' . $row['service_type']] = $row;
     }
 }
 
@@ -198,27 +243,44 @@ $providerMeta = [
 ];
 
 // ── Agora token builder (must be defined before use) ─────────────────────────
+// Mirrors the corrected implementation in api/v1/agora_token.php -- see that
+// file's docblock for why this exact byte layout matters (ported from
+// Agora's own reference implementation after the original hand-rolled
+// version turned out to diverge from it in ways that silently broke every
+// signature: App ID must be length-prefixed not raw hex2bin, the signing key
+// is two chained HMACs keyed by issueTs then salt (not one HMAC keyed by the
+// certificate), and expire values are relative durations, not timestamps).
 function _buildAgoraAccessToken2Test(string $appId, string $appCert, string $channel, int $uid, int $expireSec): ?string {
     if (strlen($appId) !== 32) return null;
-    $issueTs    = time();
-    $expire     = $issueTs + $expireSec;
-    $salt       = rand(1, 0x7FFFFFFF);
-    $signingKey = hash_hmac('sha256', pack('VV', $issueTs, $salt), $appCert, true);
-    $privs      = [1 => $expire, 2 => $expire, 3 => $expire, 4 => $expire];
+    $issueTs = time();
+    $salt    = random_int(1, 0x7FFFFFFF);
+
+    $packStr = function (string $s): string { return pack('v', strlen($s)) . $s; };
+
+    $step1      = hash_hmac('sha256', pack('V', $issueTs), $appCert, true);
+    $signingKey = hash_hmac('sha256', pack('V', $salt), $step1, true);
+
+    $privs = [1 => $expireSec, 2 => $expireSec, 3 => $expireSec, 4 => $expireSec];
     ksort($privs);
     $privBuf = pack('v', count($privs));
     foreach ($privs as $k => $v) { $privBuf .= pack('v', (int)$k) . pack('V', (int)$v); }
-    $svcBuf  = pack('v', 1) . pack('v', strlen($channel)) . $channel . pack('v', strlen((string)$uid)) . (string)$uid . $privBuf;
-    $hdr     = pack('v', 1) . hex2bin($appId) . pack('V', $issueTs) . pack('V', $expire) . pack('V', $salt);
-    $sig     = hash_hmac('sha256', $hdr . $svcBuf, $signingKey, true);
-    $buf     = $hdr . pack('v', strlen($sig)) . $sig . pack('v', 1) . $svcBuf;
+
+    $svcBuf = pack('v', 1) . $packStr($channel) . $packStr((string)$uid) . $privBuf;
+
+    $signedMsg = $packStr($appId) . pack('V', $issueTs) . pack('V', $expireSec) . pack('V', $salt) . pack('v', 1) . $svcBuf;
+    $sig       = hash_hmac('sha256', $signedMsg, $signingKey, true);
+    $buf       = $packStr($sig) . $signedMsg;
+
     return '007' . base64_encode(gzcompress($buf));
 }
 
 // ── Handle Agora token test ───────────────────────────────────────────────────
 $agoraTestResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['_test_agora']) && isset($pdo)) {
-    $testRow = $pdo->query("SELECT app_id, server_secret FROM video_providers WHERE provider_name='agora' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    $testSvc = $_POST['_test_agora_service'] ?? 'call';
+    $testRow = $pdo->prepare("SELECT app_id, server_secret FROM video_providers WHERE provider_name='agora' AND service_type=? LIMIT 1");
+    $testRow->execute([$testSvc]);
+    $testRow = $testRow->fetch(PDO::FETCH_ASSOC);
     $testAppId   = trim($testRow['app_id']       ?? '');
     $testAppCert = trim($testRow['server_secret'] ?? '');
 
@@ -266,25 +328,14 @@ foreach ([__DIR__.'/_layout_header.php', __DIR__.'/../_layout_header.php'] as $f
 @media(max-width:700px){ .vapi-grid{ grid-template-columns:1fr; } }
 </style>
 
-<div class="card" style="padding:24px;">
-  <h2 style="margin-bottom:6px;">📡 Video API Providers</h2>
-  <p style="opacity:.7; margin-bottom:20px; font-size:14px;">
-    Configure your live streaming &amp; video call SDK credentials.
-    The app fetches the active provider at runtime and auto-switches when one fails.
-  </p>
-
-<?php if ($msg === 'success'): ?>
-  <div class="vapi-msg-ok">✓ Settings saved. App will use the updated credentials immediately.</div>
-<?php elseif (str_starts_with($msg, 'error:')): ?>
-  <div class="vapi-msg-err">✗ <?php echo htmlspecialchars(substr($msg, 6)); ?></div>
-<?php endif; ?>
-
-  <form method="post">
-    <div class="vapi-grid">
-
-<?php foreach ($providerMeta as $key => $meta):
-    $d      = $providersMap[$key] ?? ['is_active'=>0,'auto_rotate'=>1,'app_id'=>'','app_sign'=>'','server_secret'=>'','trial_started_at'=>''];
-    $active = !empty($d['is_active']);
+<?php
+// Renders one provider grid (all 4 providers) scoped to a single service_type.
+function render_provider_grid(string $svc, array $providerMeta, array $providersMap): void {
+    foreach ($providerMeta as $key => $meta):
+        $mapKey = $key . '_' . $svc;
+        $fieldPrefix = $key . '_' . $svc;
+        $d      = $providersMap[$mapKey] ?? ['is_active'=>0,'auto_rotate'=>1,'app_id'=>'','app_sign'=>'','server_secret'=>'','trial_started_at'=>''];
+        $active = !empty($d['is_active']);
 ?>
       <div class="vapi-card">
         <h3>
@@ -296,22 +347,21 @@ foreach ([__DIR__.'/_layout_header.php', __DIR__.'/../_layout_header.php'] as $f
         </h3>
 
         <label class="vapi-check">
-          <input type="checkbox" name="<?php echo $key; ?>_is_active" value="1" <?php echo $active ? 'checked' : ''; ?>>
+          <input type="checkbox" name="<?php echo $fieldPrefix; ?>_is_active" value="1" <?php echo $active ? 'checked' : ''; ?>>
           Set as active provider
         </label>
         <label class="vapi-check">
-          <input type="checkbox" name="<?php echo $key; ?>_auto_rotate" value="1" <?php echo !empty($d['auto_rotate']) ? 'checked' : ''; ?>>
+          <input type="checkbox" name="<?php echo $fieldPrefix; ?>_auto_rotate" value="1" <?php echo !empty($d['auto_rotate']) ? 'checked' : ''; ?>>
           Auto-rotate when this fails
         </label>
 
         <hr class="vapi-divider">
 
 <?php
-    $colMap = ['app_id' => 'app_id', 'app_sign' => 'app_sign', 'server_secret' => 'server_secret'];
-    foreach ($meta['fields'] as $col => $f):
-        $disabled = !empty($f['disabled']);
-        $dbVal    = $d[$col] ?? '';
-        $rowClass = $disabled ? ' vapi-disabled-row' : '';
+        foreach ($meta['fields'] as $col => $f):
+            $disabled = !empty($f['disabled']);
+            $dbVal    = $d[$col] ?? '';
+            $rowClass = $disabled ? ' vapi-disabled-row' : '';
 ?>
         <div class="<?php echo ltrim($rowClass); ?>">
           <label class="vapi-label">
@@ -324,7 +374,7 @@ foreach ([__DIR__.'/_layout_header.php', __DIR__.'/../_layout_header.php'] as $f
           </label>
           <input class="vapi-input"
                  type="<?php echo $f['password'] ? 'password' : 'text'; ?>"
-                 name="<?php echo $key; ?>_<?php echo $col; ?>"
+                 name="<?php echo $fieldPrefix; ?>_<?php echo $col; ?>"
                  value="<?php echo $disabled ? '' : htmlspecialchars($dbVal); ?>"
                  placeholder="<?php echo htmlspecialchars($f['placeholder']); ?>"
                  <?php echo $disabled ? 'disabled' : ''; ?>
@@ -336,52 +386,68 @@ foreach ([__DIR__.'/_layout_header.php', __DIR__.'/../_layout_header.php'] as $f
         <div style="margin-top:12px;">
           <label class="vapi-label">
             Trial Started
-            <span class="vapi-hint">Set once — used on dashboard to show days remaining in 30-day free trial</span>
+            <span class="vapi-hint">Leave blank and it fills itself with today when you save credentials. Set once — drives the 30-day trial countdown on the dashboard.</span>
           </label>
           <input class="vapi-input" type="date"
-                 name="<?= $key ?>_trial_started_at"
+                 name="<?= $fieldPrefix ?>_trial_started_at"
                  value="<?= htmlspecialchars(substr($d['trial_started_at'] ?? '', 0, 10)) ?>"
                  placeholder="YYYY-MM-DD">
         </div>
 <?php endif; ?>
-<?php if ($key === 'agora'): ?>
+<?php if ($key === 'agora'): global $agoraTestResult; ?>
         <hr class="vapi-divider" style="margin-top:16px;">
-        <?php if ($agoraTestResult): ?>
+        <?php if ($agoraTestResult && ($_POST['_test_agora_service'] ?? '') === $svc): ?>
           <div class="<?= $agoraTestResult['ok'] ? 'vapi-msg-ok' : 'vapi-msg-err'; ?>" style="margin:8px 0 10px;">
             <?= $agoraTestResult['ok'] ? '&#10003;' : '&#10007;'; ?> <?= htmlspecialchars($agoraTestResult['msg']); ?>
           </div>
         <?php endif; ?>
-        <button type="submit" name="_test_agora" value="1"
+        <button type="submit" name="_test_agora" value="1" onclick="this.form._test_agora_service.value='<?= $svc ?>'"
                 style="width:100%;margin-top:4px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;padding:9px 0;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">
-          Test Agora Token
+          Test Agora Token (<?= $svc === 'live' ? 'Live Streaming' : 'Calls' ?>)
         </button>
 <?php endif; ?>
 
       </div>
-<?php endforeach; ?>
+<?php
+    endforeach;
+}
+?>
 
+<div class="card" style="padding:24px;">
+  <h2 style="margin-bottom:6px;">📡 Video API Providers</h2>
+  <p style="opacity:.7; margin-bottom:20px; font-size:14px;">
+    Configure your video-call and live-streaming SDK credentials separately — each has its own
+    active provider, since they're often different ZegoCloud/Agora projects.
+    The app fetches the right one for the feature it's using at runtime and auto-switches when one fails.
+  </p>
+
+<?php if ($msg === 'success'): ?>
+  <div class="vapi-msg-ok">✓ Settings saved. App will use the updated credentials immediately.</div>
+<?php elseif (str_starts_with($msg, 'error:')): ?>
+  <div class="vapi-msg-err">✗ <?php echo htmlspecialchars(substr($msg, 6)); ?></div>
+<?php endif; ?>
+
+  <form method="post">
+    <input type="hidden" name="_test_agora_service" value="call">
+
+    <h3 style="margin:0 0 4px;">🎥 Voice &amp; Video Calls</h3>
+    <p style="opacity:.6; font-size:13px; margin:0 0 14px;">Used for 1:1 and random video/voice calls.</p>
+    <div class="vapi-grid">
+<?php render_provider_grid('call', $providerMeta, $providersMap); ?>
     </div><!-- /grid -->
 
-    <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+    <hr class="vapi-divider" style="margin:28px 0;">
+
+    <h3 style="margin:0 0 4px;">📺 Live Streaming</h3>
+    <p style="opacity:.6; font-size:13px; margin:0 0 14px;">Used for the "Go Live" broadcast feature — usually a separate SDK project from calls.</p>
+    <div class="vapi-grid">
+<?php render_provider_grid('live', $providerMeta, $providersMap); ?>
+    </div><!-- /grid -->
+
+    <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:20px;">
       <button type="submit" class="vapi-save">💾 Save Configuration</button>
       <span style="font-size:13px; opacity:.6;">Changes take effect immediately — no app restart needed.</span>
     </div>
-  </form>
-
-  <hr class="vapi-divider" style="margin-top:28px;">
-
-  <?php if ($agoraTestResult): ?>
-    <div class="<?= $agoraTestResult['ok'] ? 'vapi-msg-ok' : 'vapi-msg-err'; ?>" style="margin-bottom:18px;">
-      <?= $agoraTestResult['ok'] ? '✓' : '✗'; ?> <strong>Agora Token Test:</strong> <?= htmlspecialchars($agoraTestResult['msg']); ?>
-    </div>
-  <?php endif; ?>
-
-  <form method="post" style="margin-bottom:20px;">
-    <input type="hidden" name="_test_agora" value="1">
-    <button type="submit" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">
-      🔑 Test Agora Token
-    </button>
-    <span style="font-size:12px;opacity:.6;margin-left:10px;">Generates a test token using saved App ID + Server Secret to verify credentials are correct.</span>
   </form>
 
   <hr class="vapi-divider">

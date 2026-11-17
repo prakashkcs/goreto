@@ -157,6 +157,10 @@ class _DiscoveryStripState extends State<DiscoveryStrip> {
     final age = (user['age'] ?? 0) as num;
     final rating = (user['rating'] ?? 0) as num;
     final isFollowed = _followed.contains(uid);
+    // The backend only suggests people the viewer does not follow yet, so when
+    // it says they already follow the viewer this is a follow-back, not a
+    // cold follow. Once tapped, "Following" wins over both labels.
+    final followsMe = user['follows_me'] == true || user['follows_me'] == 1;
 
     String subtitle = '';
     if (distKm >= 0) {
@@ -283,7 +287,9 @@ class _DiscoveryStripState extends State<DiscoveryStrip> {
                   ),
                   child: Center(
                     child: Text(
-                      isFollowed ? 'Following' : 'Follow',
+                      isFollowed
+                          ? 'Following'
+                          : (followsMe ? 'Follow back' : 'Follow'),
                       style: TextStyle(
                         color: isFollowed ? Colors.white54 : Colors.white,
                         fontSize: 11,

@@ -41,7 +41,9 @@ try {
         // 2nd-degree: people followed by who I follow, that I don't already follow
         $st = $pdo->query("
             SELECT u.id, u.name, u.username, COALESCE(u.profile_pic,'') AS profile_pic,
-                   COUNT(DISTINCT f2.follower_id) AS mutual_count
+                   COUNT(DISTINCT f2.follower_id) AS mutual_count,
+                   EXISTS(SELECT 1 FROM follows fm
+                           WHERE fm.follower_id = u.id AND fm.following_id = $meInt) AS follows_me
             FROM follows f1
             JOIN follows f2 ON f2.following_id = f1.following_id
             JOIN users u ON u.id = f2.follower_id
@@ -64,7 +66,9 @@ try {
             $fallLim = $limInt - count($rows);
             $fb = $pdo->query("
                 SELECT u.id, u.name, u.username, COALESCE(u.profile_pic,'') AS profile_pic,
-                       0 AS mutual_count
+                       0 AS mutual_count,
+                       EXISTS(SELECT 1 FROM follows fm
+                               WHERE fm.follower_id = u.id AND fm.following_id = $meInt) AS follows_me
                 FROM users u
                 LEFT JOIN match_profiles mp ON mp.user_id = u.id
                 WHERE u.id NOT IN ($excList)
@@ -117,6 +121,9 @@ try {
                 'place'        => $place,
                 'age'          => isset($e['age']) ? (int)$e['age'] : 0,
                 'rating'       => isset($e['rating']) ? round((float)$e['rating'], 1) : 0,
+                // true when this user already follows the viewer, so the client
+                // can offer "Follow back" instead of a plain "Follow".
+                'follows_me'   => !empty($r['follows_me']),
             ];
         }, $rows);
         out(['status' => 'success', 'users' => $users]);
@@ -142,7 +149,9 @@ try {
                        cos(radians(:lat)) * cos(radians(mp.lat)) *
                        cos(radians(mp.lng) - radians(:lng)) +
                        sin(radians(:lat2)) * sin(radians(mp.lat))
-                   )) AS distance_km
+                   )) AS distance_km,
+                   EXISTS(SELECT 1 FROM follows fm
+                           WHERE fm.follower_id = u.id AND fm.following_id = :me_fb) AS follows_me
             FROM match_profiles mp
             JOIN users u ON u.id = mp.user_id
             WHERE mp.user_id != :me
@@ -170,6 +179,7 @@ try {
         $st->bindValue(':me2',  $me,  PDO::PARAM_INT);
         $st->bindValue(':me3',  $me,  PDO::PARAM_INT);
         $st->bindValue(':me4',  $me,  PDO::PARAM_INT);
+        $st->bindValue(':me_fb', $me, PDO::PARAM_INT);
         $st->execute();
         $rows = $st->fetchAll(PDO::FETCH_ASSOC);
 
@@ -179,6 +189,7 @@ try {
             'username'    => $r['username'] ?? '',
             'avatar'      => resolveAvatar($r['profile_pic'] ?? ''),
             'distance_km' => round((float)$r['distance_km'], 1),
+            'follows_me'  => !empty($r['follows_me']),
         ], $rows);
 
         out(['status' => 'success', 'users' => $users]);
@@ -189,7 +200,9 @@ try {
         $st = $pdo->prepare("
             SELECT u.id, u.name, u.username, COALESCE(u.profile_pic,'') AS profile_pic,
                    COALESCE(mp.rating, 0) AS rating,
-                   (SELECT COUNT(*) FROM follows WHERE following_id = u.id) AS followers_count
+                   (SELECT COUNT(*) FROM follows WHERE following_id = u.id) AS followers_count,
+                   EXISTS(SELECT 1 FROM follows fm
+                           WHERE fm.follower_id = u.id AND fm.following_id = :me_fb) AS follows_me
             FROM users u
             LEFT JOIN match_profiles mp ON mp.user_id = u.id
             WHERE u.id != :me
@@ -200,6 +213,7 @@ try {
             LIMIT $limit");
         $st->bindValue(':me',  $me,  PDO::PARAM_INT);
         $st->bindValue(':me2', $me,  PDO::PARAM_INT);
+        $st->bindValue(':me_fb', $me, PDO::PARAM_INT);
                 $st->execute();
         $rows = $st->fetchAll(PDO::FETCH_ASSOC);
 
@@ -209,6 +223,7 @@ try {
             'username'        => $r['username'] ?? '',
             'avatar'          => resolveAvatar($r['profile_pic'] ?? ''),
             'followers_count' => (int)$r['followers_count'],
+            'follows_me'      => !empty($r['follows_me']),
         ], $rows);
 
         out(['status' => 'success', 'users' => $users]);
