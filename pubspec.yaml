@@ -2,7 +2,7 @@
 description: "Eklo - Nepali Social App"
 publish_to: 'none'
 
-version: 1.0.2+3
+version: 1.0.2+7
 
 environment:
   sdk: '>=3.6.0 <4.0.0'
@@ -21,6 +21,7 @@ dependencies:
   shared_preferences: ^2.2.3
   provider: ^6.1.2
   google_sign_in: ^6.2.0
+  sign_in_with_apple: ^6.1.4
   cached_network_image: ^3.3.1
   geolocator: ^10.1.0
   geocoding: ^3.0.0
@@ -60,6 +61,8 @@ dependencies:
   flutter_blue_plus: ^1.32.0
   flutter_background_service: ^5.0.5
   zego_uikit_prebuilt_live_streaming: ^3.15.6
+  # Signaling plugin enables co-host invitations (add audience as guest on live).
+  zego_uikit_signaling_plugin: ^2.8.0
   font_awesome_flutter: ^10.7.0
   video_thumbnail: ^0.5.3
   image_cropper: ^8.0.2

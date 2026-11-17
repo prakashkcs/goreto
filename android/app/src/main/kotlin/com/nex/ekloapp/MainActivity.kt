@@ -9,15 +9,20 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.android.installreferrer.api.InstallReferrerClient
+import com.android.installreferrer.api.InstallReferrerStateListener
+import com.android.installreferrer.api.ReferrerDetails
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
 
     companion object {
-        private const val CALL_CHANNEL   = "com.nex.ekloapp/call"
-        private const val SPLASH_CHANNEL = "com.nex.ekloapp/splash"
+        private const val CALL_CHANNEL     = "com.nex.ekloapp/call"
+        private const val SPLASH_CHANNEL   = "com.nex.ekloapp/splash"
+        private const val REFERRER_CHANNEL = "love_vibe/install_referrer"
         var pendingCallIntent: Intent? = null
     }
 
@@ -41,6 +46,17 @@ class MainActivity : FlutterActivity() {
 
         // FLAG_SECURE toggle for subscriber-only content.
         SecureScreenChannel.register(flutterEngine, this)
+
+        // Play Install Referrer — lets a freshly-installed app read the
+        // referral code embedded in the Play Store install URL
+        // (...&referrer=ref_CODE) so signup can auto-apply it.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, REFERRER_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getInstallReferrer" -> fetchInstallReferrer(result)
+                    else -> result.notImplemented()
+                }
+            }
 
         callChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_CHANNEL)
         callChannel?.setMethodCallHandler { call, result ->
@@ -72,6 +88,46 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    /**
+     * Connect to the Play Install Referrer service and return the raw referrer
+     * string (e.g. "ref_ABCDEF") to Dart. Replies exactly once on the UI thread
+     * and never throws — on any failure it returns an empty referrer so the Dart
+     * side simply finds no code.
+     */
+    private fun fetchInstallReferrer(result: MethodChannel.Result) {
+        val replied = AtomicBoolean(false)
+        fun reply(referrer: String) {
+            if (replied.compareAndSet(false, true)) {
+                runOnUiThread { result.success(mapOf("referrer" to referrer)) }
+            }
+        }
+        try {
+            val client = InstallReferrerClient.newBuilder(this).build()
+            client.startConnection(object : InstallReferrerStateListener {
+                override fun onInstallReferrerSetupFinished(responseCode: Int) {
+                    try {
+                        if (responseCode == InstallReferrerClient.InstallReferrerResponse.OK) {
+                            val details: ReferrerDetails = client.installReferrer
+                            reply(details.installReferrer ?: "")
+                        } else {
+                            reply("")
+                        }
+                    } catch (_: Exception) {
+                        reply("")
+                    } finally {
+                        try { client.endConnection() } catch (_: Exception) {}
+                    }
+                }
+
+                override fun onInstallReferrerServiceDisconnected() {
+                    reply("")
+                }
+            })
+        } catch (_: Exception) {
+            reply("")
         }
     }
 

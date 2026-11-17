@@ -19,8 +19,10 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"
         tools:replace="android:maxSdkVersion" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Not requested at runtime: image_picker uses Android's permission-less
+         system Photo Picker on Android 13+, so this broad grant isn't needed. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove" />
     <!-- Notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Network -->
@@ -30,16 +32,16 @@
     <!-- Foreground service for geolocation -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Not used by any app feature: pulled in transitively by the Zego SDK's
+         bundled screen-share capability, which this app never invokes. Removed
+         so Play Console doesn't require a usage justification/video for it. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" tools:node="remove" />
     <!-- Wake lock -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Full screen intent for incoming calls (Android 14+) -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Disable battery optimization for call reliability -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- Show over other apps (lock screen calls) -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <!-- Activity recognition -->
-    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <!-- Phone state for call management -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <!-- Vibrate -->
