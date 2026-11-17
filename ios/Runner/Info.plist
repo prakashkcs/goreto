@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Love Vibe Pro</string>
+	<string>Goreto</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>love_vibe_pro</string>
+	<string>Goreto</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -24,6 +24,8 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
@@ -83,6 +85,10 @@
 	<string>This lets us deliver more relevant ads and measure their performance. Your data is never sold.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Goreto uses the local network to discover nearby devices for offline proximity features.</string>
+	<!-- Google's public test AdMob App ID. REPLACE with the real iOS App ID
+	     from your AdMob account before release, same as the Android manifest. -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -95,6 +101,24 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<!-- FCM data pushes: incoming calls and messages must wake the app. -->
+		<string>remote-notification</string>
+		<!-- Keeps call and live-stream audio alive when the app is not in front. -->
+		<string>audio</string>
+		<!-- flutter_background_service on iOS runs through BGTaskScheduler. -->
+		<string>fetch</string>
+		<string>processing</string>
+		<!-- Nearby alerts keep updating position in the background. Drop this
+		     together with NSLocationAlwaysAndWhenInUseUsageDescription if that
+		     feature is ever cut; Apple reviews this mode closely. -->
+		<string>location</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>dev.flutter.background.refresh</string>
 	</array>
 </dict>
 </plist>
