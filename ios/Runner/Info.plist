@@ -68,6 +68,19 @@
 				<string>goreto</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>google.signin</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- REVERSED_CLIENT_ID from GoogleService-Info.plist. Google Sign-In
+				     returns to the app through this scheme; without it the browser
+				     completes sign-in and never comes back. -->
+				<string>com.googleusercontent.apps.354056335842-ckeh6kmf5d7pm8orpasqrr6telh8on9s</string>
+			</array>
+		</dict>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Goreto uses your camera for video calls, live streams, profile photos, and hands-free blink scrolling.</string>
