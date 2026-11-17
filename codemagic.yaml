@@ -1,0 +1,182 @@
+# Codemagic CI for Goreto.
+#
+# The iOS workflow exists because iOS cannot be built from the Windows machine
+# this project is developed on. It produces a signed .ipa and, on the release
+# workflow, uploads it to TestFlight.
+#
+# Before the first iOS run, set these up in the Codemagic UI — they are not in
+# this file on purpose, because they are credentials:
+#
+#   1. Teams → Integrations → Developer Portal: connect the App Store Connect
+#      API key (Apple Developer → Users and Access → Integrations → App Store
+#      Connect API → generate a key, upload the .p8 with its Key ID and
+#      Issuer ID). Code signing below fetches the profile through this.
+#
+#   2. Environment variables group `goreto_ios`:
+#        APP_STORE_APPLE_ID   numeric Apple ID of the app in App Store Connect
+#        GOOGLE_SERVICES_IOS  base64 of ios/Runner/GoogleService-Info.plist,
+#                             marked Secure. Firebase will not initialise on
+#                             iOS without this file, so push and Google
+#                             Sign-In stay dead until it is set. Produce it
+#                             with:  base64 -i GoogleService-Info.plist
+#
+#   3. Environment variables group `goreto_android` (only for the android
+#      workflow): CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS,
+#      CM_KEY_PASSWORD — the same upload-keystore.jks already used locally.
+
+definitions:
+  flutter_version: &flutter_version 3.41.6
+
+  base_cache: &base_cache
+    cache_paths:
+      - $HOME/.pub-cache
+      - $FLUTTER_ROOT/.pub-cache
+
+workflows:
+  ios-release:
+    name: iOS — build and ship to TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    environment:
+      flutter: *flutter_version
+      xcode: latest
+      cocoapods: default
+      groups:
+        - goreto_ios
+      vars:
+        BUNDLE_ID: "com.nex.ekloapp"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.nex.ekloapp
+    cache:
+      <<: *base_cache
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: "v*"
+          include: true
+    scripts:
+      - name: Restore GoogleService-Info.plist
+        script: |
+          # Firebase config is not committed; it arrives as a secure variable.
+          if [ -z "$GOOGLE_SERVICES_IOS" ]; then
+            echo "GOOGLE_SERVICES_IOS is not set — Firebase would fail to"
+            echo "initialise at launch, so refusing to build a broken IPA."
+            exit 1
+          fi
+          echo "$GOOGLE_SERVICES_IOS" | base64 --decode > ios/Runner/GoogleService-Info.plist
+          plutil -lint ios/Runner/GoogleService-Info.plist
+
+      - name: Flutter dependencies
+        script: flutter pub get
+
+      - name: Install pods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+
+      - name: Set build number from Codemagic
+        script: |
+          # Keep CFBundleVersion monotonic without editing pubspec each time.
+          BUILD_NUMBER=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0) + 1))
+          echo "Using build number $BUILD_NUMBER"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
+
+      - name: Set up signing
+        script: xcode-project use-profiles
+
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        # Left off deliberately: review submission should be a human decision.
+        submit_to_app_store: false
+
+  ios-check:
+    name: iOS — analyse and build unsigned (every push)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: *flutter_version
+      xcode: latest
+      cocoapods: default
+      groups:
+        - goreto_ios
+    cache: *base_cache
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: "*"
+          include: true
+    scripts:
+      - name: Restore GoogleService-Info.plist
+        script: |
+          if [ -n "$GOOGLE_SERVICES_IOS" ]; then
+            echo "$GOOGLE_SERVICES_IOS" | base64 --decode > ios/Runner/GoogleService-Info.plist
+          else
+            echo "No GOOGLE_SERVICES_IOS set — compiling without Firebase config."
+          fi
+      - name: Flutter dependencies
+        script: flutter pub get
+      - name: Analyse
+        script: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Install pods
+        script: find . -name "Podfile" -execdir pod install \;
+      - name: Build unsigned
+        script: flutter build ios --release --no-codesign
+    artifacts:
+      - /tmp/xcodebuild_logs/*.log
+
+  android-release:
+    name: Android — signed release APK and AAB
+    instance_type: linux_x2
+    max_build_duration: 60
+    environment:
+      flutter: *flutter_version
+      java: 17
+      groups:
+        - goreto_android
+    cache: *base_cache
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: "v*"
+          include: true
+    scripts:
+      - name: Restore the upload keystore
+        script: |
+          if [ -z "$CM_KEYSTORE" ]; then
+            echo "CM_KEYSTORE is not set — an unsigned build cannot be shipped."
+            exit 1
+          fi
+          echo "$CM_KEYSTORE" | base64 --decode > "$CM_BUILD_DIR/android/upload-keystore.jks"
+          cat > "$CM_BUILD_DIR/android/key.properties" <<EOF
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyPassword=$CM_KEY_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          storeFile=../upload-keystore.jks
+          EOF
+      - name: Flutter dependencies
+        script: flutter pub get
+      - name: Build AAB
+        script: flutter build appbundle --release
+      - name: Build APK
+        script: flutter build apk --release
+    artifacts:
+      - build/app/outputs/bundle/release/*.aab
+      - build/app/outputs/flutter-apk/*.apk

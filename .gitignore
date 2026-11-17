@@ -226,3 +226,8 @@ backend/**/.env
 
 # Locally kept release APKs (hundreds of MB, rebuildable)
 apk_keep/
+
+# Firebase iOS config. Kept out of the tree and injected by CI from the secure
+# GOOGLE_SERVICES_IOS variable (see codemagic.yaml), the same way config.php
+# and service_account.json stay server-only.
+ios/Runner/GoogleService-Info.plist
