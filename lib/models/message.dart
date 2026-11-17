@@ -18,6 +18,15 @@ class Message {
   final MessageStatus status;
   final DateTime createdAt;
   final DateTime? readAt;
+  final bool isEdited;
+  final bool isDeleted; // unsent for everyone
+  final bool isPinned;
+  final String? reaction; // emoji
+  final String? reactionBy; // user id who reacted
+  final String? forwardedFrom;
+  // When this message is a reply to a story, holds the story's image URL so the
+  // chat bubble can show a thumbnail + "Replied to your story" header.
+  final String? storyReplyMedia;
 
   Message({
     String? id,
@@ -32,6 +41,13 @@ class Message {
     this.status = MessageStatus.sending,
     DateTime? createdAt,
     this.readAt,
+    this.isEdited = false,
+    this.isDeleted = false,
+    this.isPinned = false,
+    this.reaction,
+    this.reactionBy,
+    this.forwardedFrom,
+    this.storyReplyMedia,
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now();
 
@@ -50,6 +66,14 @@ class Message {
     MessageStatus? status,
     DateTime? createdAt,
     DateTime? readAt,
+    bool? isEdited,
+    bool? isDeleted,
+    bool? isPinned,
+    String? reaction,
+    String? reactionBy,
+    String? forwardedFrom,
+    String? storyReplyMedia,
+    bool clearReaction = false,
   }) {
     return Message(
       id: id ?? this.id,
@@ -64,6 +88,13 @@ class Message {
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       readAt: readAt ?? this.readAt,
+      isEdited: isEdited ?? this.isEdited,
+      isDeleted: isDeleted ?? this.isDeleted,
+      isPinned: isPinned ?? this.isPinned,
+      reaction: clearReaction ? null : (reaction ?? this.reaction),
+      reactionBy: clearReaction ? null : (reactionBy ?? this.reactionBy),
+      forwardedFrom: forwardedFrom ?? this.forwardedFrom,
+      storyReplyMedia: storyReplyMedia ?? this.storyReplyMedia,
     );
   }
 
@@ -108,8 +139,19 @@ class Message {
       readAt: json['read_at'] != null
           ? DateUtil.parseServerTime(json['read_at'])
           : null,
+      isEdited: _truthy(json['is_edited']),
+      isDeleted: _truthy(json['is_deleted']),
+      isPinned: _truthy(json['is_pinned']),
+      reaction: (json['reaction']?.toString().isNotEmpty ?? false)
+          ? json['reaction'].toString()
+          : null,
+      reactionBy: json['reaction_by']?.toString(),
+      forwardedFrom: json['forwarded_from']?.toString(),
     );
   }
+
+  static bool _truthy(dynamic v) =>
+      v == 1 || v == true || v == '1' || v == 'true';
 }
 
 /// 'none' | 'pending_sent' | 'pending_received' | 'accepted'

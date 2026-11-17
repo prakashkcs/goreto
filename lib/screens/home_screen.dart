@@ -876,7 +876,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   double _cardHeight(BuildContext context) =>
-      MediaQuery.sizeOf(context).height * 0.72;
+      // Size the fixed slot to the 5:7 media itself: card width is the screen
+      // width minus the 12px horizontal padding on each side; add the 8px
+      // top+bottom padding. This makes the slot exactly fit the 5:7 image so
+      // photos display at the SAME (taller) ratio they were cropped — no
+      // cover-zoom from a taller slot stretching the AspectRatio.
+      (MediaQuery.sizeOf(context).width - 24) * 7 / 5 + 16;
 
   Map<String, dynamic>? _currentFeedPost() {
     if (_feed.isEmpty) return null;
@@ -1078,10 +1083,10 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
       if (pickedFile != null && mounted) {
-        // Enforce 4:5 crop for photo posts
+        // Enforce 5:7 crop for photo posts (matches the home-feed card ratio)
         final croppedFile = await ImageCropper().cropImage(
           sourcePath: pickedFile.path,
-          aspectRatio: const CropAspectRatio(ratioX: 4, ratioY: 5),
+          aspectRatio: const CropAspectRatio(ratioX: 5, ratioY: 7),
           compressQuality: 90,
           uiSettings: [
             AndroidUiSettings(
@@ -1359,11 +1364,26 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showCreatePostOptions() {
+    // Guests see this screen too now, so posting has to prompt for an account
+    // instead of opening a composer whose upload would fail.
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    if (auth.isGuest || !auth.isAuthenticated) {
+      LoginRequiredSheet.show(context, feature: 'create a post');
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      // Lift the sheet above the system navigation bar so the last option
+      // (Post Reel) isn't covered by the mobile navigation buttons.
       builder: (context) => Container(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          20 + MediaQuery.of(context).padding.bottom,
+        ),
         decoration: const BoxDecoration(
           color: Color(0xFF121212),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -1749,6 +1769,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final filteredFeed =
         _feedController.items.where(_isRenderableFeedPost).toList();
 
+    // Guests share this screen, but everything that acts on *your* account
+    // (composer, quick post actions, stories, search/notifications/settings)
+    // is hidden so guest mode still reads as a browse-only experience.
+    final auth = Provider.of<AuthProvider>(context);
+    final isGuestView = auth.isGuest || !auth.isAuthenticated;
+
     return RefreshIndicator(
       onRefresh: _onRefreshFeed,
       color: const Color(0xFFD946EF),
@@ -1830,6 +1856,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(width: 8),
                       ],
+                      if (!isGuestView) ...[
                       _buildNeonCircleBtn(
                         Icons.search,
                         const Color(0xFFD946EF),
@@ -1857,6 +1884,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ).then((_) => _initBlinkService());
                         },
                       ), // Orange
+                      ],
                     ],
                   ),
                 ],
@@ -1864,11 +1892,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // 1. Create Post Area (Cyberpunk/Neon)
-          SliverToBoxAdapter(child: _buildCreatePostArea()),
+          // 1. Create Post Area (Cyberpunk/Neon) - account holders only
+          if (!isGuestView)
+            SliverToBoxAdapter(child: _buildCreatePostArea()),
 
-          // 2. Stories Area
-          SliverToBoxAdapter(child: _buildStoriesArea(_stories)),
+          // 2. Stories Area - account holders only
+          if (!isGuestView)
+            SliverToBoxAdapter(child: _buildStoriesArea(_stories)),
 
           // 2b. Live Strip (only shown when someone is live)
           SliverToBoxAdapter(child: _buildLiveStrip()),

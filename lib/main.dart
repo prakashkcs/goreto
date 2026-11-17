@@ -10,6 +10,7 @@ import 'package:love_vibe_pro/core/theme.dart';
 import 'package:love_vibe_pro/screens/start_screen.dart';
 import 'package:love_vibe_pro/providers/auth_provider.dart';
 import 'package:love_vibe_pro/services/settings_store.dart';
+import 'package:love_vibe_pro/services/install_referrer_service.dart';
 import 'package:love_vibe_pro/services/user_prefs_cache.dart';
 import 'package:love_vibe_pro/services/onesignal_service.dart';
 import 'package:love_vibe_pro/services/call_channel_service.dart';
@@ -68,6 +69,10 @@ void main() {
       // to Flutter's splash with zero black gap.
       runApp(const LoveVibeProApp());
 
+      // Capture the Play Install Referrer once (if the app was installed via a
+      // referral link). Stores the code now; it's auto-applied on next sign-in.
+      InstallReferrerService().processInstallReferrerOnce();
+
       // Release the native splash only after the first GPU frame is on screen.
       // addPostFrameCallback fires after Dart build but before GPU commit,
       // leaving a 1-2 frame black gap. waitUntilFirstFrameRasterized waits
@@ -104,7 +109,6 @@ void main() {
           try {
             await UserPrefsCache.instance.init();
           } catch (_) {}
-          AdService.instance.init().catchError((_) {});
           AnalyticsService.instance.init();
           _deferBackgroundInit();
         });
@@ -142,6 +146,10 @@ void _initServices() async {
       }
     } catch (_) {}
   }
+
+  // Ad SDK init happens only after ATT has been resolved (or skipped on
+  // non-iOS), so no ad request can fire before tracking consent is known.
+  AdService.instance.init().catchError((_) {});
 
   try {
     final settings = await SettingsStore.getInstance();

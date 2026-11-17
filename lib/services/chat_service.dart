@@ -302,6 +302,61 @@ class ChatService {
           }
         }
 
+        // Apply message meta (reactions, edits, unsends, pins) so changes the
+        // OTHER user makes propagate to this device — get_new_messages otherwise
+        // only returns brand-new rows, not updates to existing ones.
+        final List<dynamic> meta = payload['message_meta'] ?? [];
+        if (meta.isNotEmpty && _messages.containsKey(conversationId)) {
+          final mList = _messages[conversationId]!;
+          bool truthy(dynamic v) => v == 1 || v == '1' || v == true;
+          for (final item in meta) {
+            final id = item['id'].toString();
+            final index = mList.indexWhere((m) => m.id == id);
+            if (index == -1) continue;
+            final cur = mList[index];
+            final reaction =
+                (item['reaction']?.toString().isNotEmpty ?? false)
+                    ? item['reaction'].toString()
+                    : null;
+            final reactionBy = item['reaction_by']?.toString();
+            final isEdited = truthy(item['is_edited']);
+            final isDeleted = truthy(item['is_deleted']);
+            final isPinned = truthy(item['is_pinned']);
+            final newContent = isDeleted
+                ? null
+                : (isEdited ? (item['content']?.toString() ?? cur.content) : cur.content);
+            if (cur.reaction != reaction ||
+                cur.reactionBy != reactionBy ||
+                cur.isEdited != isEdited ||
+                cur.isDeleted != isDeleted ||
+                cur.isPinned != isPinned ||
+                cur.content != newContent) {
+              // Build directly (copyWith can't clear a reaction back to null).
+              mList[index] = Message(
+                id: cur.id,
+                senderId: cur.senderId,
+                receiverId: cur.receiverId,
+                conversationId: cur.conversationId,
+                type: cur.type,
+                content: newContent,
+                mediaUrl: isDeleted ? null : cur.mediaUrl,
+                mediaThumbnail: isDeleted ? null : cur.mediaThumbnail,
+                voiceDuration: cur.voiceDuration,
+                status: cur.status,
+                createdAt: cur.createdAt,
+                readAt: cur.readAt,
+                isEdited: isEdited,
+                isDeleted: isDeleted,
+                isPinned: isPinned,
+                reaction: reaction,
+                reactionBy: reactionBy,
+                forwardedFrom: cur.forwardedFrom,
+                storyReplyMedia: cur.storyReplyMedia,
+              );
+            }
+          }
+        }
+
         final List<dynamic> data = payload['messages'] ?? [];
         if (data.isNotEmpty) {
           final newParsed = data.map((e) => _parseMessage(e)).toList();
@@ -349,16 +404,27 @@ class ChatService {
     required String receiverId,
     required String content,
     MessageType type = MessageType.text,
+    // When starting a brand-new conversation (e.g. a story reply), the caller
+    // can supply the recipient's name/avatar so the chat shows the real person
+    // immediately instead of a "User <id>" placeholder until it syncs.
+    String? recipientName,
+    String? recipientAvatar,
+    // When set, this message is a reply to the sender's story; the URL is the
+    // story image, shown as a thumbnail above the reply text in chat.
+    String? storyReplyMedia,
   }) async {
     final dio = await _ensureInitializedDio();
 
+    final bool isStoryReply =
+        storyReplyMedia != null && storyReplyMedia.trim().isNotEmpty;
     final response = await dio.post(
       'chat.php',
       data: {
         'action': 'send_message',
         'receiver_id': receiverId,
-        'type': type.name,
+        'type': isStoryReply ? 'story_reply' : type.name,
         'content': content,
+        if (isStoryReply) 'story_media': storyReplyMedia,
       },
     );
 
@@ -380,25 +446,32 @@ class ChatService {
     // once/day on the client; the server also dedupes per day.
     _bumpChatStreak(dio);
 
-    final Message message = _parseMessage(
+    Message message = _parseMessage(
       payload['message'] ??
           {
             'sender_id': _currentUserId,
             'receiver_id': receiverId,
-            'type': type.name,
+            'type': isStoryReply ? 'story_reply' : type.name,
             'content': content,
             'status': 'sent',
+            if (isStoryReply) 'media_thumbnail': storyReplyMedia,
             // UTC + 'Z' so parseServerTime (which assumes UTC for naive
             // strings) doesn't double-apply the local offset and push the
             // message into the future / onto the wrong date divider.
             'created_at': DateTime.now().toUtc().toIso8601String(),
           },
     );
+    // Ensure the locally-shown bubble carries the story thumbnail even if the
+    // server response omitted media_thumbnail.
+    if (isStoryReply) {
+      message = message.copyWith(storyReplyMedia: storyReplyMedia);
+    }
 
     final convId = _getConversationId(receiverId);
     if (!_messages.containsKey(convId)) _messages[convId] = [];
     _messages[convId]!.add(message);
-    _updateConversationWithMessage(receiverId, message);
+    _updateConversationWithMessage(receiverId, message,
+        otherUserName: recipientName, otherUserAvatar: recipientAvatar);
 
     return message;
   }
@@ -551,6 +624,89 @@ class ChatService {
     } catch (_) {}
   }
 
+  /// Edit a message's text (sender only).
+  Future<bool> editMessage(String messageId, String newContent) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final r = await dio.post('chat.php', data: {
+        'action': 'edit_message',
+        'message_id': messageId,
+        'content': newContent,
+      });
+      return _ok(r.data);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Unsend a message. scope = 'me' (hide for self) or 'everyone' (delete for all).
+  Future<bool> unsendMessage(String messageId, {required String scope}) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final r = await dio.post('chat.php', data: {
+        'action': 'unsend_message',
+        'message_id': messageId,
+        'scope': scope,
+      });
+      return _ok(r.data);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Forward a message to another user.
+  Future<bool> forwardMessage(String messageId, String toUserId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final r = await dio.post('chat.php', data: {
+        'action': 'forward_message',
+        'message_id': messageId,
+        'to_user_id': toUserId,
+      });
+      return _ok(r.data);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Toggle pin on a message (one pinned message per conversation).
+  Future<bool> pinMessage(String messageId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final r = await dio.post('chat.php', data: {
+        'action': 'pin_message',
+        'message_id': messageId,
+      });
+      return _ok(r.data);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Toggle an emoji reaction on a message.
+  Future<bool> reactMessage(String messageId, String emoji) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final r = await dio.post('chat.php', data: {
+        'action': 'react_message',
+        'message_id': messageId,
+        'emoji': emoji,
+      });
+      return _ok(r.data);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _ok(dynamic data) {
+    try {
+      final m = data is String ? jsonDecode(data) : data;
+      return m is Map && m['status'] == 'success';
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Get unread count for a conversation (local memory)
   Future<int> getUnreadCount(String conversationId) async {
     final messages = _messages[conversationId] ?? [];
@@ -616,8 +772,25 @@ class ChatService {
       readAt: json['read_at'] != null
           ? DateUtil.parseServerTime(json['read_at'].toString())
           : null,
+      // Parse the message-action fields so reactions / pins / edits / forwards
+      // show immediately on load (not 4s later via the meta poll).
+      isEdited: _truthy(json['is_edited']),
+      isDeleted: _truthy(json['is_deleted']),
+      isPinned: _truthy(json['is_pinned']),
+      reaction: (json['reaction']?.toString().isNotEmpty ?? false)
+          ? json['reaction'].toString()
+          : null,
+      reactionBy: json['reaction_by']?.toString(),
+      forwardedFrom: json['forwarded_from']?.toString(),
+      // Story replies carry the story image in media_thumbnail; surface it so
+      // the bubble can render the "Replied to your story" thumbnail header.
+      storyReplyMedia: json['type'] == 'story_reply'
+          ? json['media_thumbnail']?.toString()
+          : null,
     );
   }
+
+  bool _truthy(dynamic v) => v == 1 || v == '1' || v == true;
 
   Conversation _parseConversation(Map<String, dynamic> json) {
     return Conversation(
@@ -678,7 +851,8 @@ class ChatService {
     return false;
   }
 
-  void _updateConversationWithMessage(String otherUserId, Message message) {
+  void _updateConversationWithMessage(String otherUserId, Message message,
+      {String? otherUserName, String? otherUserAvatar}) {
     final convId = _getConversationId(otherUserId);
     final convIndex = _conversations.indexWhere((c) => c.id == convId);
 
@@ -688,13 +862,20 @@ class ChatService {
         updatedAt: message.createdAt,
       );
     } else {
+      final name = (otherUserName != null && otherUserName.trim().isNotEmpty)
+          ? otherUserName.trim()
+          : 'User $otherUserId';
+      final avatar =
+          (otherUserAvatar != null && otherUserAvatar.startsWith('http'))
+              ? otherUserAvatar
+              : 'https://i.pravatar.cc/150?u=$otherUserId';
       _conversations.add(
         Conversation(
           id: convId,
           participantIds: [_currentUserId, otherUserId],
           otherUserId: otherUserId,
-          otherUserName: 'User $otherUserId',
-          otherUserAvatar: 'https://i.pravatar.cc/150?u=$otherUserId',
+          otherUserName: name,
+          otherUserAvatar: avatar,
           lastMessage: message,
           updatedAt: message.createdAt,
         ),

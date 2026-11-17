@@ -221,6 +221,9 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
   Future<void> _acceptCall() async {
     _hapticFeedback();
     SoundService().stopIncomingCallRing();
+    // Remove the sticky incoming-call notification immediately on accept —
+    // otherwise it lingers over the connected call (it's an ongoing notif).
+    FCMService.dismissCallNotification();
     setState(() => _callState = CallState.connecting);
 
     try {

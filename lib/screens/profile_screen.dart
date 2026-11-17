@@ -187,9 +187,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       UserProfile profile;
       if (isOwnProfile) {
-        // For own profile: if targetUserId is empty, getMyProfile will resolve from prefs
+        // For own profile: if targetUserId is empty, getMyProfile will resolve from prefs.
+        // Always force-refresh so live counts (received proposals, rating) come straight
+        // from profile_v19.php instead of a stale SharedPreferences cache that may predate
+        // those fields (otherwise the proposals badge stays stuck at 0).
         profile = await _profileService.getMyProfile(
-          forceRefresh: forceRefresh,
+          forceRefresh: true,
           userId: targetUserId.isNotEmpty ? targetUserId : null,
         );
       } else {
@@ -262,6 +265,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ...liveQualityStats,
         ...?matchProfileStats,
       };
+
+      // profile_v19.php is authoritative for the received-proposals badge.
+      // The quality engine spreads its own scoring 'total_proposals' (often 0)
+      // which would otherwise clobber the real count, so restore it explicitly.
+      final authoritativeProposals =
+          liveProfileStats?['total_proposals'] ?? profile.proposalsCount;
+      combinedStats['total_proposals'] = authoritativeProposals;
 
       profile = _mergeProfileStats(
         profile,
@@ -711,11 +721,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (pickedFile == null || !mounted) return;
 
-    // Crop to the app's photo-post ratio (4:5) so the profile picture matches
-    // how posts are framed.
+    // Crop square (1:1) to match the round avatar so nothing is cut off
+    // top/bottom when it's displayed in the circular frame.
     final croppedFile = await ImageCropper().cropImage(
       sourcePath: pickedFile.path,
-      aspectRatio: const CropAspectRatio(ratioX: 4, ratioY: 5),
+      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
       compressQuality: 85,
       uiSettings: [
         AndroidUiSettings(
@@ -1235,6 +1245,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         _isCrossGender(_viewerGender, profile.gender) &&
                         profile.crossGenderProposal,
                     onSendProposal: () => _handleSendProposal(profile),
+                    isLive: _isTargetUserLive && !_isOwnProfileView,
+                    onLiveTap: _joinLive,
                     isFollowLoading: _isFollowLoading,
                     isSubscribeLoading: _isSubscribeLoading,
                     onFollowersTap: () => Navigator.push(

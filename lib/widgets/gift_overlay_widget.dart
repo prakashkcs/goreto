@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/widgets/coin_icon.dart';
+import 'package:love_vibe_pro/services/api_service.dart';
+import 'package:love_vibe_pro/widgets/login_required_sheet.dart';
 
 /// Model for a gift transaction displayed on the overlay.
 class GiftTx {
@@ -358,5 +360,223 @@ class _GiftOverlayWidgetState extends State<GiftOverlayWidget>
       );
     }
     return Text(emoji, style: const TextStyle(fontSize: 20));
+  }
+}
+
+/// Compact animated chip shown on a post/video that has received gifts: the top
+/// gifter's gift + avatar + name + coins, with a one-tap Follow button.
+/// Animates in (scale + fade) so a new gift feels alive. Tapping the body runs
+/// [onTap] (open the full gifter leaderboard).
+class TopGifterChip extends StatefulWidget {
+  final List<GiftTx> gifts;
+  final ApiService api;
+  final bool isGuest;
+  final String? currentUserId;
+  final VoidCallback onTap;
+
+  const TopGifterChip({
+    super.key,
+    required this.gifts,
+    required this.api,
+    required this.isGuest,
+    required this.onTap,
+    this.currentUserId,
+  });
+
+  @override
+  State<TopGifterChip> createState() => _TopGifterChipState();
+}
+
+class _TopGifterChipState extends State<TopGifterChip> {
+  int _index = 0;
+  Timer? _timer;
+  bool _following = false;
+  bool _busy = false;
+  late List<GiftTx> _sorted;
+
+  @override
+  void initState() {
+    super.initState();
+    _sorted = _sortGifts(widget.gifts);
+    _startCycle();
+  }
+
+  @override
+  void didUpdateWidget(covariant TopGifterChip old) {
+    super.didUpdateWidget(old);
+    if (widget.gifts.length != old.gifts.length) {
+      _sorted = _sortGifts(widget.gifts);
+      if (_index >= _sorted.length) _index = 0;
+      _startCycle();
+    }
+  }
+
+  List<GiftTx> _sortGifts(List<GiftTx> g) =>
+      List<GiftTx>.from(g)..sort((a, b) => b.coinPrice.compareTo(a.coinPrice));
+
+  void _startCycle() {
+    _timer?.cancel();
+    if (_sorted.length <= 1) return;
+    _timer = Timer.periodic(const Duration(milliseconds: 2800), (_) {
+      if (!mounted) return;
+      setState(() {
+        _index = (_index + 1) % _sorted.length;
+        _following = false;
+        _busy = false;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _toggleFollow(String id) async {
+    if (widget.isGuest) {
+      LoginRequiredSheet.show(context, feature: 'follow people');
+      return;
+    }
+    if (id.isEmpty || _busy) return;
+    final next = !_following;
+    setState(() {
+      _following = next;
+      _busy = true;
+    });
+    try {
+      if (next) {
+        await widget.api.followUser(id);
+      } else {
+        await widget.api.unfollowUser(id);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _following = !next);
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_sorted.isEmpty) return const SizedBox.shrink();
+    if (_index >= _sorted.length) _index = 0;
+    final t = _sorted[_index];
+    final name =
+        t.senderName.trim().isEmpty ? 'Someone' : t.senderName.split(' ').first;
+    final avatar = t.senderAvatar;
+    final hasAvatar = avatar.startsWith('http');
+    final isSelf =
+        widget.currentUserId != null && t.senderId == widget.currentUserId;
+
+    return TweenAnimationBuilder<double>(
+      // New key each cycle so the entrance animation replays for every
+      // gift/gifter as the overlay rotates through them one by one.
+      key: ValueKey('${t.senderId}_${t.giftName}_$_index'),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutBack,
+      builder: (_, v, child) {
+        final c = v.clamp(0.0, 1.0);
+        return Opacity(
+          opacity: c,
+          child: Transform.scale(
+            scale: 0.75 + 0.25 * c,
+            alignment: Alignment.bottomLeft,
+            child: child,
+          ),
+        );
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(4, 4, 6, 4),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: const Color(0xFFFFD700).withValues(alpha: 0.45),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 34,
+                height: 34,
+                child: (t.gifUrl.isNotEmpty && t.gifUrl.startsWith('http'))
+                    ? CachedNetworkImage(
+                        imageUrl: t.gifUrl,
+                        fit: BoxFit.contain,
+                        errorWidget: (_, __, ___) =>
+                            Text(t.emoji, style: const TextStyle(fontSize: 22)),
+                      )
+                    : Text(t.emoji, style: const TextStyle(fontSize: 22)),
+              ),
+              const SizedBox(width: 4),
+              CircleAvatar(
+                radius: 12,
+                backgroundColor: const Color(0xFF3B82F6),
+                backgroundImage:
+                    hasAvatar ? CachedNetworkImageProvider(avatar) : null,
+                child: hasAvatar
+                    ? null
+                    : Text(name[0].toUpperCase(),
+                        style: const TextStyle(color: Colors.white, fontSize: 9)),
+              ),
+              const SizedBox(width: 6),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CoinIcon(size: 10, color: Color(0xFFFFD700)),
+                      const SizedBox(width: 2),
+                      Text('${t.coinPrice}',
+                          style: const TextStyle(
+                              color: Color(0xFFFFD700),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ],
+              ),
+              if (!isSelf) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => _toggleFollow(t.senderId),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      gradient: _following
+                          ? null
+                          : const LinearGradient(
+                              colors: [Color(0xFFFF295C), Color(0xFFBF5AF2)]),
+                      color:
+                          _following ? Colors.white.withValues(alpha: 0.18) : null,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(_following ? 'Following' : 'Follow',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:love_vibe_pro/providers/auth_provider.dart';
+import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/widgets/login_required_sheet.dart';
 import 'package:love_vibe_pro/widgets/neon_ui.dart';
+import 'package:love_vibe_pro/widgets/photo_feed_item.dart';
+import 'package:love_vibe_pro/widgets/video_feed_item.dart';
 
 /// Guest Main Screen - Allows browsing home feed but requires login for other tabs
 /// Home: Works (read-only browsing)
@@ -105,7 +108,14 @@ class _GuestMainScreenState extends State<GuestMainScreen> {
   Widget _buildBottomNav() {
     return Container(
       height: 80,
-      margin: const EdgeInsets.all(16),
+      // Add the system navigation-bar inset so the nav isn't hidden behind the
+      // phone's on-screen Back/Home/Recents buttons.
+      margin: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        16 + MediaQuery.of(context).padding.bottom,
+      ),
       decoration: BoxDecoration(
         color: LiquidLoveTokens.glassCard,
         borderRadius: BorderRadius.circular(28),
@@ -280,42 +290,21 @@ class _HomeFeedGuestViewState extends State<HomeFeedGuestView> {
     // Load feed without requiring authentication
     try {
       final posts = await _fetchPostsAsGuest();
+      if (!mounted) return;
       setState(() {
         _posts = posts;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
     }
   }
 
   Future<List<dynamic>> _fetchPostsAsGuest() async {
-    // Mock posts for demo
-    final response = await Future.delayed(
-      const Duration(milliseconds: 500),
-      () {
-        return List.generate(
-          10,
-          (i) => {
-            'id': i + 1,
-            'caption': 'Post ${i + 1} - Guest view mode 🌟',
-            'type': i % 3 == 0 ? 'video' : 'image',
-            'file_url': 'https://picsum.photos/400/400?random=$i',
-            'likes_count': (i + 1) * 15,
-            'comments_count': (i + 1) * 3,
-            'views_unique': (i + 1) * 120,
-            'created_at':
-                DateTime.now().subtract(Duration(hours: i)).toIso8601String(),
-            'user': {
-              'id': i + 100,
-              'name': 'User ${i + 1}',
-              'profile_pic': 'https://i.pravatar.cc/150?img=${i + 10}',
-            },
-          },
-        );
-      },
-    );
-    return response;
+    // Real public feed — guests browse actual app content (read-only).
+    // posts.php?type=feed serves public posts without an auth token.
+    return await ApiService().getFeed(force: true);
   }
 
   void _handleRestrictedAction(String action) {
@@ -406,7 +395,21 @@ class _HomeFeedGuestViewState extends State<HomeFeedGuestView> {
                   if (index == _posts.length) {
                     return _buildSignUpPrompt();
                   }
-                  return _buildGuestPostCard(_posts[index]);
+                  // Render the SAME feed cards as the logged-in home, but in
+                  // read-only guest mode (every action prompts account creation).
+                  final post = Map<String, dynamic>.from(_posts[index] as Map);
+                  final type = (post['type'] ??
+                          post['media_type'] ??
+                          post['post_type'] ??
+                          '')
+                      .toString()
+                      .toLowerCase();
+                  final isVideo = type == 'video' ||
+                      type == 'reel' ||
+                      (post['video_url']?.toString().isNotEmpty ?? false);
+                  return isVideo
+                      ? VideoFeedItem(post: post, isGuest: true)
+                      : PhotoFeedItem(post: post, isGuest: true);
                 },
               ),
             ),

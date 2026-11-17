@@ -454,7 +454,30 @@ class _StoryViewScreenState extends State<StoryViewScreen>
     setState(() => _isSendingReply = true);
     _replyFocus.unfocus();
     try {
-      await ChatService.instance.sendMessage(receiverId: ownerId, content: text);
+      // Pass the story owner's name/avatar so the new conversation shows the
+      // real person immediately (not a "User <id>" placeholder).
+      final ownerName = (_currentStory['user_name'] ??
+              _currentStory['userName'] ??
+              _currentStory['name'] ??
+              '')
+          .toString();
+      final ownerAvatar = (_currentStory['user_avatar'] ??
+              _currentStory['userAvatar'] ??
+              _currentStory['profile_pic'] ??
+              '')
+          .toString();
+      final storyMedia = (_currentStory['media_url'] ??
+              _currentStory['mediaUrl'] ??
+              _currentStory['url'] ??
+              '')
+          .toString();
+      await ChatService.instance.sendMessage(
+        receiverId: ownerId,
+        content: text,
+        recipientName: ownerName,
+        recipientAvatar: ownerAvatar,
+        storyReplyMedia: storyMedia,
+      );
       _replyController.clear();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

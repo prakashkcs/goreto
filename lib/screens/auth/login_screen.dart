@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -159,6 +160,11 @@ class _LoginScreenState extends State<LoginScreen>
 
       if (!mounted) return;
 
+      // User dismissed the Google picker — stay on the login screen.
+      if (outcome == LoginOutcome.cancelled) {
+        return;
+      }
+
       if (outcome == LoginOutcome.twoFactorRequired) {
         final email = auth.pending2faEmail ?? '';
         final verified = await Navigator.of(context).push<bool>(
@@ -166,6 +172,49 @@ class _LoginScreenState extends State<LoginScreen>
             builder: (_) => TwoFactorLoginScreen(
               email: email,
               onResend: () => auth.loginWithGoogle(),
+            ),
+          ),
+        );
+        if (verified == true && mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const StartScreen()),
+            (route) => false,
+          );
+        }
+        return;
+      }
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const StartScreen()),
+        (route) => false,
+      );
+    } catch (e) {
+      if (mounted) NeonToast.error(context, e.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleAppleLogin() async {
+    setState(() => _isLoading = true);
+    try {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final outcome = await auth.loginWithApple();
+
+      if (!mounted) return;
+
+      // User dismissed the Apple sheet — stay on the login screen.
+      if (outcome == LoginOutcome.cancelled) {
+        return;
+      }
+
+      if (outcome == LoginOutcome.twoFactorRequired) {
+        final email = auth.pending2faEmail ?? '';
+        final verified = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => TwoFactorLoginScreen(
+              email: email,
+              onResend: () => auth.loginWithApple(),
             ),
           ),
         );
@@ -426,6 +475,10 @@ class _LoginScreenState extends State<LoginScreen>
 
                   // ── Google ────────────────────────────────────
                   _GoogleButton(onTap: _handleGoogleLogin),
+                  if (Platform.isIOS) ...[
+                    const SizedBox(height: 12),
+                    _AppleButton(onTap: _handleAppleLogin),
+                  ],
                 ],
               ),
             ),
@@ -664,6 +717,11 @@ class _SignupScreenState extends State<SignupScreen>
 
       if (!mounted) return;
 
+      // User dismissed the Google picker — stay on the login screen.
+      if (outcome == LoginOutcome.cancelled) {
+        return;
+      }
+
       if (outcome == LoginOutcome.twoFactorRequired) {
         final email = auth.pending2faEmail ?? '';
         final verified = await Navigator.of(context).push<bool>(
@@ -671,6 +729,49 @@ class _SignupScreenState extends State<SignupScreen>
             builder: (_) => TwoFactorLoginScreen(
               email: email,
               onResend: () => auth.loginWithGoogle(),
+            ),
+          ),
+        );
+        if (verified == true && mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const StartScreen()),
+            (route) => false,
+          );
+        }
+        return;
+      }
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const StartScreen()),
+        (route) => false,
+      );
+    } catch (e) {
+      if (mounted) NeonToast.error(context, e.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleAppleLogin() async {
+    setState(() => _isLoading = true);
+    try {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final outcome = await auth.loginWithApple();
+
+      if (!mounted) return;
+
+      // User dismissed the Apple sheet — stay on the login screen.
+      if (outcome == LoginOutcome.cancelled) {
+        return;
+      }
+
+      if (outcome == LoginOutcome.twoFactorRequired) {
+        final email = auth.pending2faEmail ?? '';
+        final verified = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => TwoFactorLoginScreen(
+              email: email,
+              onResend: () => auth.loginWithApple(),
             ),
           ),
         );
@@ -923,6 +1024,10 @@ class _SignupScreenState extends State<SignupScreen>
                   _OrDivider(),
                   const SizedBox(height: 22),
                   _GoogleButton(onTap: _handleGoogleLogin),
+                  if (Platform.isIOS) ...[
+                    const SizedBox(height: 12),
+                    _AppleButton(onTap: _handleAppleLogin),
+                  ],
                 ],
               ),
             ),
@@ -1260,6 +1365,73 @@ class _GoogleButtonState extends State<_GoogleButton>
               const SizedBox(width: 10),
               Text(
                 'Continue with Google',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AppleButton extends StatefulWidget {
+  final VoidCallback onTap;
+  const _AppleButton({required this.onTap});
+
+  @override
+  State<_AppleButton> createState() => _AppleButtonState();
+}
+
+class _AppleButtonState extends State<_AppleButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 100));
+    _scale = Tween(begin: 1.0, end: 0.96)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _ctrl.forward(),
+      onTapUp: (_) { _ctrl.reverse(); widget.onTap(); },
+      onTapCancel: () => _ctrl.reverse(),
+      child: ScaleTransition(
+        scale: _scale,
+        child: Container(
+          width: double.infinity,
+          height: 52,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.15),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.apple, color: Colors.white, size: 22),
+              const SizedBox(width: 10),
+              Text(
+                'Continue with Apple',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.85),
                   fontSize: 15,

@@ -324,28 +324,29 @@ void _handleNotificationData(
   }
 }
 
-/// Foreground nearby alert — shown as a non-intrusive in-app banner instead of
-/// the full-screen [NearbyAlertScreen]. The full-screen takeover is reserved
-/// for background / killed state (native NearbyAlertActivity). Tapping the
-/// banner opens the full nearby alert. Spam-guarded to once per sender / 5 min.
+/// Foreground nearby alert — shows the full-page [NearbyAlertScreen]
+/// (call-style) so it matches the background/killed native alert. The
+/// background/killed full-screen takeover is handled by the native
+/// NearbyAlertActivity. Spam-guarded to once per sender / 5 min.
 void _showNearbyInAppBanner(String senderId, String senderName,
     String senderAvatar, String senderDistance, Map<String, dynamic> data) {
   final now = DateTime.now();
   final last = _lastNearbyAlerts[senderId];
   if (last != null && now.difference(last).inMinutes < 5) return;
 
-  final ctx = navigatorKey.currentState?.context;
-  if (ctx == null || !ctx.mounted) return;
+  final nav = navigatorKey.currentState;
+  if (nav == null) return;
   _lastNearbyAlerts[senderId] = now;
 
-  final distTxt = senderDistance.isNotEmpty ? ' • $senderDistance away' : '';
-  NeonToast.info(
-    ctx,
-    'is nearby right now$distTxt',
-    title: senderName,
-    imageUrl: senderAvatar,
-    onTap: () => _navigateToScreenWithRetry('nearby', null,
-        senderId: senderId, customData: data),
+  nav.push(
+    MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => NearbyAlertScreen(
+        senderId: senderId,
+        senderName: senderName,
+        senderAvatar: senderAvatar,
+      ),
+    ),
   );
 }
 

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
@@ -69,6 +70,14 @@ String _friendlyError(Object e) {
     return 'No internet connection.';
   }
   if (e is SocketException) return 'No internet connection.';
+  // Plain Exception('...') — surface the server message (e.g. "Start a chat
+  // session to message this user.") so callers can detect specific cases
+  // instead of collapsing everything to a generic error.
+  final s = e.toString();
+  if (s.startsWith('Exception: ')) {
+    final m = s.substring(11).trim();
+    if (m.isNotEmpty) return m;
+  }
   return 'Something went wrong. Please try again.';
 }
 
@@ -172,11 +181,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void _startLiveSync() {
     _liveSyncTimer?.cancel();
-    // When socket is connected, use a slow fallback (10s) — socket handles real-time.
-    // When socket is disconnected, use adaptive polling (500ms → 1500ms).
+    // Socket handles new messages in real time; this poll also syncs reactions /
+    // pins / edits (message_meta), which the socket doesn't broadcast — so keep
+    // it reasonably brisk (4s) even when connected so those reach the other user
+    // quickly. Disconnected → adaptive polling (500ms → 1500ms).
     final Duration interval;
     if (_socket.isConnected) {
-      interval = const Duration(seconds: 10);
+      interval = const Duration(seconds: 4);
     } else {
       interval = _emptyPollStreak > 10
           ? const Duration(milliseconds: 1500)
@@ -208,22 +219,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final newMsgs = await _chatService.getNewMessages(convId, lastId, withUserId: widget.userId);
 
       if (mounted) {
+        // Merge: preserve locally-added messages (socket-sent) not yet
+        // reflected in the HTTP cache, so they don't vanish mid-sync.
         final cached = _chatService.getCachedMessages(convId);
-        setState(() {
-          // Merge: preserve locally-added messages (socket-sent) not yet
-          // reflected in the HTTP cache, so they don't vanish mid-sync.
-          final cachedReversed = List<Message>.from(cached.reversed);
-          final cachedIds = cachedReversed.map((m) => m.id).toSet();
-          final pendingLocal =
-              _messages.where((m) => !cachedIds.contains(m.id)).toList();
-          _messages = [...pendingLocal, ...cachedReversed];
-        });
+        final cachedReversed = List<Message>.from(cached.reversed);
+        final cachedIds = cachedReversed.map((m) => m.id).toSet();
+        final pendingLocal =
+            _messages.where((m) => !cachedIds.contains(m.id)).toList();
+        final merged = [...pendingLocal, ...cachedReversed];
+
+        // Only rebuild when the visible list actually changed. Avoids a
+        // setState + re-sort on every poll tick (key for low-end smoothness).
+        if (_messagesChanged(merged)) {
+          setState(() => _messages = merged);
+        }
 
         if (newMsgs.isNotEmpty) {
           _emptyPollStreak = 0;
-          if (newMsgs.any((m) => m.senderId != _chatService.currentUserId)) {
-            SoundService().playMessageNotification();
-          }
+          // Incoming-message sound is handled app-wide by SocketService, so we
+          // don't double-play it here.
           _chatService.markAsRead(convId);
         } else {
           _emptyPollStreak++;
@@ -327,8 +341,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _emptyPollStreak = 0;
         }
       });
-      SoundService().playMessageNotification();
+      // Sound is played once, app-wide, by SocketService — not here (avoids
+      // double tone when the chat screen is open).
       _socket.markRead(widget.userId);
+    }));
+
+    // Real-time message actions (reaction / pin / unsend / edit) from the peer.
+    _socketSubs.add(_socket.onMessageAction.listen((data) {
+      if (!mounted) return;
+      _handleIncomingMessageAction(data);
     }));
 
     // Read receipts (other user read our messages)
@@ -405,6 +426,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _loadMessages() async {
     try {
       final convId = _getConversationId();
+      // Show cached messages instantly (they already carry reactions/pins) so
+      // the chat doesn't wait on the network round-trip to render them.
+      final cached = _chatService.getCachedMessages(convId);
+      if (cached.isNotEmpty && mounted) {
+        setState(() {
+          _messages = cached.reversed.toList();
+          _isLoading = false;
+        });
+      }
       final messages = await _chatService.getMessages(convId, withUserId: widget.userId);
       if (mounted) {
         setState(() {
@@ -432,6 +462,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         NeonToast.error(context, _friendlyError(e));
       }
     }
+  }
+
+  /// Cheap field-level diff so the poll only triggers a rebuild when something
+  /// the UI actually shows has changed (count, status, content, reaction…).
+  bool _messagesChanged(List<Message> next) {
+    if (next.length != _messages.length) return true;
+    for (int i = 0; i < next.length; i++) {
+      final a = next[i];
+      final b = _messages[i];
+      if (a.id != b.id ||
+          a.status != b.status ||
+          a.content != b.content ||
+          a.reaction != b.reaction ||
+          a.isEdited != b.isEdited ||
+          a.isDeleted != b.isDeleted ||
+          a.isPinned != b.isPinned) {
+        return true;
+      }
+    }
+    return false;
   }
 
   String _getConversationId() {
@@ -1035,10 +1085,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       resizeToAvoidBottomInset: true,
       backgroundColor: const Color(0xFF0A0A0A),
       appBar: _buildAppBar(),
-      body: Padding(
-        padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
-        child: Column(
+      body: Column(
           children: [
+            _buildPinnedBanner(),
             Expanded(
               child: _isLoading
                   ? const Center(
@@ -1081,7 +1130,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               _buildInputArea(),
           ],
         ),
-      ),
     );
   }
 
@@ -1330,8 +1378,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       width: 36,
                       height: 36,
                       fit: BoxFit.cover,
+                      // Only constrain width so the decode keeps the source
+                      // aspect ratio — setting both distorts non-square photos.
                       memCacheWidth: 144,
-                      memCacheHeight: 144,
                       placeholder: (_, __) => Container(
                         color: const Color(0xFF2A2A2A),
                         child: const Icon(
@@ -1490,11 +1539,120 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  String _msgPreview(Message m) {
+    final t = (m.content ?? '').trim();
+    if (t.isNotEmpty) return t;
+    switch (m.type) {
+      case MessageType.image:
+        return '📷 Photo';
+      case MessageType.video:
+        return '🎬 Video';
+      case MessageType.voice:
+        return '🎤 Voice message';
+      default:
+        return 'Message';
+    }
+  }
+
+  /// Sticky banner showing the conversation's pinned message — stays until
+  /// unpinned. Tap the ✕ or long-press for the Unpin option.
+  Widget _buildPinnedBanner() {
+    Message? pinned;
+    for (final m in _messages) {
+      if (m.isPinned && !m.isDeleted) {
+        pinned = m;
+        break;
+      }
+    }
+    if (pinned == null) return const SizedBox.shrink();
+    final p = pinned;
+    return GestureDetector(
+      onLongPress: () => _showPinnedOptions(p),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF15151F),
+          border: Border(
+            left: const BorderSide(color: GalacticTheme.laserPink, width: 3),
+            bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.push_pin,
+                color: GalacticTheme.laserPink, size: 16),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Pinned message',
+                      style: TextStyle(
+                          color: GalacticTheme.laserPink,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 1),
+                  Text(_msgPreview(p),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontSize: 12)),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: () => _togglePin(p),
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(Icons.close,
+                    color: Colors.white.withValues(alpha: 0.5), size: 16),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPinnedOptions(Message m) {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF15151F),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 10),
+              _msgActionTile(ctx, Icons.push_pin_outlined, 'Unpin message',
+                  () => _togglePin(m)),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessageList() {
     // Render strictly newest-first (reverse:true puts index 0 at the bottom).
-    // The list is built from server order + 9 insert points (sends, calls,
-    // voice, polls) so it can drift out of order — sorting a local copy by
-    // createdAt here guarantees correct chronology AND correct date dividers.
     final ordered = List<Message>.of(_messages)
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return ListView.builder(
@@ -1502,17 +1660,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       reverse: true,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       itemCount: ordered.length,
+      // RepaintBoundary per row keeps message repaints isolated — smoother
+      // scrolling and less GPU work on low-end devices.
+      addRepaintBoundaries: true,
+      cacheExtent: 600,
       itemBuilder: (context, index) {
         final message = ordered[index];
         final isMe = message.senderId == _chatService.currentUserId;
         final showDate = index == ordered.length - 1 ||
             !_isSameDay(ordered[index + 1].createdAt, message.createdAt);
 
-        return Column(
-          children: [
-            if (showDate) _buildDateDivider(message.createdAt),
-            _buildMessageBubble(message, isMe),
-          ],
+        return RepaintBoundary(
+          child: Column(
+            children: [
+              if (showDate) _buildDateDivider(message.createdAt),
+              _buildMessageBubble(message, isMe),
+            ],
+          ),
         );
       },
     );
@@ -1586,66 +1750,604 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.78,
         ),
-        child: Container(
-          padding: _getBubblePadding(message),
-          decoration: BoxDecoration(
-            gradient: isMe
-                ? const LinearGradient(
-                    colors: [
-                      Color(0xFFB93FD1),
-                      Color(0xFF5B44E0),
-                      Color(0xFF0EA5D9),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  )
-                : const LinearGradient(
-                    colors: [Color(0xFF1E1E2E), Color(0xFF1A1A28)],
+        child: Column(
+          crossAxisAlignment:
+              isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onLongPress: () => _showMessageActions(message, isMe),
+              child: Container(
+                padding: message.isDeleted
+                    ? const EdgeInsets.symmetric(horizontal: 14, vertical: 10)
+                    : _getBubblePadding(message),
+                decoration: BoxDecoration(
+                  gradient: message.isDeleted
+                      ? const LinearGradient(
+                          colors: [Color(0xFF26262F), Color(0xFF202028)])
+                      : (isMe
+                          ? const LinearGradient(
+                              colors: [
+                                Color(0xFFB93FD1),
+                                Color(0xFF5B44E0),
+                                Color(0xFF0EA5D9),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : const LinearGradient(
+                              colors: [Color(0xFF1E1E2E), Color(0xFF1A1A28)],
+                            )),
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(18),
+                    topRight: const Radius.circular(18),
+                    bottomLeft: Radius.circular(isMe ? 18 : 4),
+                    bottomRight: Radius.circular(isMe ? 4 : 18),
                   ),
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(18),
-              topRight: const Radius.circular(18),
-              bottomLeft: Radius.circular(isMe ? 18 : 4),
-              bottomRight: Radius.circular(isMe ? 4 : 18),
-            ),
-            border: isMe
-                ? null
-                : Border.all(color: Colors.white.withValues(alpha: 0.08)),
-            boxShadow: [
-              BoxShadow(
-                color: isMe
-                    ? const Color(0xFFD946EF).withValues(alpha: 0.12)
-                    : Colors.black.withValues(alpha: 0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
+                  border: isMe
+                      ? null
+                      : Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isMe
+                          ? const Color(0xFFD946EF).withValues(alpha: 0.12)
+                          : Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: isMe
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.start,
+                  children: [
+                    if (message.isPinned && !message.isDeleted)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.push_pin,
+                                size: 11,
+                                color: Colors.white.withValues(alpha: 0.6)),
+                            const SizedBox(width: 3),
+                            Text('Pinned',
+                                style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.6),
+                                    fontSize: 9)),
+                          ],
+                        ),
+                      ),
+                    if (message.forwardedFrom != null &&
+                        message.forwardedFrom!.isNotEmpty &&
+                        !message.isDeleted)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.shortcut,
+                                size: 11,
+                                color: Colors.white.withValues(alpha: 0.55)),
+                            const SizedBox(width: 3),
+                            Text('Forwarded',
+                                style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.55),
+                                    fontSize: 9,
+                                    fontStyle: FontStyle.italic)),
+                          ],
+                        ),
+                      ),
+                    message.isDeleted
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.block,
+                                  size: 13,
+                                  color: Colors.white.withValues(alpha: 0.45)),
+                              const SizedBox(width: 5),
+                              Text(
+                                isMe
+                                    ? 'You unsent a message'
+                                    : 'This message was deleted',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.5),
+                                  fontSize: 13,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          )
+                        : _buildMessageContent(message, isMe),
+                    const SizedBox(height: 3),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (message.isEdited && !message.isDeleted) ...[
+                          Text('edited',
+                              style: TextStyle(
+                                color: isMe
+                                    ? Colors.white.withValues(alpha: 0.55)
+                                    : Colors.white.withValues(alpha: 0.35),
+                                fontSize: 9,
+                                fontStyle: FontStyle.italic,
+                              )),
+                          const SizedBox(width: 5),
+                        ],
+                        Text(
+                          timeText,
+                          style: TextStyle(
+                            color: isMe
+                                ? Colors.white.withValues(alpha: 0.65)
+                                : Colors.white.withValues(alpha: 0.4),
+                            fontSize: 10,
+                          ),
+                        ),
+                        if (isMe && !message.isDeleted) ...[
+                          const SizedBox(width: 4),
+                          _buildTick(message),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
+            ),
+            if (message.reaction != null && message.reaction!.isNotEmpty)
+              Transform.translate(
+                offset: const Offset(0, -6),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1A28),
+                    borderRadius: BorderRadius.circular(12),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                  ),
+                  child:
+                      Text(message.reaction!, style: const TextStyle(fontSize: 13)),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Message hold-actions ──────────────────────────────────────────────────
+  void _showMessageActions(Message message, bool isMe) {
+    if (message.isDeleted) return;
+    HapticFeedback.mediumImpact();
+    final myId = _chatService.currentUserId;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF15151F),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 14),
+              // React row — for the other person's messages.
+              if (!isMe)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: ['❤️', '😂', '👍', '😮', '😢', '🙏'].map((e) {
+                      final selected =
+                          message.reaction == e && message.reactionBy == myId;
+                      return GestureDetector(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _applyLocalReaction(message, e); // instant locally
+                          _chatService.reactMessage(message.id, e); // persist
+                          final updated = _messages.firstWhere(
+                              (m) => m.id == message.id,
+                              orElse: () => message);
+                          _socket.sendMessageAction({
+                            'receiver_id': widget.userId,
+                            'action': 'reaction',
+                            'message_id': message.id,
+                            'emoji': updated.reaction ?? '',
+                          }); // realtime to peer
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: selected
+                              ? const BoxDecoration(
+                                  color: Colors.white24, shape: BoxShape.circle)
+                              : null,
+                          child: Text(e, style: const TextStyle(fontSize: 26)),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              if (isMe) ...[
+                if (message.type == MessageType.text)
+                  _msgActionTile(ctx, Icons.edit_outlined, 'Edit',
+                      () => _editMessage(message)),
+                _msgActionTile(ctx, Icons.forward_rounded, 'Forward',
+                    () => _forwardMessage(message)),
+                _msgActionTile(
+                    ctx,
+                    message.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                    message.isPinned ? 'Unpin' : 'Pin',
+                    () => _togglePin(message)),
+                _msgActionTile(ctx, Icons.delete_outline_rounded, 'Unsend',
+                    () => _unsendMessage(message),
+                    danger: true),
+              ],
+              if (!isMe) ...[
+                _msgActionTile(
+                    ctx,
+                    message.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                    message.isPinned ? 'Unpin' : 'Pin',
+                    () => _togglePin(message)),
+                _msgActionTile(ctx, Icons.forward_rounded, 'Forward',
+                    () => _forwardMessage(message)),
+              ],
+              const SizedBox(height: 8),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _msgActionTile(BuildContext ctx, IconData icon, String label,
+      VoidCallback onTap,
+      {bool danger = false}) {
+    final color = danger ? const Color(0xFFFF4D6D) : Colors.white;
+    return ListTile(
+      dense: true,
+      leading: Icon(icon, color: color, size: 22),
+      title: Text(label,
+          style: TextStyle(
+              color: color, fontSize: 15, fontWeight: FontWeight.w500)),
+      onTap: () {
+        Navigator.pop(ctx);
+        onTap();
+      },
+    );
+  }
+
+  Future<void> _editMessage(Message message) async {
+    final controller = TextEditingController(text: message.content ?? '');
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A28),
+        title: const Text('Edit message',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: null,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+              hintText: 'Edit your message',
+              hintStyle: TextStyle(color: Colors.white38)),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dctx),
+              child: const Text('Cancel',
+                  style: TextStyle(color: Colors.white54))),
+          TextButton(
+              onPressed: () => Navigator.pop(dctx, controller.text.trim()),
+              child: const Text('Save',
+                  style: TextStyle(color: Color(0xFFD946EF)))),
+        ],
+      ),
+    );
+    if (newText == null || newText.isEmpty || newText == message.content) return;
+    // Optimistic local edit + realtime relay.
+    final idx = _messages.indexWhere((m) => m.id == message.id);
+    if (idx != -1) {
+      setState(() => _messages[idx] =
+          _messages[idx].copyWith(content: newText, isEdited: true));
+    }
+    _socket.sendMessageAction({
+      'receiver_id': widget.userId,
+      'action': 'edit',
+      'message_id': message.id,
+      'content': newText,
+    });
+    final ok = await _chatService.editMessage(message.id, newText);
+    if (!ok && mounted) {
+      NeonToast.error(context, 'Could not edit message');
+      _loadMessages();
+    }
+  }
+
+  Future<void> _unsendMessage(Message message) async {
+    final isMine = message.senderId == _chatService.currentUserId;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+            color: Color(0xFF15151F),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+        child: SafeArea(
           child: Column(
-            crossAxisAlignment:
-                isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _buildMessageContent(message, isMe),
-              const SizedBox(height: 3),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+              const SizedBox(height: 14),
+              const Text('Unsend message',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15)),
+              const SizedBox(height: 6),
+              _msgActionTile(ctx, Icons.person_outline, 'Delete for me', () {
+                // Instant: remove locally, then sync.
+                final idx = _messages.indexWhere((m) => m.id == message.id);
+                if (idx != -1) setState(() => _messages.removeAt(idx));
+                _chatService.unsendMessage(message.id, scope: 'me');
+              }),
+              if (isMine)
+                _msgActionTile(
+                    ctx, Icons.groups_outlined, 'Unsend for everyone', () {
+                  final idx =
+                      _messages.indexWhere((m) => m.id == message.id);
+                  if (idx != -1) {
+                    setState(() => _messages[idx] = _messages[idx]
+                        .copyWith(isDeleted: true, content: ''));
+                  }
+                  _chatService.unsendMessage(message.id, scope: 'everyone');
+                  _socket.sendMessageAction({
+                    'receiver_id': widget.userId,
+                    'action': 'unsend',
+                    'message_id': message.id,
+                  }); // realtime to peer
+                }, danger: true),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Apply a real-time action the peer performed (reaction / pin / unsend /
+  /// edit) so it shows instantly — no waiting for the HTTP poll.
+  void _handleIncomingMessageAction(Map<String, dynamic> data) {
+    final fromId = data['from_id']?.toString();
+    if (fromId != widget.userId) return; // only this chat's peer
+    final action = data['action']?.toString();
+    bool truthy(dynamic v) => v == true || v == 1 || v == '1';
+
+    // Real-time paid-chat-only toggle from the peer: when they allow free chat
+    // again, drop the restriction immediately (no need to reopen the chat).
+    if (action == 'paid_chat') {
+      if (!mounted) return;
+      final enabled = truthy(data['enabled']);
+      if (enabled) {
+        setState(() {
+          _isRestricted = true;
+          _isCheckedRestriction = true;
+        });
+      } else {
+        setState(() {
+          _isRestricted = false;
+          _isCheckedRestriction = true;
+        });
+        // Recompute in case the peer still has packages / other gates.
+        _loadTargetPpmSettings().then((_) {
+          if (mounted) _checkInitialRestriction();
+        });
+      }
+      return;
+    }
+
+    final messageId = data['message_id']?.toString();
+    if (messageId == null) return;
+    final idx = _messages.indexWhere((m) => m.id == messageId);
+    if (idx == -1) {
+      // We don't have this message yet — let the next sync pull it in.
+      _syncNewMessages();
+      return;
+    }
+    setState(() {
+      final cur = _messages[idx];
+      switch (action) {
+        case 'reaction':
+          final emoji = (data['emoji']?.toString().isNotEmpty ?? false)
+              ? data['emoji'].toString()
+              : null;
+          _messages[idx] = emoji == null
+              ? cur.copyWith(clearReaction: true)
+              : cur.copyWith(reaction: emoji, reactionBy: fromId);
+          break;
+        case 'pin':
+          final pinned = truthy(data['is_pinned']);
+          if (pinned) {
+            for (int i = 0; i < _messages.length; i++) {
+              if (_messages[i].isPinned) {
+                _messages[i] = _messages[i].copyWith(isPinned: false);
+              }
+            }
+          }
+          _messages[idx] = _messages[idx].copyWith(isPinned: pinned);
+          break;
+        case 'unsend':
+          _messages[idx] = cur.copyWith(isDeleted: true, content: '');
+          break;
+        case 'edit':
+          _messages[idx] = cur.copyWith(
+              content: data['content']?.toString() ?? cur.content,
+              isEdited: true);
+          break;
+      }
+    });
+  }
+
+  /// Optimistically toggle a reaction locally so it shows instantly, then sync.
+  void _applyLocalReaction(Message m, String emoji) {
+    final myId = _chatService.currentUserId;
+    final idx = _messages.indexWhere((x) => x.id == m.id);
+    if (idx == -1) return;
+    final cur = _messages[idx];
+    final toggleOff = cur.reaction == emoji && cur.reactionBy == myId;
+    setState(() {
+      _messages[idx] = toggleOff
+          ? cur.copyWith(clearReaction: true)
+          : cur.copyWith(reaction: emoji, reactionBy: myId);
+    });
+  }
+
+  Future<void> _togglePin(Message message) async {
+    final newVal = !message.isPinned;
+    // Instant: only one pinned message per chat, so clear others, set this.
+    setState(() {
+      for (int i = 0; i < _messages.length; i++) {
+        if (_messages[i].isPinned) {
+          _messages[i] = _messages[i].copyWith(isPinned: false);
+        }
+      }
+      final idx = _messages.indexWhere((m) => m.id == message.id);
+      if (idx != -1) {
+        _messages[idx] = _messages[idx].copyWith(isPinned: newVal);
+      }
+    });
+    _socket.sendMessageAction({
+      'receiver_id': widget.userId,
+      'action': 'pin',
+      'message_id': message.id,
+      'is_pinned': newVal ? 1 : 0,
+    }); // realtime to peer
+    final ok = await _chatService.pinMessage(message.id);
+    if (!ok && mounted) {
+      NeonToast.error(context, 'Could not pin message');
+      _loadMessages(); // revert from server on failure
+    }
+  }
+
+  Future<void> _forwardMessage(Message message) async {
+    if (_chatService.cachedConversations.isEmpty) {
+      await _chatService.getConversations();
+    }
+    final list = _chatService.cachedConversations
+        .where((c) => c.otherUserId != widget.userId)
+        .toList();
+    if (!mounted) return;
+    String query = '';
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          height: MediaQuery.of(ctx).size.height * 0.7,
+          decoration: const BoxDecoration(
+              color: Color(0xFF15151F),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+          child: StatefulBuilder(
+            builder: (ctx, setSheet) {
+              final q = query.trim().toLowerCase();
+              final filtered = q.isEmpty
+                  ? list
+                  : list
+                      .where((c) =>
+                          c.otherUserName.toLowerCase().contains(q))
+                      .toList();
+              return Column(
                 children: [
-                  Text(
-                    timeText,
-                    style: TextStyle(
-                      color: isMe
-                          ? Colors.white.withValues(alpha: 0.65)
-                          : Colors.white.withValues(alpha: 0.4),
-                      fontSize: 10,
+                  const SizedBox(height: 12),
+                  const Text('Forward to',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15)),
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: TextField(
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      onChanged: (v) => setSheet(() => query = v),
+                      decoration: InputDecoration(
+                        hintText: 'Search people…',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        prefixIcon: const Icon(Icons.search,
+                            color: Colors.white38, size: 20),
+                        isDense: true,
+                        filled: true,
+                        fillColor: const Color(0xFF202028),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none),
+                      ),
                     ),
                   ),
-                  if (isMe) ...[
-                    const SizedBox(width: 4),
-                    _buildTick(message),
-                  ],
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Text(q.isEmpty ? 'No other chats' : 'No matches',
+                                style: const TextStyle(color: Colors.white38)))
+                        : ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (_, i) {
+                              final c = filtered[i];
+                              final hasAvatar = c.otherUserAvatar != null &&
+                                  c.otherUserAvatar!.startsWith('http');
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: const Color(0xFF3B82F6),
+                                  backgroundImage: hasAvatar
+                                      ? NetworkImage(c.otherUserAvatar!)
+                                      : null,
+                                  child: hasAvatar
+                                      ? null
+                                      : Text(
+                                          c.otherUserName.isNotEmpty
+                                              ? c.otherUserName[0].toUpperCase()
+                                              : '?',
+                                          style: const TextStyle(
+                                              color: Colors.white)),
+                                ),
+                                title: Text(c.otherUserName,
+                                    style:
+                                        const TextStyle(color: Colors.white)),
+                                onTap: () async {
+                                  Navigator.pop(ctx);
+                                  final ok = await _chatService.forwardMessage(
+                                      message.id, c.otherUserId);
+                                  if (mounted) {
+                                    if (ok) {
+                                      NeonToast.success(context,
+                                          'Forwarded to ${c.otherUserName}');
+                                    } else {
+                                      NeonToast.error(
+                                          context, 'Could not forward');
+                                    }
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                  ),
                 ],
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -1681,6 +2383,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildMessageContent(Message message, bool isMe) {
+    // Story reply: show the story thumbnail + a "Replied to your story" header
+    // above the reply text (Instagram-style).
+    if (message.storyReplyMedia != null &&
+        message.storyReplyMedia!.isNotEmpty) {
+      return _buildStoryReplyContent(message, isMe);
+    }
     switch (message.type) {
       case MessageType.image:
         return _buildImageMessage(message);
@@ -1701,6 +2409,66 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         );
     }
+  }
+
+  Widget _buildStoryReplyContent(Message message, bool isMe) {
+    final label = isMe ? 'You replied to a story' : 'Replied to your story';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.reply_rounded,
+                size: 13, color: Colors.white.withValues(alpha: 0.6)),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 11,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: CachedNetworkImage(
+            imageUrl: message.storyReplyMedia!,
+            width: 70,
+            height: 100,
+            fit: BoxFit.cover,
+            memCacheWidth: 210,
+            placeholder: (_, __) => Container(
+              width: 70,
+              height: 100,
+              color: Colors.white12,
+            ),
+            errorWidget: (_, __, ___) => Container(
+              width: 70,
+              height: 100,
+              color: Colors.white12,
+              child: const Icon(Icons.image_outlined,
+                  color: Colors.white30, size: 22),
+            ),
+          ),
+        ),
+        if ((message.content ?? '').isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            message.content!,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              height: 1.3,
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _buildCallMessage(Message message, bool isMe) {
@@ -1765,7 +2533,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     width: 200,
                     fit: BoxFit.cover,
                     memCacheWidth: 600,
-                    memCacheHeight: 600,
                     placeholder: (_, __) => Container(
                       width: 200,
                       height: 150,
@@ -1854,7 +2621,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     imageUrl: message.mediaThumbnail!,
                     fit: BoxFit.cover,
                     memCacheWidth: 600,
-                    memCacheHeight: 450,
                   );
                 }
                 return Container(color: const Color(0xFF2A2A2A));

@@ -19,6 +19,7 @@ import 'package:love_vibe_pro/config/app_env.dart';
 
 import 'package:love_vibe_pro/widgets/share_bottom_sheet.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
+import 'package:love_vibe_pro/widgets/login_required_sheet.dart';
 import 'package:love_vibe_pro/screens/gifts/gifts_sheet.dart';
 import 'package:love_vibe_pro/widgets/gift_overlay_widget.dart';
 import 'package:love_vibe_pro/widgets/subscriber_lock_overlay.dart';
@@ -34,6 +35,9 @@ class VideoFeedItem extends StatefulWidget {
   final VoidCallback? onSubscribe;
   final VoidCallback? onDeleted;
 
+  /// Read-only guest mode — actions prompt account creation. See [PhotoFeedItem].
+  final bool isGuest;
+
   const VideoFeedItem({
     super.key,
     required this.post,
@@ -42,6 +46,7 @@ class VideoFeedItem extends StatefulWidget {
     this.onShare,
     this.onSubscribe,
     this.onDeleted,
+    this.isGuest = false,
   });
 
   @override
@@ -333,7 +338,15 @@ class _VideoFeedItemState extends State<VideoFeedItem>
     }
   }
 
+  /// In guest mode, prompt account creation instead of performing [feature].
+  bool _guestBlocked(String feature) {
+    if (!widget.isGuest) return false;
+    LoginRequiredSheet.show(context, feature: feature);
+    return true;
+  }
+
   void _showShareSheet() {
+    if (_guestBlocked('share posts')) return;
     // Check if the post owner disabled resharing
     final user = widget.post['user'] ?? {};
     final allowReshare = widget.post['allow_reshare'] ??
@@ -365,6 +378,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
   }
 
   Future<void> _handleLike() async {
+    if (_guestBlocked('like posts')) return;
     final postId = widget.post['id'] ?? widget.post['post_id'];
     if (postId == null) return;
 
@@ -388,6 +402,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
   }
 
   Future<void> _handleDoubleTap() async {
+    if (_guestBlocked('like posts')) return;
     if (!_isLiked) {
       await _handleLike();
     }
@@ -401,6 +416,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
   }
 
   Future<void> _handleFollow() async {
+    if (_guestBlocked('follow people')) return;
     final authorId = _resolvePostAuthorId();
     if (authorId == null) return;
 
@@ -420,6 +436,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
   }
 
   void _handleLongPress() {
+    if (_guestBlocked('use post actions')) return;
     if (_isOwnPost) {
       _showOwnPostActions();
     } else {
@@ -800,6 +817,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
   }
 
   void _showCommentsSheet() {
+    if (_guestBlocked('comment on posts')) return;
     final postId = widget.post['id'] ?? widget.post['post_id'];
     if (postId == null) return;
     showModalBottomSheet(
@@ -981,7 +999,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
         onVisibilityChanged: _handleVisibility,
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
-          height: MediaQuery.of(context).size.width * 5 / 4,
+          height: MediaQuery.of(context).size.width * 7 / 5,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
@@ -1373,18 +1391,19 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                           ),
                         ),
                         const SizedBox(width: 6),
-                        NeonSubscribeButton(
-                          isSubscribed: isSubscribed || _isFollowing,
-                          isOwnPost: _isOwnPost,
-                          // Show Subscribe only when author has an active plan
-                          // AND enabled the feed-subscribe toggle. Otherwise Follow.
-                          showSubscribeMode: _feedActionSubscribe &&
-                              (widget.post['author_subscription_status']
-                                      ?.toString() ??
-                                  'inactive') ==
-                                  'active',
-                          onTap: _handleFollow,
-                        ),
+                        Builder(builder: (_) {
+                          final bool hasPlan =
+                              widget.post['author_has_plan'] == 1 ||
+                                  widget.post['author_has_plan'] == true;
+                          return NeonSubscribeButton(
+                            // Subscribe-mode "done" state must mean an actual
+                            // subscription, not merely following.
+                            isSubscribed: hasPlan ? isSubscribed : _isFollowing,
+                            isOwnPost: _isOwnPost,
+                            showSubscribeMode: hasPlan,
+                            onTap: _handleFollow,
+                          );
+                        }),
                       ],
                     ),
                   ),
@@ -1441,6 +1460,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
   }
 
   void _openGiftsSheet() {
+    if (_guestBlocked('send gifts')) return;
     final uploaderId =
         (widget.post['user_id'] ?? widget.post['user']?['id'] ?? '').toString();
     final postId =
@@ -1477,7 +1497,14 @@ class _VideoFeedItemState extends State<VideoFeedItem>
     if (_giftOverlayData == null || _giftOverlayData!.isEmpty) {
       return const SizedBox.shrink();
     }
-    return GiftOverlayWidget(gifts: _giftOverlayData!);
+    // Cycle through ALL gifts/gifters one by one (each animates in).
+    return TopGifterChip(
+      gifts: List<GiftTx>.from(_giftOverlayData!),
+      api: ApiService(),
+      isGuest: widget.isGuest,
+      currentUserId: _currentUserId,
+      onTap: _openGiftsSheet,
+    );
   }
 
   Widget _buildActionBtn(

@@ -29,6 +29,10 @@ class ProfileHeader extends StatelessWidget {
   // opposite-gender profile.
   final bool showSendProposal;
   final VoidCallback? onSendProposal;
+  // When true, the profile avatar shows a red LIVE ring + "LIVE" label and
+  // tapping it joins the user's live stream.
+  final bool isLive;
+  final VoidCallback? onLiveTap;
 
   const ProfileHeader({
     super.key,
@@ -47,6 +51,8 @@ class ProfileHeader extends StatelessWidget {
     this.ratingReady = true,
     this.showSendProposal = false,
     this.onSendProposal,
+    this.isLive = false,
+    this.onLiveTap,
   });
 
   @override
@@ -181,26 +187,35 @@ class ProfileHeader extends StatelessWidget {
                     child: Center(
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTap: profile.isOwnProfile ? onEditAvatar : null,
+                        onTap: profile.isOwnProfile
+                            ? onEditAvatar
+                            : (isLive ? onLiveTap : null),
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [
-                            // Neon ring + border
+                            // Neon ring + border (red when the user is live)
                             Container(
                               padding: const EdgeInsets.all(4),
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    Color(0xFFFF007F),
-                                    Color(0xFF00E5FF),
-                                  ],
+                                gradient: LinearGradient(
+                                  colors: isLive
+                                      ? const [
+                                          Color(0xFFFF1744),
+                                          Color(0xFFFF6D00),
+                                        ]
+                                      : const [
+                                          Color(0xFFFF007F),
+                                          Color(0xFF00E5FF),
+                                        ],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: const Color(0xFFFF007F)
+                                    color: (isLive
+                                            ? const Color(0xFFFF1744)
+                                            : const Color(0xFFFF007F))
                                         .withValues(alpha: 0.6),
                                     blurRadius: 25,
                                     spreadRadius: 2,
@@ -246,6 +261,41 @@ class ProfileHeader extends StatelessWidget {
                                     Icons.edit,
                                     color: Colors.white,
                                     size: 16,
+                                  ),
+                                ),
+                              ),
+                            // LIVE label pill at the bottom-center of the avatar
+                            if (isLive)
+                              Positioned(
+                                bottom: -7,
+                                left: 0,
+                                right: 0,
+                                child: Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 9, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFF1744),
+                                      borderRadius: BorderRadius.circular(9),
+                                      border: Border.all(
+                                          color: Colors.black, width: 1.5),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(0xFFFF1744)
+                                              .withValues(alpha: 0.6),
+                                          blurRadius: 8,
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Text(
+                                      'LIVE',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.6,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),

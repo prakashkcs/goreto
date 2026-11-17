@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart' as g_auth;
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:provider/provider.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
@@ -11,10 +12,11 @@ import 'package:love_vibe_pro/services/socket_service.dart';
 import 'package:love_vibe_pro/services/secure_storage_service.dart';
 import 'package:love_vibe_pro/services/chat_service.dart';
 import 'package:love_vibe_pro/services/profile_service.dart';
+import 'package:love_vibe_pro/services/wallet_service.dart';
 import 'package:love_vibe_pro/providers/match_provider.dart';
 
 /// Result of an email/password login attempt.
-enum LoginOutcome { success, twoFactorRequired }
+enum LoginOutcome { success, twoFactorRequired, cancelled }
 
 class AuthProvider with ChangeNotifier {
   bool _isAuthenticated = false;
@@ -133,6 +135,11 @@ class AuthProvider with ChangeNotifier {
         // without waiting for a network round-trip. Validate in the background
         // and force logout only on an explicit 401/403 rejection.
         _isAuthenticated = true;
+        // A valid token means this is a real session, never a guest one --
+        // clear any stale 'is_guest' flag left over from before this login
+        // (e.g. the user tried Guest mode earlier in the same install).
+        _isGuest = false;
+        await prefs.remove('is_guest');
         _isDebugMode = isDebug;
         if (!isDebug) {
           SocketService.instance.connect();
@@ -159,12 +166,32 @@ class AuthProvider with ChangeNotifier {
       try {
         final valid = await _apiService.validateToken(token);
         if (!valid) {
+          // A fresh login can complete while this validation is still in
+          // flight (e.g. the user signs in with Google right after launch).
+          // Tearing the session down here would then wipe the *new* token and
+          // drop the user into guest mode, so only act if the token we just
+          // rejected is still the active one.
+          final current = await SecureStorageService.instance.readToken();
+          if (current != null && current != token) return;
+
           await _clearSession(prefs);
           _isAuthenticated = false;
           _isInitialized = true;
           notifyListeners();
           // Redirect to login — use the global navigator key
-          _navigatorKey?.currentState?.pushNamedAndRemoveUntil('/login', (_) => false);
+          // ApiService's 401 handler may already have sent us here; pushing a
+          // second time makes the login screen visibly load twice.
+          final nav = _navigatorKey?.currentState;
+          if (nav != null) {
+            var alreadyOnLogin = false;
+            nav.popUntil((route) {
+              if (route.settings.name == '/login') alreadyOnLogin = true;
+              return true; // inspect only, never actually pop
+            });
+            if (!alreadyOnLogin) {
+              nav.pushNamedAndRemoveUntil('/login', (_) => false);
+            }
+          }
         }
       } catch (_) {
         // Network error — leave user logged in (fail-open)
@@ -208,7 +235,10 @@ class AuthProvider with ChangeNotifier {
       googleUser ??= await _googleSignIn.signIn();
 
       if (googleUser == null) {
-        return LoginOutcome.success;
+        // User dismissed the Google account picker (or silent sign-in found
+        // nothing). No session was created — report cancellation so the UI
+        // stays on the login screen instead of falling through to guest mode.
+        return LoginOutcome.cancelled;
       }
 
       final g_auth.GoogleSignInAuthentication googleAuth =
@@ -281,6 +311,94 @@ class AuthProvider with ChangeNotifier {
 
       notifyListeners();
       return LoginOutcome.success;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // ── Sign in with Apple ───────────────────────────────────────────────────
+
+  Future<LoginOutcome> loginWithApple() async {
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+
+      final identityToken = credential.identityToken;
+      if (identityToken == null) {
+        throw Exception('Apple did not return an identity token.');
+      }
+
+      // Apple only shares the name on the FIRST authorization ever granted to
+      // this app -- capture it now, the backend stores it on account creation.
+      final fullName = [credential.givenName, credential.familyName]
+          .where((s) => s != null && s.isNotEmpty)
+          .join(' ')
+          .trim();
+
+      Map<String, dynamic> response;
+      try {
+        response =
+            await _apiService.authApple(identityToken, fullName.isEmpty ? null : fullName);
+      } catch (e) {
+        rethrow;
+      }
+
+      if (response['status'] == '2fa_required') {
+        _pending2faEmail = response['email']?.toString();
+        notifyListeners();
+        return LoginOutcome.twoFactorRequired;
+      }
+
+      final dataMap = response['data'] as Map<String, dynamic>?;
+      final appToken = dataMap?['token']?.toString() ?? '';
+      final userMap = dataMap?['user'] as Map<String, dynamic>?;
+      final userId = userMap?['id']?.toString() ?? '';
+      final userEmail = userMap?['email']?.toString() ?? '';
+      final userName = userMap?['name']?.toString() ?? '';
+      final isNewUser = response['is_new_user'] == true;
+
+      if (appToken.isEmpty) {
+        throw Exception(
+          'Backend did not return a valid token. Response: $response',
+        );
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+
+      if (isNewUser) {
+        await prefs.remove('cached_profile');
+        await prefs.remove('cached_feed_items');
+        await prefs.remove('user_id_int');
+      }
+
+      await prefs.setString('app_token', appToken);
+      await prefs.setString('auth_token', appToken);
+      await prefs.setString('user_id', userId);
+      await prefs.remove('is_guest');
+      if (userEmail.isNotEmpty) await prefs.setString('user_email', userEmail);
+      if (userName.isNotEmpty) await prefs.setString('user_name', userName);
+      await SecureStorageService.instance.writeToken(appToken);
+      await _bindAccountCaches(userId);
+
+      _apiService.setToken(appToken);
+      _isAuthenticated = true;
+      _isGuest = false;
+      _userId = userId;
+
+      FCMService.instance.init();
+      SocketService.instance.connect();
+
+      notifyListeners();
+      return LoginOutcome.success;
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) {
+        return LoginOutcome.cancelled;
+      }
+      rethrow;
     } catch (e) {
       rethrow;
     }
@@ -376,6 +494,12 @@ class AuthProvider with ChangeNotifier {
       await ProfileService.instance.clearCachedProfile();
       ChatService.instance.setCurrentUserId(userId);
     } catch (_) {}
+    // If this device was installed via a referral link (Play Install Referrer),
+    // the code was captured at first launch but couldn't be applied until the
+    // user had an account. Now that they're signed in, apply it.
+    try {
+      await WalletService().applyPendingInstallReferralIfAny();
+    } catch (_) {}
   }
 
   // ── Email/Password Signup ─────────────────────────────────────────────────
@@ -439,6 +563,12 @@ class AuthProvider with ChangeNotifier {
     // Capture context before any awaits to avoid BuildContext-across-async-gap.
     final ctx = _navigatorKey?.currentContext;
 
+    // Which session this logout was asked to end. A logout triggered by a dead
+    // token runs through several awaits, and the user can finish signing in
+    // again before it gets to the teardown -- wiping then would kill the new
+    // session and drop them into guest mode.
+    final tokenAtEntry = await SecureStorageService.instance.readToken();
+
     SocketService.instance.disconnect();
 
     // Mark the user offline on the server while the token is still valid.
@@ -479,6 +609,11 @@ class AuthProvider with ChangeNotifier {
     try {
       await _googleSignIn.signOut();
     } catch (_) {}
+    final tokenNow = await SecureStorageService.instance.readToken();
+    if (tokenNow != null && tokenNow != tokenAtEntry) {
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     await _clearSession(prefs);
     notifyListeners();

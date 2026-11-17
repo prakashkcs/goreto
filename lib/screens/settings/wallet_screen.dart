@@ -44,6 +44,9 @@ class _WalletScreenState extends State<WalletScreen> {
   // Redeem code state
   final TextEditingController _redeemController = TextEditingController();
   bool _isRedeeming = false;
+  // True once this account has already redeemed a friend's code — the redeem
+  // box is replaced with a "Redeemed" confirmation.
+  bool _referralUsed = false;
 
   // Cash-out gated OFF until an NRB license / licensed PSP partner is in place.
   bool _withdrawalsEnabled = false;
@@ -102,6 +105,8 @@ class _WalletScreenState extends State<WalletScreen> {
         }
         _referralEditCount = profileEdited;
         await _settingsStore?.setReferralEditCount(profileEdited);
+        _referralUsed =
+            (int.tryParse((user['referral_used'] ?? '0').toString()) ?? 0) == 1;
       }
 
       // [2] Wallet service referral code overrides if non-empty
@@ -159,6 +164,7 @@ class _WalletScreenState extends State<WalletScreen> {
       if (!mounted) return;
       if (result.success) {
         _redeemController.clear();
+        if (mounted) setState(() => _referralUsed = true);
         NeonToast.success(context, result.message);
         await _loadWalletData();
       } else {
@@ -322,20 +328,14 @@ class _WalletScreenState extends State<WalletScreen> {
 
     final encodedCode = Uri.encodeComponent(code);
 
-    // Use stored Play Store URL if available, otherwise fallback
-    final basePlay = _playstoreUrl.isNotEmpty
-        ? _playstoreUrl
-        : 'https://play.google.com/store/apps/details?id=com.nex.ekloapp';
-    final playSep = basePlay.contains('?') ? '&' : '?';
-    final playLink = '$basePlay${playSep}referrer=ref_$encodedCode';
+    // Single smart invite link. The landing page detects the platform and
+    // routes to the right store — on Android it appends the Play Install
+    // Referrer (ref_CODE) so the code auto-applies on signup.
+    final inviteLink =
+        'https://goreto.org/ekloadmin/invite.php?ref=$encodedCode';
 
-    String message = 'Join GORETO using my referral code: $code\n$playLink';
-
-    if (_appstoreUrl.isNotEmpty) {
-      final iosSep = _appstoreUrl.contains('?') ? '&' : '?';
-      final iosLink = '$_appstoreUrl${iosSep}referral=$encodedCode';
-      message += '\n\niOS: $iosLink';
-    }
+    final message =
+        'Join GORETO with my invite code $code and we both get bonus coins! 🎁\n$inviteLink';
 
     await SharePlus.instance.share(ShareParams(text: message, subject: 'GORETO Referral'));
   }
@@ -847,58 +847,90 @@ class _WalletScreenState extends State<WalletScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.35)),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Redeem a Friend\'s Code',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Enter a referral code to claim $_referralCoinsReward coins',
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _redeemController,
-                        style: const TextStyle(color: Colors.white, letterSpacing: 1.1),
-                        textCapitalization: TextCapitalization.characters,
-                        decoration: InputDecoration(
-                          hintText: 'Enter code',
-                          hintStyle: const TextStyle(color: Colors.white38),
-                          filled: true,
-                          fillColor: const Color(0xFF1A1A1A),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none,
+            child: _referralUsed
+                // Already redeemed → no input, just a confirmation.
+                ? Row(
+                    children: const [
+                      Icon(Icons.check_circle_rounded,
+                          color: Color(0xFF22C55E), size: 22),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Referral code redeemed',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Redeem a Friend\'s Code',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Enter a referral code to claim $_referralCoinsReward coins',
+                        style: const TextStyle(
+                            color: Colors.white54, fontSize: 12),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _redeemController,
+                              style: const TextStyle(
+                                  color: Colors.white, letterSpacing: 1.1),
+                              textCapitalization:
+                                  TextCapitalization.characters,
+                              decoration: InputDecoration(
+                                hintText: 'Enter code',
+                                hintStyle:
+                                    const TextStyle(color: Colors.white38),
+                                filled: true,
+                                fillColor: const Color(0xFF1A1A1A),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 10),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 10),
+                          SizedBox(
+                            height: 46,
+                            child: ElevatedButton(
+                              onPressed:
+                                  _isRedeeming ? null : _redeemReferralCode,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF22C55E),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                              child: _isRedeeming
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white))
+                                  : const Text('Redeem',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      height: 46,
-                      child: ElevatedButton(
-                        onPressed: _isRedeeming ? null : _redeemReferralCode,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF22C55E),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: _isRedeeming
-                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : const Text('Redeem', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                    ],
+                  ),
           ),
         ],
       ),

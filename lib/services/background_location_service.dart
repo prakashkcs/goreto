@@ -72,7 +72,7 @@ class BackgroundLocationService {
         isForegroundMode: true,
         autoStartOnBoot: true,
         notificationChannelId: 'location_service',
-        initialNotificationTitle: 'Love Vibe',
+        initialNotificationTitle: 'Goreto',
         initialNotificationContent: 'Connecting to nearby locals...',
         foregroundServiceNotificationId: 888,
         foregroundServiceTypes: [AndroidForegroundType.location],

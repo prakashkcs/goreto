@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
@@ -29,7 +28,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
 
   File? _avatarFile;
   File? _coverFile;
-  String _gender = 'male';
+  String _gender = ''; // must be explicitly chosen (no silent default)
   bool _showOnMatch = true;
   bool _fetchingLocation = false;
   bool _saving = false;
@@ -102,28 +101,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
     super.dispose();
   }
 
-  // ── Photo permission ──────────────────────────────────────────────────────
-
-  Future<bool> _requestPhotoPermission() async {
-    final status = await Permission.photos.request();
-    if (status.isGranted || status.isLimited) return true;
-    if (status.isPermanentlyDenied && mounted) {
-      NeonToast.error(context,
-          'Photo access denied. Enable it in Settings → App Permissions.');
-      await openAppSettings();
-    }
-    return false;
-  }
+  // Gallery picks go through image_picker, which uses Android's system Photo
+  // Picker (no storage/media permission needed) on Android 13+ and its own
+  // internal permission handling on older versions -- no manual pre-check.
 
   Future<void> _pickAvatar() async {
-    if (!await _requestPhotoPermission()) return;
     final xf = await _picker.pickImage(
         source: ImageSource.gallery, imageQuality: 85, maxWidth: 800);
     if (xf != null && mounted) setState(() => _avatarFile = File(xf.path));
   }
 
   Future<void> _pickCover() async {
-    if (!await _requestPhotoPermission()) return;
     final xf = await _picker.pickImage(
         source: ImageSource.gallery, imageQuality: 80, maxWidth: 1200);
     if (xf != null && mounted) setState(() => _coverFile = File(xf.path));
@@ -172,6 +160,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
     if (age < _minAge) {
       NeonToast.error(
           context, 'You must be at least $_minAge years old to use Goreto.');
+      return;
+    }
+    // Gender is required — it drives nearby + cross-gender matching, and a
+    // missing gender makes the account invisible in nearby.
+    if (_gender.isEmpty) {
+      NeonToast.error(context, 'Please select your gender');
       return;
     }
     HapticFeedback.mediumImpact();

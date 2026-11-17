@@ -26,7 +26,7 @@ class LoginRequiredSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.55,
+        maxHeight: MediaQuery.of(context).size.height * 0.72,
       ),
       decoration: const BoxDecoration(
         color: Color(0xEB0B0713), // #0B0713 with 92% opacity
@@ -47,6 +47,7 @@ class LoginRequiredSheet extends StatelessWidget {
           ),
         ),
         child: SafeArea(
+          child: SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -153,6 +154,7 @@ class LoginRequiredSheet extends StatelessWidget {
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),

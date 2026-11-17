@@ -306,8 +306,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final croppedFile = await ImageCropper().cropImage(
       sourcePath: pickedFile.path,
       aspectRatio: isCover
-          ? const CropAspectRatio(ratioX: 16, ratioY: 9)
-          : const CropAspectRatio(ratioX: 4, ratioY: 5),
+          ? const CropAspectRatio(ratioX: 16, ratioY: 9) // matches cover banner
+          : const CropAspectRatio(ratioX: 1, ratioY: 1), // matches round avatar
       compressQuality: 85,
       uiSettings: [
         AndroidUiSettings(

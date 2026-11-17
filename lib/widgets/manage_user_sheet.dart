@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/services/profile_service.dart';
+import 'package:love_vibe_pro/services/socket_service.dart';
 import 'package:love_vibe_pro/providers/match_provider.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 
@@ -102,11 +103,23 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
   }
 
   Future<void> _loadKyc() async {
+    bool isVerified(String? s) {
+      final k = (s ?? '').toLowerCase();
+      return k == 'verified' || k == 'approved';
+    }
+
     try {
       final me = await ProfileService.instance.getCachedProfile();
-      final k = (me?.kycStatus ?? '').toLowerCase();
-      if (mounted) {
-        setState(() => _isKycVerified = (k == 'verified' || k == 'approved'));
+      var verified = isVerified(me?.kycStatus);
+      if (mounted) setState(() => _isKycVerified = verified);
+      // The cached profile can be stale (KYC approved after last cache write),
+      // which would wrongly hide the "Make paid chat only" option. Confirm with
+      // a fresh profile fetch when the cache doesn't already say verified.
+      if (!verified) {
+        final fresh =
+            await ProfileService.instance.getMyProfile(forceRefresh: true);
+        verified = isVerified(fresh.kycStatus);
+        if (mounted) setState(() => _isKycVerified = verified);
       }
     } catch (_) {}
   }
@@ -154,6 +167,14 @@ class _ManageUserSheetState extends State<ManageUserSheet> {
     if (!mounted) return;
     setState(() => _isActionLoading = false);
     if (result['status'] == 'success') {
+      // Tell the other user in real time so their chat restriction updates
+      // immediately (e.g. clears the "buy chat package" gate when free chat is
+      // re-enabled) without them having to reopen the chat.
+      SocketService.instance.sendMessageAction({
+        'receiver_id': widget.userId,
+        'action': 'paid_chat',
+        'enabled': willForce ? 1 : 0,
+      });
       NeonToast.success(
         context,
         willForce

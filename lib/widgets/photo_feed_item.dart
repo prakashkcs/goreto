@@ -24,6 +24,8 @@ import 'package:love_vibe_pro/widgets/gift_overlay_widget.dart';
 import 'package:love_vibe_pro/widgets/subscriber_lock_overlay.dart';
 import 'package:love_vibe_pro/widgets/secure_content_area.dart';
 import 'package:love_vibe_pro/services/analytics_service.dart';
+import 'package:love_vibe_pro/widgets/login_required_sheet.dart';
+import 'package:love_vibe_pro/widgets/coin_icon.dart';
 
 class PhotoFeedItem extends StatefulWidget {
   final Map<String, dynamic> post;
@@ -37,6 +39,11 @@ class PhotoFeedItem extends StatefulWidget {
   /// custom-audio autoplay (loops the attached ≤60s clip).
   final bool isActive;
 
+  /// Read-only guest mode: the card renders identically to the logged-in feed,
+  /// but every interactive action (like, comment, follow, gift, profile) prompts
+  /// account creation instead of performing the action.
+  final bool isGuest;
+
   const PhotoFeedItem({
     super.key,
     required this.post,
@@ -46,6 +53,7 @@ class PhotoFeedItem extends StatefulWidget {
     this.onSubscribe,
     this.onDeleted,
     this.isActive = false,
+    this.isGuest = false,
   });
 
   @override
@@ -202,6 +210,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
   }
 
   void _showShareSheet() {
+    if (_guestBlocked('share posts')) return;
     // Check if the post owner disabled resharing
     final user = widget.post['user'] ?? {};
     final allowReshare = widget.post['allow_reshare'] ??
@@ -232,7 +241,16 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
   }
 
   // â”€â”€ Task 2: toggle like with neon-pink state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  /// In guest mode, prompt account creation instead of performing [feature].
+  /// Returns true when the action was blocked (caller should bail out).
+  bool _guestBlocked(String feature) {
+    if (!widget.isGuest) return false;
+    LoginRequiredSheet.show(context, feature: feature);
+    return true;
+  }
+
   Future<void> _handleLike() async {
+    if (_guestBlocked('like posts')) return;
     final postId = widget.post['id'] ?? widget.post['post_id'];
     if (postId == null) return;
 
@@ -267,6 +285,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
 
   // â”€â”€ Task 2: real comments BottomSheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   void _showCommentsSheet() {
+    if (_guestBlocked('comment on posts')) return;
     final postId = widget.post['id'] ?? widget.post['post_id'];
     if (postId == null) return;
     showModalBottomSheet(
@@ -289,6 +308,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
   }
 
   Future<void> _handleFollow() async {
+    if (_guestBlocked('follow people')) return;
     final authorId = _resolvePostAuthorId();
     if (authorId == null) return;
 
@@ -308,6 +328,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
   }
 
   Future<void> _handleDoubleTap() async {
+    if (_guestBlocked('like posts')) return;
     if (!_isLiked) {
       await _handleLike();
     }
@@ -322,6 +343,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
 
   // â”€â”€ Task 6: Long Press Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   void _handleLongPress() {
+    if (_guestBlocked('use post actions')) return;
     if (_isOwnPost) {
       _showOwnPostActions();
     } else {
@@ -752,6 +774,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
   }
 
   void _navigateToProfile() {
+    if (_guestBlocked('view profiles')) return;
     final authorId = _resolvePostAuthorId();
     if (authorId == null) return;
     final postId =
@@ -914,7 +937,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
     return GestureDetector(
       onLongPress: _handleLongPress,
       child: AspectRatio(
-        aspectRatio: 4.0 / 5.0,
+        aspectRatio: 5.0 / 7.0,
         child: Container(
         margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
         decoration: BoxDecoration(
@@ -1044,10 +1067,10 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                                       backgroundImage:
                                           CachedNetworkImageProvider(
                                               userAvatar),
-                                      radius: 20,
+                                      radius: 16,
                                     )
                                   : CircleAvatar(
-                                      radius: 20,
+                                      radius: 16,
                                       backgroundColor: const Color(0xFF3B82F6),
                                       child: Text(
                                         (username.toString().isNotEmpty
@@ -1102,23 +1125,25 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                           Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              NeonSubscribeButton(
-                                isSubscribed: isSubscribed || _isFollowing,
-                                isOwnPost: _isOwnPost,
-                                // Only show Subscribe style when the creator has
-                                // an active plan AND explicitly turned on the
-                                // feed-subscribe toggle. Otherwise show Follow.
-                                showSubscribeMode:
-                                    (widget.post['author_subscription_status']
-                                                ?.toString() ??
-                                            'inactive') ==
-                                        'active' &&
-                                    (widget.post['author_feed_action_subscribe'] ==
-                                            1 ||
-                                        widget.post['author_feed_action_subscribe'] ==
-                                            true),
-                                onTap: _handleFollow,
-                              ),
+                              Builder(builder: (_) {
+                                final bool hasPlan =
+                                    widget.post['author_has_plan'] == 1 ||
+                                        widget.post['author_has_plan'] == true;
+                                return Transform.scale(
+                                  scale: 0.82,
+                                  alignment: Alignment.centerRight,
+                                  child: NeonSubscribeButton(
+                                    // In subscribe mode the "done" state must mean
+                                    // an actual subscription — NOT merely following —
+                                    // otherwise followers never see the Subscribe CTA.
+                                    isSubscribed:
+                                        hasPlan ? isSubscribed : _isFollowing,
+                                    isOwnPost: _isOwnPost,
+                                    showSubscribeMode: hasPlan,
+                                    onTap: _handleFollow,
+                                  ),
+                                );
+                              }),
                             ],
                           ),
                         ],
@@ -1160,28 +1185,21 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                             'Gift',
                             const Color(0xFFFFD700),
                             _openGiftsSheet,
+                            _showGiftLeaderboard,
                           ),
                         ],
                       ],
                     ),
                   ),
 
-                  // 5b. Gift overlay
+                  // 5b. Gift animation — small looping gift icon on the left,
+                  // shown every time the post is viewed. Tap it (or long-press
+                  // the Gift button) to open the full gifter leaderboard.
                   Positioned(
-                    left: 15,
-                    bottom: 50,
-                    right: 80,
+                    left: 12,
+                    bottom: 46,
                     child: _buildGiftOverlay(),
                   ),
-
-                  // 5c. Gifter ticker (scrolling names + avatars sorted by value)
-                  if (_giftOverlayData != null && _giftOverlayData!.isNotEmpty)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 10,
-                      child: _buildGifterTicker(),
-                    ),
 
                   // 6. Caption
                   if (!isTextPost && caption.isNotEmpty)
@@ -1597,6 +1615,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
   }
 
   void _openGiftsSheet() async {
+    if (_guestBlocked('send gifts')) return;
     final uploaderId =
         (widget.post['user_id'] ?? widget.post['user']?['id'] ?? '').toString();
     final postId =
@@ -1660,18 +1679,20 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
       });
     }
 
-    if (_giftOverlayData == null || _giftOverlayData!.isEmpty) {
+    final data = _giftOverlayData;
+    if (data == null || data.isEmpty) {
       return const SizedBox.shrink();
     }
-    return GiftOverlayWidget(
-      gifts: _giftOverlayData!,
-      viewerUserId: _currentUserId,
-      followingIds: _isFollowing ? {_resolvePostAuthorId() ?? ''} : {},
-      onFollow: (senderId) async {
-        await _api.followUser(senderId);
-        // Update local follow state so the button disappears immediately
-        if (mounted) setState(() {});
-      },
+    // Top gift (by coin value) drives the small looping animation. The gift
+    // image is usually an animated GIF, so it replays on every post view.
+    // Cycle through ALL gifts/gifters one by one (each animates in) instead of
+    // pinning a single top gifter on screen.
+    return TopGifterChip(
+      gifts: List<GiftTx>.from(data),
+      api: _api,
+      isGuest: widget.isGuest,
+      currentUserId: _currentUserId,
+      onTap: _showGiftLeaderboard,
     );
   }
 
@@ -1852,8 +1873,7 @@ class _GiftLeaderboardSheet extends StatelessWidget {
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700)),
                         const SizedBox(width: 3),
-                        const Icon(Icons.monetization_on,
-                            color: Color(0xFFFFD700), size: 14),
+                        const CoinIcon(size: 14, color: Color(0xFFFFD700)),
                       ],
                     ],
                   ),
@@ -1970,8 +1990,7 @@ class _GiftLeaderboardSheet extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     fontSize: 15)),
             const SizedBox(width: 3),
-            const Icon(Icons.monetization_on,
-                color: Color(0xFFFFD700), size: 16),
+            const CoinIcon(size: 16, color: Color(0xFFFFD700)),
           ],
         ),
       ),

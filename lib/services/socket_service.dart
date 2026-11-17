@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 import 'package:love_vibe_pro/models/message.dart';
 import 'package:love_vibe_pro/utils/date_util.dart';
+import 'package:love_vibe_pro/services/sound_service.dart';
 
 /// Real-time chat via Socket.IO.
 /// The server runs at wss://goreto.org/socket.io/ (proxied by nginx to port 3001).
@@ -30,6 +31,12 @@ class SocketService {
   final _onlineStatusCtrl =
       StreamController<Map<String, dynamic>>.broadcast();
   final _connectionCtrl = StreamController<bool>.broadcast();
+  final _messageActionCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _liveMessageCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _liveViewersCtrl =
+      StreamController<List<Map<String, dynamic>>>.broadcast();
 
   Stream<Message> get onNewMessage => _newMessageCtrl.stream;
   Stream<Map<String, dynamic>> get onReadReceipt => _readReceiptCtrl.stream;
@@ -37,6 +44,21 @@ class SocketService {
   Stream<Map<String, dynamic>> get onTyping => _typingCtrl.stream;
   Stream<Map<String, dynamic>> get onOnlineStatus => _onlineStatusCtrl.stream;
   Stream<bool> get onConnectionChange => _connectionCtrl.stream;
+
+  /// Real-time message actions (reaction / pin / unsend / edit) from the peer.
+  Stream<Map<String, dynamic>> get onMessageAction =>
+      _messageActionCtrl.stream;
+
+  /// Live-room chat messages: {sender_id, sender_name, text}. Used as the
+  /// messaging transport for live streams when the active video provider
+  /// (e.g. Agora) has no signaling of its own -- see ZegoProvider for the
+  /// equivalent Zego-native path.
+  Stream<Map<String, dynamic>> get onLiveMessage => _liveMessageCtrl.stream;
+
+  /// Current viewer list for a live room: each entry is {id, name}.
+  /// Re-emitted on every join/leave.
+  Stream<List<Map<String, dynamic>>> get onLiveViewers =>
+      _liveViewersCtrl.stream;
 
   bool get isConnected => _isConnected;
   String get currentUserId => _currentUserId;
@@ -89,6 +111,11 @@ class SocketService {
         final map = _toMap(data);
         final msg = _parseMessage(map);
         _newMessageCtrl.add(msg);
+        // Play the in-app notification tone for messages received from others
+        // (the server only emits new_message to the recipient, but guard anyway).
+        if (_currentUserId.isEmpty || msg.senderId != _currentUserId) {
+          SoundService().playMessageNotification();
+        }
       } catch (e) {
         debugPrint('[Socket] new_message parse error: $e');
       }
@@ -106,8 +133,27 @@ class SocketService {
       _typingCtrl.add(_toMap(data));
     });
 
+    _socket!.on('message_action', (data) {
+      _messageActionCtrl.add(_toMap(data));
+    });
+
     _socket!.on('online_status', (data) {
       _onlineStatusCtrl.add(_toMap(data));
+    });
+
+    _socket!.on('live_message', (data) {
+      _liveMessageCtrl.add(_toMap(data));
+    });
+
+    _socket!.on('live_viewers', (data) {
+      try {
+        final list = (data as List)
+            .map((e) => _toMap(e))
+            .toList(growable: false);
+        _liveViewersCtrl.add(list);
+      } catch (e) {
+        debugPrint('[Socket] live_viewers parse error: $e');
+      }
     });
 
     _socket!.connect();
@@ -168,6 +214,29 @@ class SocketService {
   void sendTyping(String receiverId, {required bool isTyping}) {
     if (_socket == null || !_isConnected) return;
     _socket!.emit('typing', {'receiver_id': receiverId, 'is_typing': isTyping});
+  }
+
+  /// Relay a message action (reaction / pin / unsend / edit) to the peer in
+  /// real time so their chat updates instantly (FB-Messenger style).
+  void sendMessageAction(Map<String, dynamic> payload) {
+    if (_socket == null || !_isConnected) return;
+    _socket!.emit('message_action', payload);
+  }
+
+  // ── Live room (chat + viewers relay for non-Zego video providers) ────────
+  void joinLiveRoom(String roomId, String displayName) {
+    if (_socket == null || !_isConnected) return;
+    _socket!.emit('live_join', {'room_id': roomId, 'name': displayName});
+  }
+
+  void leaveLiveRoom(String roomId) {
+    if (_socket == null || !_isConnected) return;
+    _socket!.emit('live_leave', {'room_id': roomId});
+  }
+
+  void sendLiveMessage(String roomId, String text) {
+    if (_socket == null || !_isConnected) return;
+    _socket!.emit('live_message', {'room_id': roomId, 'text': text});
   }
 
   // ── Online status subscription ────────────────────────────────────────────

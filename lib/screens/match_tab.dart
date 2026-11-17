@@ -2739,7 +2739,11 @@ class _RandomCallViewState extends State<RandomCallView>
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        // Extra bottom padding clears the floating home nav bar (the Scaffold
+        // uses extendBody:true) so the gender chips + Start Call aren't hidden
+        // behind it; the centred column shifts up accordingly.
+        padding: EdgeInsets.fromLTRB(
+            32, 32, 32, 110 + MediaQuery.of(context).padding.bottom),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -2811,13 +2815,15 @@ class _RandomCallViewState extends State<RandomCallView>
             ),
             const SizedBox(height: 24),
             if (!_searching) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              // Wrap (not Row) so all 3 chips fit + stay tappable — a plain Row
+              // overflowed, clipping "Boys only" off-screen so it couldn't be tapped.
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
                   _genderChip('cross', 'Cross gender', Icons.compare_arrows_rounded),
-                  const SizedBox(width: 10),
                   _genderChip('female', 'Girls only', Icons.female_rounded),
-                  const SizedBox(width: 10),
                   _genderChip('male', 'Boys only', Icons.male_rounded),
                 ],
               ),

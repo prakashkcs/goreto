@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:love_vibe_pro/providers/auth_provider.dart';
 import 'package:love_vibe_pro/screens/home_screen.dart';
-import 'package:love_vibe_pro/screens/guest_main_screen.dart';
 import 'package:love_vibe_pro/screens/onboarding/terms_acceptance_screen.dart';
 import 'package:love_vibe_pro/screens/onboarding/profile_setup_screen.dart';
 import 'package:love_vibe_pro/screens/splash_screen.dart';
@@ -28,6 +27,7 @@ class _StartScreenState extends State<StartScreen> {
   bool _termsAccepted = false;
   bool _onboardingDone = false;
   bool _deferredStartupTriggered = false;
+  bool _navigated = false;
 
   @override
   void initState() {
@@ -35,63 +35,72 @@ class _StartScreenState extends State<StartScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initApp();
     });
+    // Hard safety net: if anything stalls, force navigation after 9s so the
+    // app can never be stuck on the splash forever.
+    Future.delayed(const Duration(seconds: 9), () {
+      if (!mounted || _navigated) return;
+      setState(() {
+        _splashDone = true;
+        _authDone = true;
+      });
+      _maybeNavigate();
+    });
   }
 
   Future<void> _initApp() async {
     if (!mounted) return;
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
+    var termsAccepted = false;
+    var onboardingDone = false;
 
-    // Read local prefs and run auth check concurrently — saves ~100 ms of
-    // sequential disk I/O before the network call starts.
-    final prefsAndAuth = await Future.wait([
-      SharedPreferences.getInstance(),
-      auth.checkAuth().then((_) => null),
-    ]);
-    final prefs = prefsAndAuth[0] as SharedPreferences;
+    // The whole startup check is wrapped so a thrown error or a hung network
+    // can NEVER leave the app stuck on the splash — _authDone is always set.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Auth check with a timeout (token read / socket connect can stall).
+      await auth
+          .checkAuth()
+          .timeout(const Duration(seconds: 8), onTimeout: () {});
 
-    var termsAccepted = prefs.getBool('terms_accepted') ?? false;
-    // "Once per account" — terms acceptance is tracked on the server per account.
-    if (auth.isAuthenticated) {
-      if (!termsAccepted) {
-        // Did this account already accept on another device/reinstall? If so,
-        // don't ask again.
-        try {
-          if (await ApiService().getTermsStatus()) {
-            termsAccepted = true;
-            await prefs.setBool('terms_accepted', true);
-          }
-        } catch (_) {}
-      } else if (!(prefs.getBool('terms_server_synced') ?? false)) {
-        // Accepted locally (possibly before this account logged in) — record it
-        // on the account once so other devices honor it.
-        ApiService().acceptTermsOnServer();
-        await prefs.setBool('terms_server_synced', true);
-      }
-    }
-    bool onboardingDone = prefs.getBool('onboarding_done') ?? false;
-
-    // Reinstall case: only check the server profile when:
-    //   (a) onboardingDone is false, AND
-    //   (b) we haven't already confirmed it from the server this install
-    //       (tracked by 'onboarding_server_checked').
-    // This avoids a blocking API call on every cold start.
-    if (!onboardingDone &&
-        auth.isAuthenticated &&
-        !(prefs.getBool('onboarding_server_checked') ?? false)) {
-      try {
-        final p = await ApiService().getMyMatchProfile();
-        final profileMap = p['profile'];
-        final gender = profileMap is Map
-            ? (profileMap['gender']?.toString().trim() ?? '')
-            : '';
-        if (gender.isNotEmpty) {
-          onboardingDone = true;
-          await prefs.setBool('onboarding_done', true);
+      termsAccepted = prefs.getBool('terms_accepted') ?? false;
+      if (auth.isAuthenticated) {
+        if (!termsAccepted) {
+          try {
+            if (await ApiService()
+                .getTermsStatus()
+                .timeout(const Duration(seconds: 8))) {
+              termsAccepted = true;
+              await prefs.setBool('terms_accepted', true);
+            }
+          } catch (_) {}
+        } else if (!(prefs.getBool('terms_server_synced') ?? false)) {
+          ApiService().acceptTermsOnServer();
+          await prefs.setBool('terms_server_synced', true);
         }
-        // Mark as checked so we don't call the server on the next launch.
-        await prefs.setBool('onboarding_server_checked', true);
-      } catch (_) {}
+      }
+
+      onboardingDone = prefs.getBool('onboarding_done') ?? false;
+      if (!onboardingDone &&
+          auth.isAuthenticated &&
+          !(prefs.getBool('onboarding_server_checked') ?? false)) {
+        try {
+          final p = await ApiService()
+              .getMyMatchProfile()
+              .timeout(const Duration(seconds: 8));
+          final profileMap = p['profile'];
+          final gender = profileMap is Map
+              ? (profileMap['gender']?.toString().trim() ?? '')
+              : '';
+          if (gender.isNotEmpty) {
+            onboardingDone = true;
+            await prefs.setBool('onboarding_done', true);
+          }
+          await prefs.setBool('onboarding_server_checked', true);
+        } catch (_) {}
+      }
+    } catch (_) {
+      // Swallow — never block startup on an error.
     }
 
     if (!mounted) return;
@@ -116,7 +125,8 @@ class _StartScreenState extends State<StartScreen> {
 
   void _maybeNavigate() {
     // Only navigate once both splash animation AND auth check are done
-    if (!_splashDone || !_authDone) return;
+    if (!_splashDone || !_authDone || _navigated) return;
+    _navigated = true;
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
 
@@ -136,9 +146,10 @@ class _StartScreenState extends State<StartScreen> {
       destination = const HomeScreen();
     } else {
       // Not logged in → browse as a guest by default (no forced login screen).
-      // Guests can view content; any activity prompts account creation via
-      // LoginRequiredSheet inside the guest experience.
-      destination = const GuestMainScreen();
+      // Guests get the same HomeScreen as everyone else so the app doesn't
+      // change shape after signing in; HomeScreen already gates the Match /
+      // Chat / Profile tabs and posting behind LoginRequiredSheet.
+      destination = const HomeScreen();
     }
 
     if (!mounted) return;
@@ -185,13 +196,13 @@ class _StartScreenState extends State<StartScreen> {
     } else if (auth.isAuthenticated) {
       destination = const HomeScreen();
     } else if (auth.isGuest) {
-      destination = const GuestMainScreen();
+      destination = const HomeScreen();
     } else {
       // First visit / signed out: go straight to guest browsing instead of
       // forcing account creation. Any activity (like, comment, message, post…)
       // prompts sign-up from within guest mode.
       auth.enterGuestMode();
-      destination = const GuestMainScreen();
+      destination = const HomeScreen();
     }
     navigatorKey.currentState?.pushReplacement(
       MaterialPageRoute(builder: (_) => destination),
