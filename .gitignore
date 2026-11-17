@@ -231,3 +231,11 @@ apk_keep/
 # GOOGLE_SERVICES_IOS variable (see codemagic.yaml), the same way config.php
 # and service_account.json stay server-only.
 ios/Runner/GoogleService-Info.plist
+
+# Gradle build output that slipped into the tree
+/android/build/
+
+# Stray root copy of bunny_config.php — it still carries the storage key
+# inline. The real one lives at backend/api/v1/bunny_config.php and reads
+# its credentials from config.php.
+/bunny_config.php
