@@ -126,6 +126,10 @@ workflows:
   #       # Left off deliberately: review submission should be a human decision.
   #       submit_to_app_store: false
   #
+  # Note: this builds for a real device (-sdk iphoneos), not a simulator.
+  # google_mlkit_face_detection pulls in MLKit pods that ship no arm64
+  # simulator slice, so a simulator build fails on Apple Silicon runners.
+  # Device builds are unaffected, and that is what ships.
   ios-check:
     name: iOS — analyse and build unsigned (every push)
     instance_type: mac_mini_m2
@@ -184,7 +188,26 @@ workflows:
           echo "re-running the build later usually clears it."
           exit 1
       - name: Build unsigned
-        script: flutter build ios --release --no-codesign
+        script: |
+          # `flutter build ios --no-codesign` compiles fine — the Xcode build
+          # completes — but Flutter's wrapper then still demands a Development
+          # Team and fails, which tells us nothing about whether the code is
+          # sound. This workflow only needs to answer "does it compile", so
+          # drive xcodebuild directly with signing switched off.
+          set -euo pipefail
+          flutter build ios --release --no-codesign --config-only
+          cd ios
+          xcodebuild \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            build
     artifacts:
       - /tmp/xcodebuild_logs/*.log
       # Once a run resolves pods successfully, download this and commit it.
