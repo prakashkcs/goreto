@@ -26,3 +26,18 @@ linter:
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options
+
+analyzer:
+  exclude:
+    # A scratch Flutter app committed in 77c8712 while testing iOS builds. It
+    # is a separate project with its own pubspec, written against a newer Dart
+    # language version, so analysing it as part of this one reports errors that
+    # have nothing to do with the app:
+    #   temp_flutter_project/lib/main.dart - requires 'dot-shorthands'
+    #   temp_flutter_project/test/widget_test.dart - 'MyApp' isn't a class
+    # Those errors failed CI at the analyse step. Excluding it keeps the folder
+    # where it is while letting `flutter analyze` speak only about this app.
+    - temp_flutter_project/**
+    - build/**
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"

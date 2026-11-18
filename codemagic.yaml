@@ -157,7 +157,11 @@ workflows:
       - name: Analyse
         script: flutter analyze --no-fatal-infos --no-fatal-warnings
       - name: Install pods
-        script: find . -name "Podfile" -execdir pod install \;
+        script: |
+          # Only this app's Podfile. A bare `find .` also walks
+          # temp_flutter_project/, a scratch project committed years ago that
+          # has nothing to do with the build.
+          cd ios && pod install --repo-update
       - name: Build unsigned
         script: flutter build ios --release --no-codesign
     artifacts:
