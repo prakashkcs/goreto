@@ -39,83 +39,93 @@ definitions:
       - $FLUTTER_ROOT/.pub-cache
 
 workflows:
-  ios-release:
-    name: iOS — build and ship to TestFlight
-    instance_type: mac_mini_m2
-    max_build_duration: 90
-    environment:
-      flutter: *flutter_version
-      xcode: latest
-      cocoapods: default
-      groups:
-        - goreto_ios
-      vars:
-        BUNDLE_ID: "com.nex.ekloapp"
-      # Name of the App Store Connect API key as it is saved under
-      # Teams -> Integrations -> Developer Portal. It must match exactly, and
-      # it is what both ios_signing and the TestFlight upload authenticate
-      # with — "auth: integration" below refers back to this.
-      integrations:
-        app_store_connect: goreto_app_store_connect
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.nex.ekloapp
-    cache:
-      <<: *base_cache
-      cache_paths:
-        - $HOME/.pub-cache
-        - $HOME/Library/Caches/CocoaPods
-    triggering:
-      events:
-        - tag
-      tag_patterns:
-        - pattern: "v*"
-          include: true
-    scripts:
-      - name: Restore GoogleService-Info.plist
-        script: |
-          # Firebase config is not committed; it arrives as a secure variable.
-          if [ -z "$GOOGLE_SERVICES_IOS" ]; then
-            echo "GOOGLE_SERVICES_IOS is not set — Firebase would fail to"
-            echo "initialise at launch, so refusing to build a broken IPA."
-            exit 1
-          fi
-          echo "$GOOGLE_SERVICES_IOS" | base64 --decode > ios/Runner/GoogleService-Info.plist
-          plutil -lint ios/Runner/GoogleService-Info.plist
-
-      - name: Flutter dependencies
-        script: flutter pub get
-
-      - name: Install pods
-        script: |
-          find . -name "Podfile" -execdir pod install \;
-
-      - name: Set build number from Codemagic
-        script: |
-          # Keep CFBundleVersion monotonic without editing pubspec each time.
-          BUILD_NUMBER=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0) + 1))
-          echo "Using build number $BUILD_NUMBER"
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
-
-      - name: Set up signing
-        script: xcode-project use-profiles
-
-      - name: Build IPA
-        script: |
-          flutter build ipa --release \
-            --build-number="$BUILD_NUMBER" \
-            --export-options-plist=/Users/builder/export_options.plist
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-      - flutter_drive.log
-    publishing:
-      app_store_connect:
-        auth: integration
-        submit_to_testflight: true
-        # Left off deliberately: review submission should be a human decision.
-        submit_to_app_store: false
-
+  # ---------------------------------------------------------------------
+  # ios-release is parked until the App Store Connect API key exists in
+  # Codemagic under Teams -> Integrations -> Developer Portal, named
+  # exactly `goreto_app_store_connect`. Codemagic validates that the named
+  # integration resolves, and one unresolvable workflow invalidates the
+  # whole file — which was also blocking ios-check from running at all.
+  #
+  # To restore: create that integration, then uncomment everything down to
+  # the ios-check workflow below.
+  # ---------------------------------------------------------------------
+  # ios-release:
+  #   name: iOS — build and ship to TestFlight
+  #   instance_type: mac_mini_m2
+  #   max_build_duration: 90
+  #   environment:
+  #     flutter: *flutter_version
+  #     xcode: latest
+  #     cocoapods: default
+  #     groups:
+  #       - goreto_ios
+  #     vars:
+  #       BUNDLE_ID: "com.nex.ekloapp"
+  #     # Name of the App Store Connect API key as it is saved under
+  #     # Teams -> Integrations -> Developer Portal. It must match exactly, and
+  #     # it is what both ios_signing and the TestFlight upload authenticate
+  #     # with — "auth: integration" below refers back to this.
+  #     integrations:
+  #       app_store_connect: goreto_app_store_connect
+  #     ios_signing:
+  #       distribution_type: app_store
+  #       bundle_identifier: com.nex.ekloapp
+  #   cache:
+  #     <<: *base_cache
+  #     cache_paths:
+  #       - $HOME/.pub-cache
+  #       - $HOME/Library/Caches/CocoaPods
+  #   triggering:
+  #     events:
+  #       - tag
+  #     tag_patterns:
+  #       - pattern: "v*"
+  #         include: true
+  #   scripts:
+  #     - name: Restore GoogleService-Info.plist
+  #       script: |
+  #         # Firebase config is not committed; it arrives as a secure variable.
+  #         if [ -z "$GOOGLE_SERVICES_IOS" ]; then
+  #           echo "GOOGLE_SERVICES_IOS is not set — Firebase would fail to"
+  #           echo "initialise at launch, so refusing to build a broken IPA."
+  #           exit 1
+  #         fi
+  #         echo "$GOOGLE_SERVICES_IOS" | base64 --decode > ios/Runner/GoogleService-Info.plist
+  #         plutil -lint ios/Runner/GoogleService-Info.plist
+  #
+  #     - name: Flutter dependencies
+  #       script: flutter pub get
+  #
+  #     - name: Install pods
+  #       script: |
+  #         find . -name "Podfile" -execdir pod install \;
+  #
+  #     - name: Set build number from Codemagic
+  #       script: |
+  #         # Keep CFBundleVersion monotonic without editing pubspec each time.
+  #         BUILD_NUMBER=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0) + 1))
+  #         echo "Using build number $BUILD_NUMBER"
+  #         echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
+  #
+  #     - name: Set up signing
+  #       script: xcode-project use-profiles
+  #
+  #     - name: Build IPA
+  #       script: |
+  #         flutter build ipa --release \
+  #           --build-number="$BUILD_NUMBER" \
+  #           --export-options-plist=/Users/builder/export_options.plist
+  #   artifacts:
+  #     - build/ios/ipa/*.ipa
+  #     - /tmp/xcodebuild_logs/*.log
+  #     - flutter_drive.log
+  #   publishing:
+  #     app_store_connect:
+  #       auth: integration
+  #       submit_to_testflight: true
+  #       # Left off deliberately: review submission should be a human decision.
+  #       submit_to_app_store: false
+  #
   ios-check:
     name: iOS — analyse and build unsigned (every push)
     instance_type: mac_mini_m2
