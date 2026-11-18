@@ -161,11 +161,36 @@ workflows:
           # Only this app's Podfile. A bare `find .` also walks
           # temp_flutter_project/, a scratch project committed years ago that
           # has nothing to do with the build.
-          cd ios && pod install --repo-update
+          cd ios
+
+          # No --repo-update: it makes CocoaPods re-read every version of every
+          # podspec from the CDN, and with no Podfile.lock to narrow things down
+          # that meant ~69 Firebase podspec fetches, all of which timed out.
+          # The build image already ships a current spec repo.
+          #
+          # CDN timeouts are transient, so retry rather than failing the build
+          # on one bad minute.
+          for attempt in 1 2 3; do
+            if pod install; then
+              echo "pod install succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "pod install failed (attempt $attempt of 3); waiting before retry"
+            sleep $((attempt * 20))
+          done
+
+          echo "pod install still failing after 3 attempts."
+          echo "If the errors are CDN timeouts the CocoaPods CDN is degraded;"
+          echo "re-running the build later usually clears it."
+          exit 1
       - name: Build unsigned
         script: flutter build ios --release --no-codesign
     artifacts:
       - /tmp/xcodebuild_logs/*.log
+      # Once a run resolves pods successfully, download this and commit it.
+      # With a Podfile.lock in the repo CocoaPods stops exploring every
+      # version of every pod, which is what made the CDN time out.
+      - ios/Podfile.lock
 
   android-release:
     name: Android — signed release APK and AAB
