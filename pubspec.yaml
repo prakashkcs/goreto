@@ -95,7 +95,18 @@ dev_dependencies:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
+  # Android keeps the logo on a transparent background, which is what a
+  # launcher icon wants. Apple rejects any alpha channel in the App Store
+  # icon outright (error 90717), so iOS gets its own already-flattened copy.
+  #
+  # remove_alpha_ios alone would not do: it drops the channel with
+  # image.convert(numChannels: 3) rather than compositing, and the RGB under
+  # this logo's transparent corners is black, so the icon would come out as a
+  # black square. It stays on below only as a guard, so that a future source
+  # image with alpha fails loudly here rather than at Apple.
   image_path: "assets/images/goreto.png"
+  image_path_ios: "assets/images/goreto_ios.png"
+  remove_alpha_ios: true
   min_sdk_android: 21
 
 

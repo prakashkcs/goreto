@@ -98,6 +98,14 @@
 	<string>This lets us deliver more relevant ads and measure their performance. Your data is never sold.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Goreto uses the local network to discover nearby devices for offline proximity features.</string>
+	<!-- flutter_blue_plus links CoreBluetooth, and Apple rejects an upload that
+	     references those APIs without a purpose string (ITMS-90683) whether or
+	     not the code path is reachable. BleProximityModule is currently dormant
+	     - nothing calls startSecureDiscovery() - so no prompt is shown today;
+	     this is here so the upload is not refused, and so the wording is
+	     already honest if that module is switched on. -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Goreto uses Bluetooth to find people near you when you turn on nearby discovery. Your identifier is rotated every 15 minutes and is never linked to your profile.</string>
 	<!-- Google's public test AdMob App ID. REPLACE with the real iOS App ID
 	     from your AdMob account before release, same as the Android manifest. -->
 	<key>GADApplicationIdentifier</key>
