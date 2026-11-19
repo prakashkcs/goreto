@@ -1,0 +1,117 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "8QD2HNLB7K.com.nex.ekloapp"
+        ],
+        "components": [
+          {
+            "/": "/ekloadmin/view_post.php",
+            "?": {
+              "id": "?*"
+            },
+            "comment": "Share links the app produced before post.php existed. These three sit above the /ekloadmin/* exclusion on purpose: first match wins, so they are claimed and the rest of the admin area is not."
+          },
+          {
+            "/": "/ekloadmin/api/v1/view_post.php",
+            "?": {
+              "id": "?*"
+            }
+          },
+          {
+            "/": "/ekloadmin/profile_preview.php"
+          },
+          {
+            "/": "/ekloadmin/*",
+            "exclude": true,
+            "caseSensitive": false,
+            "comment": "The admin panel and the whole API live here. Apple matches the first entry that fits and an exclude stops matching, so every exclusion has to sit above the catch-all below."
+          },
+          {
+            "/": "/ekloadmin",
+            "exclude": true,
+            "caseSensitive": false,
+            "comment": "The same path without its trailing slash, which /ekloadmin/* does not cover."
+          },
+          {
+            "/": "/config/*",
+            "exclude": true,
+            "caseSensitive": false,
+            "comment": "Server configuration. Nothing here should ever reach the app."
+          },
+          {
+            "/": "/.well-known/*",
+            "exclude": true,
+            "comment": "Including this file itself, which iOS fetches directly."
+          },
+          {
+            "/": "/privacy.html",
+            "exclude": true,
+            "caseSensitive": false,
+            "comment": "Privacy policy, terms and account deletion must open in a browser: App Review, the App Store listing and people who do not have the app all follow these links."
+          },
+          {
+            "/": "/terms.html",
+            "exclude": true,
+            "caseSensitive": false
+          },
+          {
+            "/": "/delete-account.html",
+            "exclude": true,
+            "caseSensitive": false
+          },
+          {
+            "/": "/",
+            "exclude": true,
+            "comment": "The landing page stays a landing page. Without this, anyone who has the app installed could no longer open goreto.org to read it."
+          },
+          {
+            "/": "/*.png",
+            "exclude": true,
+            "caseSensitive": false,
+            "comment": "Icons and other static files are fetched, not visited."
+          },
+          {
+            "/": "/*.ico",
+            "exclude": true,
+            "caseSensitive": false
+          },
+          {
+            "/": "/*.xml",
+            "exclude": true,
+            "caseSensitive": false
+          },
+          {
+            "/": "/*.txt",
+            "exclude": true,
+            "caseSensitive": false
+          },
+          {
+            "/": "/*.webmanifest",
+            "exclude": true,
+            "caseSensitive": false
+          },
+          {
+            "/": "/post.php",
+            "?": {
+              "id": "?*"
+            },
+            "comment": "The share landing page for a single post."
+          },
+          {
+            "/": "/profile.php",
+            "?": {
+              "id": "?*"
+            },
+            "comment": "A profile shared by id rather than by username."
+          },
+          {
+            "/": "/*",
+            "comment": "Everything that is left: goreto.org/{username} and goreto.org/{username}/{postId}, which is the form share_bottom_sheet.dart actually produces."
+          }
+        ]
+      }
+    ]
+  }
+}

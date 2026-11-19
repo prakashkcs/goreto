@@ -222,9 +222,14 @@ class DeepLinkService {
     return null;
   }
 
-  bool _isGoretoHost(Uri uri) =>
-      (uri.scheme == 'https' || uri.scheme == 'http') &&
-      uri.host == 'goreto.org';
+  /// www counts too. The associated-domains entitlement claims both hosts, so
+  /// iOS will hand us a www link and the app has to recognise it -- being
+  /// opened for a URL and then doing nothing is worse than never opening.
+  bool _isGoretoHost(Uri uri) {
+    if (uri.scheme != 'https' && uri.scheme != 'http') return false;
+    final host = uri.host.toLowerCase();
+    return host == 'goreto.org' || host == 'www.goreto.org';
+  }
 
   Future<void> _resolveUsernameAndNavigate(
       NavigatorState nav, String username) async {

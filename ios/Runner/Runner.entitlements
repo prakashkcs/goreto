@@ -13,5 +13,19 @@
 	     exporting with an App Store profile re-signs it as "production". -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Lets https://goreto.org/... open the app instead of Safari, which is
+	     what every link the share sheet produces looks like. Android has had
+	     this since the start through an intent filter in AndroidManifest.xml;
+	     iOS needs the entitlement here, the Associated Domains capability on
+	     the bundle ID, and the file served at
+	     https://goreto.org/.well-known/apple-app-site-association. All three,
+	     or nothing happens. That file excludes /ekloadmin/*, the legal
+	     pages and the landing page, so the admin panel and anything a
+	     reviewer needs to read still open in a browser. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:goreto.org</string>
+		<string>applinks:www.goreto.org</string>
+	</array>
 </dict>
 </plist>
