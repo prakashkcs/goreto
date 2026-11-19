@@ -265,8 +265,12 @@ workflows:
     triggering:
       events:
         - tag
+      # Android releases get their own tag prefix. On a shared "v*" every iOS
+      # release would also start this workflow, and until goreto_android holds
+      # the keystore that run can only fail - a red build next to a good one,
+      # saying nothing except that Android was not what was being released.
       tag_patterns:
-        - pattern: "v*"
+        - pattern: "android-v*"
           include: true
     scripts:
       - name: Restore the upload keystore
