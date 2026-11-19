@@ -4,31 +4,46 @@
 # this project is developed on. It produces a signed .ipa and, on the release
 # workflow, uploads it to TestFlight.
 #
-# Before the first iOS run, set these up in the Codemagic UI — they are not in
-# this file on purpose, because they are credentials:
+# Signing authenticates through environment variables, not through the
+# "Teams -> Team integrations -> Developer Portal" key store. That page only
+# exists on team accounts, and `integrations: app_store_connect: <name>` can
+# only refer to a key saved there, so on a personal account that route is a
+# dead end. The variable route is documented by Codemagic and works on any
+# plan: https://docs.codemagic.io/yaml-code-signing/signing-ios/
 #
-#   1. Teams → Integrations → Developer Portal: connect the App Store Connect
-#      API key (Apple Developer → Users and Access → Integrations → App Store
-#      Connect API → generate a key, upload the .p8 with its Key ID and
-#      Issuer ID). Code signing below fetches the profile through this.
-#      Name it exactly `goreto_app_store_connect` — the ios-release workflow
-#      refers to it by that name, and a mismatch fails validation rather than
-#      falling back to anything.
+# Before the first iOS release run, create these in the Codemagic UI under
+# Environment variables, all in group `goreto_ios`. They are credentials, so
+# they are deliberately not in this file:
 #
-#   2. Environment variables group `goreto_ios`:
-#        APP_STORE_APPLE_ID   6835568733 — the numeric id of "Goreto Nepali
-#                             Dating App" in App Store Connect. Not a secret;
-#                             it is the number in the console URL
-#                             appstoreconnect.apple.com/apps/<id>/
-#        GOOGLE_SERVICES_IOS  base64 of ios/Runner/GoogleService-Info.plist,
-#                             marked Secure. Firebase will not initialise on
-#                             iOS without this file, so push and Google
-#                             Sign-In stay dead until it is set. Produce it
-#                             with:  base64 -i GoogleService-Info.plist
+#   APP_STORE_CONNECT_PRIVATE_KEY     Secret. The whole .p8 file downloaded from
+#                                     App Store Connect -> Users and Access ->
+#                                     Integrations -> App Store Connect API,
+#                                     including the BEGIN/END lines.
+#   APP_STORE_CONNECT_KEY_IDENTIFIER  Secret. The Key ID of that key.
+#   APP_STORE_CONNECT_ISSUER_ID       Secret. The Issuer ID shown above the
+#                                     key list (one per account).
+#   CERTIFICATE_PRIVATE_KEY           Secret. An RSA private key, BEGIN/END
+#                                     lines included. Apple issues the iOS
+#                                     distribution certificate against this,
+#                                     so the same key must be reused for every
+#                                     build, or Apple mints a new certificate
+#                                     each time and an account may hold only
+#                                     two. Generate one with:
+#                                       ssh-keygen -t rsa -b 2048 -m PEM \
+#                                         -f ios_distribution_private_key -q -N ""
+#   APP_STORE_APPLE_ID                Not secret. 6835568733, the numeric id of
+#                                     "Goreto Nepali Dating App" and the number
+#                                     in appstoreconnect.apple.com/apps/<id>/
+#   GOOGLE_SERVICES_IOS               Secret. base64 of
+#                                     ios/Runner/GoogleService-Info.plist, which
+#                                     is not committed. Firebase will not
+#                                     initialise on iOS without it, so push and
+#                                     Google Sign-In stay dead until it is set.
+#                                       base64 -i GoogleService-Info.plist
 #
-#   3. Environment variables group `goreto_android` (only for the android
-#      workflow): CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS,
-#      CM_KEY_PASSWORD — the same upload-keystore.jks already used locally.
+# Group `goreto_android` (android workflow only): CM_KEYSTORE,
+# CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD, the same
+# upload-keystore.jks already used locally.
 
 definitions:
   flutter_version: &flutter_version 3.41.6
@@ -39,99 +54,121 @@ definitions:
       - $FLUTTER_ROOT/.pub-cache
 
 workflows:
-  # ---------------------------------------------------------------------
-  # ios-release is parked until the App Store Connect API key exists in
-  # Codemagic under Teams -> Integrations -> Developer Portal, named
-  # exactly `goreto_app_store_connect`. Codemagic validates that the named
-  # integration resolves, and one unresolvable workflow invalidates the
-  # whole file — which was also blocking ios-check from running at all.
-  #
-  # To restore: create that integration, then uncomment everything down to
-  # the ios-check workflow below.
-  # ---------------------------------------------------------------------
-  # ios-release:
-  #   name: iOS — build and ship to TestFlight
-  #   instance_type: mac_mini_m2
-  #   max_build_duration: 90
-  #   environment:
-  #     flutter: *flutter_version
-  #     xcode: latest
-  #     cocoapods: default
-  #     groups:
-  #       - goreto_ios
-  #     vars:
-  #       BUNDLE_ID: "com.nex.ekloapp"
-  #     # Name of the App Store Connect API key as it is saved under
-  #     # Teams -> Integrations -> Developer Portal. It must match exactly, and
-  #     # it is what both ios_signing and the TestFlight upload authenticate
-  #     # with — "auth: integration" below refers back to this.
-  #     integrations:
-  #       app_store_connect: goreto_app_store_connect
-  #     ios_signing:
-  #       distribution_type: app_store
-  #       bundle_identifier: com.nex.ekloapp
-  #   cache:
-  #     <<: *base_cache
-  #     cache_paths:
-  #       - $HOME/.pub-cache
-  #       - $HOME/Library/Caches/CocoaPods
-  #   triggering:
-  #     events:
-  #       - tag
-  #     tag_patterns:
-  #       - pattern: "v*"
-  #         include: true
-  #   scripts:
-  #     - name: Restore GoogleService-Info.plist
-  #       script: |
-  #         # Firebase config is not committed; it arrives as a secure variable.
-  #         if [ -z "$GOOGLE_SERVICES_IOS" ]; then
-  #           echo "GOOGLE_SERVICES_IOS is not set — Firebase would fail to"
-  #           echo "initialise at launch, so refusing to build a broken IPA."
-  #           exit 1
-  #         fi
-  #         echo "$GOOGLE_SERVICES_IOS" | base64 --decode > ios/Runner/GoogleService-Info.plist
-  #         plutil -lint ios/Runner/GoogleService-Info.plist
-  #
-  #     - name: Flutter dependencies
-  #       script: flutter pub get
-  #
-  #     - name: Install pods
-  #       script: |
-  #         find . -name "Podfile" -execdir pod install \;
-  #
-  #     - name: Set build number from Codemagic
-  #       script: |
-  #         # Keep CFBundleVersion monotonic without editing pubspec each time.
-  #         BUILD_NUMBER=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0) + 1))
-  #         echo "Using build number $BUILD_NUMBER"
-  #         echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
-  #
-  #     - name: Set up signing
-  #       script: xcode-project use-profiles
-  #
-  #     - name: Build IPA
-  #       script: |
-  #         flutter build ipa --release \
-  #           --build-number="$BUILD_NUMBER" \
-  #           --export-options-plist=/Users/builder/export_options.plist
-  #   artifacts:
-  #     - build/ios/ipa/*.ipa
-  #     - /tmp/xcodebuild_logs/*.log
-  #     - flutter_drive.log
-  #   publishing:
-  #     app_store_connect:
-  #       auth: integration
-  #       submit_to_testflight: true
-  #       # Left off deliberately: review submission should be a human decision.
-  #       submit_to_app_store: false
-  #
+  ios-release:
+    name: iOS - build and ship to TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    environment:
+      flutter: *flutter_version
+      xcode: latest
+      cocoapods: default
+      groups:
+        - goreto_ios
+      vars:
+        BUNDLE_ID: "com.nex.ekloapp"
+    cache:
+      <<: *base_cache
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: "v*"
+          include: true
+    scripts:
+      - name: Check the signing credentials are present
+        script: |
+          # Failing here costs seconds. Failing after the build costs most of
+          # the slot, and the error Apple returns for a missing key does not
+          # obviously say that a key is missing.
+          set -eu
+          missing=""
+          for v in APP_STORE_CONNECT_PRIVATE_KEY APP_STORE_CONNECT_KEY_IDENTIFIER \
+                   APP_STORE_CONNECT_ISSUER_ID CERTIFICATE_PRIVATE_KEY \
+                   APP_STORE_APPLE_ID GOOGLE_SERVICES_IOS; do
+            eval "val=\${$v:-}"
+            if [ -z "$val" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing from the goreto_ios variable group:$missing"
+            echo "See the comment at the top of codemagic.yaml for each one."
+            exit 1
+          fi
+          echo "All six signing variables are set."
+
+      - name: Restore GoogleService-Info.plist
+        script: |
+          set -eu
+          echo "$GOOGLE_SERVICES_IOS" | base64 --decode > ios/Runner/GoogleService-Info.plist
+          plutil -lint ios/Runner/GoogleService-Info.plist
+
+      - name: Flutter dependencies
+        script: flutter pub get
+
+      - name: Install pods
+        script: |
+          # Only this app's Podfile - see the note in ios-check below.
+          cd ios
+          pod install
+
+      - name: Initialise the keychain
+        script: keychain initialize
+
+      - name: Fetch signing files
+        script: |
+          # --create lets Apple issue the certificate and the profile on the
+          # first run. It matches an existing certificate against
+          # CERTIFICATE_PRIVATE_KEY when one exists, so later runs reuse it
+          # rather than burning one of the two distribution certificates an
+          # account is allowed to hold.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Set up the signing certificate
+        script: keychain add-certificates
+
+      - name: Apply signing settings to the Xcode project
+        script: xcode-project use-profiles
+
+      - name: Set build number from App Store Connect
+        script: |
+          # Keeps CFBundleVersion monotonic without editing pubspec each time.
+          # Apple rejects a build whose number is not higher than the last one.
+          set -eu
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0)
+          BUILD_NUMBER=$((LATEST + 1))
+          echo "Latest on TestFlight: $LATEST - building $BUILD_NUMBER"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
+
+      - name: Build IPA
+        script: |
+          set -euo pipefail
+          flutter build ipa --release \
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+    publishing:
+      app_store_connect:
+        # The same three variables the CLI steps above authenticate with.
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
+        # Left off deliberately: review submission should be a human decision.
+        submit_to_app_store: false
+
   # Note: this builds for a real device (-sdk iphoneos), not a simulator.
   # google_mlkit_face_detection pulls in MLKit pods that ship no arm64
   # simulator slice, so a simulator build fails on Apple Silicon runners.
   # Device builds are unaffected, and that is what ships.
   ios-check:
-    name: iOS — analyse and build unsigned (every push)
+    name: iOS - analyse and build unsigned (every push)
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -154,7 +191,7 @@ workflows:
           if [ -n "$GOOGLE_SERVICES_IOS" ]; then
             echo "$GOOGLE_SERVICES_IOS" | base64 --decode > ios/Runner/GoogleService-Info.plist
           else
-            echo "No GOOGLE_SERVICES_IOS set — compiling without Firebase config."
+            echo "No GOOGLE_SERVICES_IOS set - compiling without Firebase config."
           fi
       - name: Flutter dependencies
         script: flutter pub get
@@ -189,8 +226,8 @@ workflows:
           exit 1
       - name: Build unsigned
         script: |
-          # `flutter build ios --no-codesign` compiles fine — the Xcode build
-          # completes — but Flutter's wrapper then still demands a Development
+          # `flutter build ios --no-codesign` compiles fine - the Xcode build
+          # completes - but Flutter's wrapper then still demands a Development
           # Team and fails, which tells us nothing about whether the code is
           # sound. This workflow only needs to answer "does it compile", so
           # drive xcodebuild directly with signing switched off.
@@ -216,7 +253,7 @@ workflows:
       - ios/Podfile.lock
 
   android-release:
-    name: Android — signed release APK and AAB
+    name: Android - signed release APK and AAB
     instance_type: linux_x2
     max_build_duration: 60
     environment:
@@ -235,7 +272,7 @@ workflows:
       - name: Restore the upload keystore
         script: |
           if [ -z "$CM_KEYSTORE" ]; then
-            echo "CM_KEYSTORE is not set — an unsigned build cannot be shipped."
+            echo "CM_KEYSTORE is not set - an unsigned build cannot be shipped."
             exit 1
           fi
           echo "$CM_KEYSTORE" | base64 --decode > "$CM_BUILD_DIR/android/upload-keystore.jks"
