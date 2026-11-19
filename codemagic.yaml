@@ -188,11 +188,21 @@ workflows:
     scripts:
       - name: Restore GoogleService-Info.plist
         script: |
-          if [ -n "$GOOGLE_SERVICES_IOS" ]; then
-            echo "$GOOGLE_SERVICES_IOS" | base64 --decode > ios/Runner/GoogleService-Info.plist
-          else
-            echo "No GOOGLE_SERVICES_IOS set - compiling without Firebase config."
+          # Required, not optional. The file is listed in the Runner target's
+          # Resources build phase, so Xcode fails with "Build input file cannot
+          # be found" without it -- and before it was listed there the build
+          # succeeded while shipping an app whose Google Sign-In crashed on
+          # first tap, because the native plugin reads CLIENT_ID out of this
+          # file in the app bundle. A missing variable should stop the build,
+          # not produce a broken binary.
+          set -eu
+          if [ -z "${GOOGLE_SERVICES_IOS:-}" ]; then
+            echo "GOOGLE_SERVICES_IOS is not set in the goreto_ios group."
+            echo "It is base64 of ios/Runner/GoogleService-Info.plist."
+            exit 1
           fi
+          echo "$GOOGLE_SERVICES_IOS" | base64 --decode > ios/Runner/GoogleService-Info.plist
+          plutil -lint ios/Runner/GoogleService-Info.plist
       - name: Flutter dependencies
         script: flutter pub get
       - name: Analyse
