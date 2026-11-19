@@ -62,7 +62,14 @@ dependencies:
   flutter_background_service: ^5.0.5
   zego_uikit_prebuilt_live_streaming: ^3.15.6
   # Signaling plugin enables co-host invitations (add audience as guest on live).
-  zego_uikit_signaling_plugin: ^2.8.0
+  # Must be >= 2.8.21. Up to 2.8.20 this package declared zego_zim ^2.21.1+1,
+  # which happily resolves to 2.28.0 — where onMessageReactionsChanged changed
+  # from List<ZIMMessageReaction> to ZIMMessageReactionsChangedEventResult. The
+  # pairing does not compile, and the only reason it ever built here is that
+  # the file had been hand-edited inside .pub-cache, which no other machine or
+  # CI run would have. 2.8.21 is the first release that declares zego_zim
+  # ^2.28.0 and matches that API for real.
+  zego_uikit_signaling_plugin: ^2.8.21
   font_awesome_flutter: ^10.7.0
   video_thumbnail: ^0.5.3
   image_cropper: ^8.0.2
