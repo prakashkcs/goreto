@@ -2006,6 +2006,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? VideoFeedItem(
                         key: ValueKey('feed_$stablePostKey'),
                         post: post,
+                        // Guests browse this same feed. Without this the card
+                        // defaults to isGuest: false and its login prompt
+                        // never fires, so a guest could like and comment.
+                        isGuest: isGuestView,
                         onLike: () {},
                         onComment: () {},
                         onShare: () => _feedController.loadFeed(force: true),
@@ -2016,6 +2020,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         key: ValueKey('feed_$stablePostKey'),
                         post: post,
                         isActive: index == _activeFeedIndex,
+                        isGuest: isGuestView,
                         onLike: () {},
                         onComment: () {},
                         onShare: () => _feedController.loadFeed(force: true),

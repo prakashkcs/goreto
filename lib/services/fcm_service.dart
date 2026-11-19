@@ -69,8 +69,20 @@ Future<void> fcmBackgroundMessageHandler(RemoteMessage message) async {
 
   if (message.data.isEmpty) return;
 
-  // Block nearby from blocked users even in background.
   final type = message.data['type']?.toString();
+
+  // The caller hung up before this phone answered. signaling.php pushes
+  // call_cancelled for exactly this, but nothing used to read it, so the
+  // ringing tray stayed up -- and it is posted with ongoing: true, which
+  // means the user cannot even swipe it away. Clear it and show nothing.
+  if (type == 'call_cancelled' ||
+      message.data['action']?.toString() == 'call_cancelled') {
+    await FCMService._ensureLocalNotificationsReady();
+    await FCMService.dismissCallNotification();
+    return;
+  }
+
+  // Block nearby from blocked users even in background.
   if (type == 'nearby') {
     final senderId = message.data['sender_id']?.toString() ?? '';
     if (senderId.isNotEmpty &&
@@ -150,6 +162,13 @@ void _handleNotificationData(
 }) {
   final action = data['action']?.toString();
   final type = data['type']?.toString();
+
+  // Caller gave up: drop the ringing tray and do not route anywhere. Without
+  // this an already-cancelled call could still open the call screen.
+  if (type == 'call_cancelled' || action == 'call_cancelled') {
+    FCMService.dismissCallNotification();
+    return;
+  }
 
   bool isCall = (action == 'incoming_call' || type == 'incoming_call');
 
@@ -639,6 +658,11 @@ class FCMService {
             playSound: true,
             autoCancel: !isCall,
             ongoing: isCall,
+            // A call tray is ongoing, so the user cannot dismiss it by hand.
+            // signaling.php marks a ringing call missed after 60s, so past
+            // that point the tray is certainly stale; let Android remove it
+            // even if the call_cancelled push never arrives.
+            timeoutAfter: isCall ? 65000 : null,
             sound: channelSound,
             fullScreenIntent: isCall || type == 'nearby',
             // Nearby uses the call category too so Android honors the
@@ -792,6 +816,12 @@ class FCMService {
                 await NearbyBlockService.instance.isBlocked(senderId);
             if (blocked) return;
           }
+        }
+
+        if (type == 'call_cancelled' || action == 'call_cancelled') {
+          await dismissCallNotification();
+          _handleNotificationData(data, autoAccept: false);
+          return;
         }
 
         bool isCall = (action == 'incoming_call' || type == 'incoming_call');

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:love_vibe_pro/providers/auth_provider.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/widgets/photo_feed_item.dart';
 import 'package:love_vibe_pro/widgets/video_feed_item.dart';
@@ -101,6 +103,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
     final post = _post!;
     final isVideo = _isVideo(post);
+    // A guest can reach this screen from a shared link or the guest feed, so
+    // the card needs to know - otherwise it defaults to a signed-in user and
+    // liking silently does nothing useful.
+    final auth = Provider.of<AuthProvider>(context);
+    final isGuest = auth.isGuest || !auth.isAuthenticated;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
@@ -119,9 +126,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         child: isVideo
             ? VideoFeedItem(
                 post: post,
+                isGuest: isGuest,
               )
             : PhotoFeedItem(
                 post: post,
+                isGuest: isGuest,
               ),
       ),
     );
