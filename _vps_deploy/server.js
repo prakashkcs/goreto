@@ -139,6 +139,65 @@ io.on('connection', (socket) => {
         return ack && ack({ success: false, error: 'Missing fields' });
       }
 
+      // chat.php refuses a message from a blocked user and files a first
+      // message from a non-friend as a request. This handler did neither, so
+      // anything sent while the socket was connected skipped both checks --
+      // which is why a stranger's message landed straight in the inbox and a
+      // block could be talked through. The rules below mirror chat.php.
+
+      // 1. Blocks, in either direction.
+      const [blockRows] = await db.query(
+        `SELECT 1 FROM user_blocks
+          WHERE (blocker_id = ? AND blocked_id = ?)
+             OR (blocker_id = ? AND blocked_id = ?) LIMIT 1`,
+        [userId, receiver_id, receiver_id, userId]
+      );
+      if (blockRows.length) {
+        return ack && ack({ success: false, error: 'blocked' });
+      }
+
+      // 2. Friendship here means following each other, as isMutualFriend()
+      //    defines it in chat.php.
+      const [friendRows] = await db.query(
+        `SELECT
+           EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?) AS a,
+           EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?) AS b`,
+        [userId, receiver_id, receiver_id, userId]
+      );
+      const isFriend = !!(friendRows[0] && friendRows[0].a && friendRows[0].b);
+
+      if (!isFriend) {
+        const [reqRows] = await db.query(
+          `SELECT requester_id, accepted FROM message_requests
+            WHERE (requester_id = ? AND receiver_id = ?)
+               OR (requester_id = ? AND receiver_id = ?) LIMIT 1`,
+          [userId, receiver_id, receiver_id, userId]
+        );
+
+        if (!reqRows.length) {
+          // 3. A stranger may be refused outright by the recipient's setting.
+          const [privRows] = await db.query(
+            'SELECT COALESCE(privacy_allow_unknown_inbox, 1) AS allowed FROM users WHERE id = ? LIMIT 1',
+            [receiver_id]
+          );
+          const allowed = privRows.length ? Number(privRows[0].allowed) : 1;
+          if (!allowed) {
+            return ack && ack({ success: false, error: 'strangers_blocked' });
+          }
+          await db.query(
+            'INSERT IGNORE INTO message_requests (requester_id, receiver_id, accepted) VALUES (?, ?, 0)',
+            [userId, receiver_id]
+          );
+        } else if (!reqRows[0].accepted && Number(reqRows[0].requester_id) !== Number(userId)) {
+          // Replying to someone who wrote first accepts their request, which
+          // is what chat.php does on the same path.
+          await db.query(
+            'UPDATE message_requests SET accepted = 1 WHERE requester_id = ? AND receiver_id = ?',
+            [receiver_id, userId]
+          );
+        }
+      }
+
       // Insert message
       const [result] = await db.query(
         `INSERT INTO messages (sender_id, receiver_id, content, type, status, created_at)
