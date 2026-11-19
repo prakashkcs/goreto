@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_core.php';
+require_once __DIR__ . '/_cascade.php';
 admin_require_login();
 
 $pageTitle = 'Users';
@@ -120,18 +121,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 if (isset($_GET['delete'])) {
   $id = (int) $_GET['delete'];
+  $msg = '';
   if ($id > 0) {
-    foreach (['post_likes', 'post_comments', 'posts', 'stories', 'collections', 'user_sessions', 'wallet_transactions', 'user_wallets'] as $t)
-      try {
-        $pdo->prepare("DELETE FROM $t WHERE user_id=?")->execute([$id]);
-      } catch (Throwable $_) {
-      }
+    // Was: eight hard-coded tables, each DELETE wrapped in an empty catch,
+    // the DELETE FROM users included. 67 tables reference users, so the rest
+    // were left pointing at an id that no longer existed, and a failure was
+    // indistinguishable from success.
     try {
-      $pdo->prepare("DELETE FROM users WHERE id=?")->execute([$id]);
-    } catch (Throwable $_) {
+      $removed = cascade_delete_user($pdo, $id, 'admin:' . ($_SESSION['admin_user'] ?? 'unknown'));
+      $msg = 'deleted=' . array_sum($removed);
+    } catch (Throwable $e) {
+      // Nothing was written: cascade_delete_user rolls back before rethrowing.
+      error_log('[users.php] delete user ' . $id . ' failed: ' . $e->getMessage());
+      $msg = 'error';
     }
   }
-  header("Location: users.php");
+  header("Location: users.php?del_result=" . urlencode($msg));
   exit;
 }
 
@@ -192,18 +197,54 @@ $users = [];
 $inactiveFilter = in_array($_GET['inactive'] ?? '', ['7d','30d','1y'], true) ? ($_GET['inactive']) : '';
 
 // Handle bulk delete of inactive users
-if (isset($_GET['bulk_delete_inactive']) && !empty($inactiveFilter) && $colId) {
+if (isset($_GET['bulk_delete_inactive']) && !empty($inactiveFilter) && $colId && $colCreated) {
   $dayMap2 = ['7d'=>7,'30d'=>30,'1y'=>365];
   $days2 = $dayMap2[$inactiveFilter];
   try {
-    $idsRes = $pdo->query("SELECT id FROM users WHERE (last_seen IS NULL OR last_seen < NOW() - INTERVAL {$days2} DAY) AND is_banned=0 ORDER BY id ASC LIMIT 5000");
-    $ids = array_column($idsRes->fetchAll(), 'id');
-    foreach ($ids as $delId) {
-      foreach (['post_likes','post_comments','posts','stories','collections','user_sessions','wallet_transactions','user_wallets'] as $t)
-        try { $pdo->prepare("DELETE FROM $t WHERE user_id=?")->execute([$delId]); } catch(Throwable $ex){}
-      try { $pdo->prepare("DELETE FROM users WHERE id=?")->execute([$delId]); } catch(Throwable $ex){}
+    // This table has no activity column at all -- no last_seen, last_active
+    // or last_login -- so the old query referenced a column that does not
+    // exist, threw, and was swallowed by the catch at the end of this block.
+    // The button has therefore never deleted anything. Say so, rather than
+    // carry on failing quietly.
+    //
+    // Falling back to created_at would be far worse than doing nothing: it
+    // would read "registered more than 7 days ago" as "inactive" and delete
+    // the most established accounts first.
+    if (!$colLastSeen) {
+      header("Location: users.php?inactive={$inactiveFilter}&bulk_error=" . urlencode(
+        'No last-activity column exists on users, so inactive accounts cannot be identified. Nothing was deleted.'
+      ));
+      exit;
     }
-    header("Location: users.php?inactive={$inactiveFilter}&bulk_done=".count($ids));
+
+    // Two conditions, not one. A user who signed up an hour ago and has not
+    // opened the app again still has a NULL activity timestamp, and was swept
+    // up by "inactive for 7 days"; requiring the account itself to predate
+    // the window keeps brand-new registrations out of the batch.
+    $idsRes = $pdo->prepare(
+      "SELECT id FROM users
+        WHERE `$colCreated` < NOW() - INTERVAL ? DAY
+          AND (`$colLastSeen` IS NULL OR `$colLastSeen` < NOW() - INTERVAL ? DAY)
+          AND is_banned = 0
+        ORDER BY id ASC LIMIT 5000"
+    );
+    $idsRes->execute([$days2, $days2]);
+    $ids = array_column($idsRes->fetchAll(), 'id');
+
+    $done = 0;
+    $failed = 0;
+    foreach ($ids as $delId) {
+      // One transaction per user, so a single bad row cannot leave the whole
+      // batch half-finished.
+      try {
+        cascade_delete_user($pdo, (int) $delId, 'admin:bulk_inactive');
+        $done++;
+      } catch (Throwable $ex) {
+        error_log('[users.php] bulk delete user ' . $delId . ' failed: ' . $ex->getMessage());
+        $failed++;
+      }
+    }
+    header("Location: users.php?inactive={$inactiveFilter}&bulk_done={$done}&bulk_failed={$failed}");
     exit;
   } catch (Throwable $e) {}
 }

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_core.php';
+require_once __DIR__ . '/_cascade.php';
 admin_require_login();
 $pageTitle = 'Moderation Queue';
 $activeNav = 'moderation_queue';
@@ -47,7 +48,9 @@ if (isset($_GET['ajax'])) {
                 $postId = (int) ($r->fetchColumn() ?: 0);
             }
             if ($postId > 0) {
-                $pdo->prepare("DELETE FROM posts WHERE id=?")->execute([$postId]);
+                // Clears the 17 tables that reference this post as well; a bare
+                // DELETE left them pointing at an id that no longer exists.
+                cascade_delete_post($pdo, $postId);
             }
             $pdo->prepare("UPDATE `$table` SET status='resolved', updated_at=NOW() WHERE id=?")->execute([$rid]);
             echo json_encode(['status' => 'success', 'post_id' => $postId]);

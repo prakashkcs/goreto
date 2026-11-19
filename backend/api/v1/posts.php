@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/db_connect.php';
+require_once __DIR__ . '/../../admin/_cascade.php';
 require_once __DIR__ . '/auth_middleware.php';
 $config = require __DIR__ . '/../../config/config.php';
 
@@ -170,7 +171,17 @@ try {
     if (intval($p[$pUserId]) !== intval($viewer['id']))
       out_json(403, ['status' => 'error', 'message' => 'Unauthorized']);
 
-    $pdo->prepare("DELETE FROM $postsTbl WHERE $pId = ?")->execute([$postId]);
+    // Deleting only the row left every like, view, impression, report,
+    // collection entry and sound_use pointing at an id that no longer
+    // exists -- 17 tables reference posts. cascade_delete_post clears them
+    // in one transaction and lets a failure surface instead of reporting
+    // success over a half-finished delete.
+    try {
+      cascade_delete_post($pdo, $postId);
+    } catch (Throwable $e) {
+      error_log('[posts] cascade delete ' . $postId . ' failed: ' . $e->getMessage());
+      out_json(500, ['status' => 'error', 'message' => 'Could not delete post']);
+    }
     out_json(200, ['status' => 'success', 'message' => 'Post deleted']);
   }
 

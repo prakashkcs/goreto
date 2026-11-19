@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_core.php';
+require_once __DIR__ . '/_cascade.php';
 admin_require_login();
 $pageTitle = 'Posts';
 $activeNav = 'posts';
@@ -32,7 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['pos
             foreach (['post_likes','post_comments','likes','comments'] as $t) {
                 try { $pdo->prepare("DELETE FROM {$t} WHERE post_id=?")->execute([$pid]); } catch (Throwable $e) {}
             }
-            $pdo->prepare("DELETE FROM posts WHERE id=?")->execute([$pid]);
+            // Clears the 17 tables that reference this post as well; a bare
+            // DELETE left them pointing at an id that no longer exists.
+            cascade_delete_post($pdo, $pid);
             $msg = "Post #{$pid} deleted.";
         } elseif ($_POST['action'] === 'feature') {
             $pdo->prepare("UPDATE posts SET is_featured = 1 - COALESCE(is_featured,0) WHERE id=?")->execute([$pid]);

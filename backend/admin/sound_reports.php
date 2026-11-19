@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_core.php';
+require_once __DIR__ . '/_cascade.php';
 admin_require_login();
 $pageTitle = 'Audio Reports';
 $activeNav = 'sound_reports';
@@ -52,7 +53,9 @@ if (isset($_GET['ajax'])) {
             $row->execute([$rid]);
             $sr = $row->fetch(PDO::FETCH_ASSOC);
             if ($sr) {
-                $pdo->prepare("DELETE FROM posts WHERE id=?")->execute([$sr['post_id']]);
+                // Clears the 17 tables that reference this post as well; a bare
+                // DELETE left them pointing at an id that no longer exists.
+                cascade_delete_post($pdo, (int) $sr['post_id']);
                 $pdo->prepare("UPDATE sound_reports SET status='resolved', admin_notes=CONCAT(IFNULL(admin_notes,''),' [Post deleted by admin]'), updated_at=NOW() WHERE id=?")->execute([$rid]);
             }
         }
