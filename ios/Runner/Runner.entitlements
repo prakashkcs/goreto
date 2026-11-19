@@ -6,5 +6,12 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- Without this iOS refuses to register for APNs at all, so
+	     firebase_messaging never receives a token and not one push arrives,
+	     however correct the server and the .p8 key are. "development" is what
+	     Xcode writes when the Push Notifications capability is switched on;
+	     exporting with an App Store profile re-signs it as "production". -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>

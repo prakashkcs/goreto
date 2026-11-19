@@ -551,12 +551,59 @@ class FCMService {
   /// when a foreground notification arrives (instead of waiting for the poll).
   static VoidCallback? onNotificationReceived;
 
+  /// iOS half of the plugin setup.
+  ///
+  /// This is not optional: initialize() throws ArgumentError('iOS settings
+  /// must be set when targeting iOS platform') when it is missing, and every
+  /// caller here sits inside a try/catch, so on iOS the plugin stayed
+  /// uninitialised and silently showed nothing at all -- no matter how
+  /// correct APNs, the .p8 key and the server were.
+  ///
+  /// Permission prompts are left to firebase_messaging's requestPermission(),
+  /// which this app already calls; asking here as well would show the system
+  /// dialog twice.
+  static final DarwinInitializationSettings _initDarwin =
+      DarwinInitializationSettings(
+    requestAlertPermission: false,
+    requestBadgePermission: false,
+    requestSoundPermission: false,
+    notificationCategories: <DarwinNotificationCategory>[
+      // Gives the call notification its Accept / Decline buttons on iOS.
+      // Android declares them inline on the notification; iOS requires the
+      // category to be registered up front, at initialize() time.
+      DarwinNotificationCategory(
+        _iosCallCategory,
+        actions: <DarwinNotificationAction>[
+          DarwinNotificationAction.plain(
+            'accept_call',
+            'Accept',
+            options: <DarwinNotificationActionOption>{
+              DarwinNotificationActionOption.foreground,
+            },
+          ),
+          DarwinNotificationAction.plain(
+            'decline_call',
+            'Decline',
+            options: <DarwinNotificationActionOption>{
+              DarwinNotificationActionOption.destructive,
+            },
+          ),
+        ],
+        options: <DarwinNotificationCategoryOption>{
+          DarwinNotificationCategoryOption.allowInCarPlay,
+        },
+      ),
+    ],
+  );
+
+  static const String _iosCallCategory = 'goreto_call';
+
   static Future<void> _ensureLocalNotificationsReady() async {
     if (_localNotificationsReady) return;
     const AndroidInitializationSettings initAndroid =
         AndroidInitializationSettings('@mipmap/launcher_icon');
     await _localNotifications.initialize(
-      const InitializationSettings(android: initAndroid),
+      InitializationSettings(android: initAndroid, iOS: _initDarwin),
     );
     _localNotificationsReady = true;
   }
@@ -692,6 +739,17 @@ class FCMService {
                   ]
                 : null,
           ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+            // The Android side plays assets/ringtone.mp3 through a raw
+            // resource. iOS can only play a sound that is a resource of the
+            // app bundle, and a Flutter asset is not one, so naming a file
+            // here would leave the notification silent instead of using the
+            // default alert. Left unset deliberately.
+            categoryIdentifier: isCall ? _iosCallCategory : null,
+          ),
         ),
         payload: jsonEncode(data),
       );
@@ -770,8 +828,11 @@ class FCMService {
 
       const AndroidInitializationSettings initializationSettingsAndroid =
           AndroidInitializationSettings('@mipmap/launcher_icon');
-      const InitializationSettings initializationSettings =
-          InitializationSettings(android: initializationSettingsAndroid);
+      final InitializationSettings initializationSettings =
+          InitializationSettings(
+        android: initializationSettingsAndroid,
+        iOS: _initDarwin,
+      );
 
       try {
         await _localNotifications.initialize(

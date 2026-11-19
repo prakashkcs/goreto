@@ -44,6 +44,29 @@ post_install do |installer|
       # Force every pod to the app's minimum so none falls back to a lower
       # target (which causes the google_mlkit_commons resolution conflict).
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.5'
+
+      # permission_handler compiles every permission it supports unless told
+      # otherwise, so the binary ends up referencing Contacts, Calendar,
+      # Reminders, Speech, Motion, Media Library and Siri even though this app
+      # asks for none of them. Apple treats a reference to those APIs without
+      # a matching purpose string in Info.plist as grounds for rejection, and
+      # there is no honest string to write for a feature that does not exist.
+      #
+      # Kept on: camera, microphone, location, notifications, bluetooth,
+      # photos and tracking -- each is used and each has its string already.
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
+        '$(inherited)',
+        'PERMISSION_CONTACTS=0',
+        'PERMISSION_EVENTS=0',
+        'PERMISSION_EVENTS_FULL_ACCESS=0',
+        'PERMISSION_REMINDERS=0',
+        'PERMISSION_SPEECH_RECOGNIZER=0',
+        'PERMISSION_SENSORS=0',
+        'PERMISSION_MEDIA_LIBRARY=0',
+        'PERMISSION_ASSISTANT=0',
+        # Critical alerts need an entitlement Apple grants case by case.
+        'PERMISSION_CRITICAL_ALERTS=0',
+      ]
     end
   end
 end
