@@ -7,35 +7,59 @@ $activeNav = 'gifts';
 $msg = ''; $err = '';
 
 // Handle add/toggle/delete gift item
+//
+// This page used to read and write `gift_items`, a table nothing else in the
+// project touches. The app asks api/v1/gifts.php, which selects from `gifts`
+// -- a different table with different column names. So every gift added here
+// was invisible in the app, and the live room's gift tray stayed empty no
+// matter how many were created. This now edits `gifts`.
+//
+// `gifts` also carries two columns the old form had no field for and the app
+// needs: `category`, which drives the Love / Vibe / Luxury / Cute / Funny /
+// Legend tabs, and `emoji`, which is what shows when a gift has no image yet.
+$GIFT_CATEGORIES = ['love', 'vibe', 'luxury', 'cute', 'funny', 'legend'];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     try {
         if ($action === 'add') {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS gift_items (
-                id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(80) NOT NULL,
-                icon_url VARCHAR(255) NULL,
-                model_url VARCHAR(255) NULL,
-                coins_cost INT NOT NULL DEFAULT 10,
-                is_active TINYINT(1) NOT NULL DEFAULT 1,
-                sort_order INT NOT NULL DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-            $pdo->prepare("INSERT INTO gift_items (name,icon_url,model_url,coins_cost,is_active,sort_order) VALUES (?,?,?,?,?,?)")
-                ->execute([
-                    trim($_POST['name'] ?? ''),
-                    trim($_POST['icon_url'] ?? '') ?: null,
-                    trim($_POST['model_url'] ?? '') ?: null,
-                    (int)($_POST['coins_cost'] ?? 10),
-                    !empty($_POST['is_active']) ? 1 : 0,
-                    (int)($_POST['sort_order'] ?? 0),
-                ]);
+            $category = trim($_POST['category'] ?? 'love');
+            if (!in_array($category, $GIFT_CATEGORIES, true)) {
+                $category = 'love';
+            }
+            $name = trim($_POST['name'] ?? '');
+            if ($name === '') {
+                throw new RuntimeException('A gift needs a name.');
+            }
+            $coins = max(1, (int)($_POST['coins_cost'] ?? 10));
+
+            $pdo->prepare(
+                "INSERT INTO gifts
+                   (name, emoji, thumb_image, gif_url, glb_url, coin_price,
+                    category, animation_type, is_active, sort_order, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,NOW())"
+            )->execute([
+                $name,
+                trim($_POST['emoji'] ?? '') ?: null,
+                trim($_POST['icon_url'] ?? '') ?: null,
+                trim($_POST['gif_url'] ?? '') ?: null,
+                trim($_POST['model_url'] ?? '') ?: null,
+                $coins,
+                $category,
+                trim($_POST['model_url'] ?? '') !== '' ? '3d' : 'lottie',
+                !empty($_POST['is_active']) ? 1 : 0,
+                (int)($_POST['sort_order'] ?? 0),
+            ]);
             $msg = 'Gift added.';
         } elseif ($action === 'toggle' && isset($_POST['id'])) {
-            $pdo->prepare("UPDATE gift_items SET is_active = 1 - is_active WHERE id=?")->execute([(int)$_POST['id']]);
+            $pdo->prepare("UPDATE gifts SET is_active = 1 - is_active WHERE id=?")->execute([(int)$_POST['id']]);
             $msg = 'Updated.';
         } elseif ($action === 'delete' && isset($_POST['id'])) {
-            $pdo->prepare("DELETE FROM gift_items WHERE id=?")->execute([(int)$_POST['id']]);
+            // gifts_received and gift_transactions keep pointing at this id on
+            // purpose: they are a record of something that happened, and the
+            // row is what a past gift was. Hiding it with Disable is almost
+            // always what you want instead.
+            $pdo->prepare("DELETE FROM gifts WHERE id=?")->execute([(int)$_POST['id']]);
             $msg = 'Deleted.';
         }
     } catch (Throwable $e) { $err = $e->getMessage(); }
@@ -60,19 +84,13 @@ try {
 } catch (Throwable $_) {}
 
 // Gift items
+//
+// Read from the same table the app does. No CREATE TABLE here: `gifts` is
+// part of the schema, and a stray CREATE IF NOT EXISTS with a guessed shape
+// is how the two tables came to disagree in the first place.
 $items = [];
 try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS gift_items (
-        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(80) NOT NULL,
-        icon_url VARCHAR(255) NULL,
-        model_url VARCHAR(255) NULL,
-        coins_cost INT NOT NULL DEFAULT 10,
-        is_active TINYINT(1) NOT NULL DEFAULT 1,
-        sort_order INT NOT NULL DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    $items = $pdo->query("SELECT * FROM gift_items ORDER BY sort_order ASC, id ASC")->fetchAll();
+    $items = $pdo->query("SELECT * FROM gifts ORDER BY category ASC, sort_order ASC, id ASC")->fetchAll();
 } catch (Throwable $_) {}
 
 require __DIR__ . '/_layout_header.php';
@@ -108,7 +126,16 @@ require __DIR__ . '/_layout_header.php';
         <div class="g2">
           <div class="gf"><label>Name</label><input name="name" required placeholder="e.g. Red Rose"></div>
           <div class="gf"><label>Coins Cost</label><input name="coins_cost" type="number" value="10" min="1"></div>
+          <div class="gf"><label>Emoji</label><input name="emoji" maxlength="8" placeholder="ð¹ â shown when there is no image"></div>
+          <div class="gf"><label>Category</label>
+            <select name="category">
+              <?php foreach ($GIFT_CATEGORIES as $c): ?>
+                <option value="<?= $c ?>"><?= ucfirst($c) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
           <div class="gf"><label>Icon URL</label><input name="icon_url" placeholder="https://... (image)"></div>
+          <div class="gf"><label>Animated GIF URL</label><input name="gif_url" placeholder="https://... (plays on send)"></div>
           <div class="gf"><label>3D Model URL</label><input name="model_url" placeholder="https://... (.glb/.gltf)"></div>
           <div class="gf"><label>Sort Order</label><input name="sort_order" type="number" value="0"></div>
           <div class="gf"><label>Active</label>
@@ -120,16 +147,17 @@ require __DIR__ . '/_layout_header.php';
     </div>
 
     <?php if ($items): ?>
-    <h3 style="margin-bottom:12px">Gift Items</h3>
+    <h3 style="margin-bottom:12px">Gifts <span style="font-weight:400;color:#8aa">(what the app shows in the live gift tray)</span></h3>
     <div class="table-wrap"><table>
-      <thead><tr><th>ID</th><th>Name</th><th>Icon</th><th>Cost</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Icon</th><th>Cost</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
       <?php foreach ($items as $g): ?>
         <tr>
           <td>#<?= (int)$g['id'] ?></td>
-          <td><b><?= htmlspecialchars($g['name']) ?></b></td>
-          <td><?php if ($g['icon_url']): ?><img src="<?= htmlspecialchars($g['icon_url']) ?>" style="width:36px;height:36px;object-fit:contain;border-radius:6px"><?php else: ?>-<?php endif; ?></td>
-          <td><b><?= number_format((int)$g['coins_cost']) ?></b> coins</td>
+          <td><b><?= htmlspecialchars($g['name']) ?></b> <?= htmlspecialchars((string)($g['emoji'] ?? '')) ?></td>
+          <td><span class="badge"><?= htmlspecialchars((string)($g['category'] ?? '-')) ?></span></td>
+          <td><?php if (!empty($g['thumb_image'])): ?><img src="<?= htmlspecialchars($g['thumb_image']) ?>" style="width:36px;height:36px;object-fit:contain;border-radius:6px"><?php else: ?><span style="font-size:22px"><?= htmlspecialchars((string)($g['emoji'] ?? '-')) ?></span><?php endif; ?></td>
+          <td><b><?= number_format((int)$g['coin_price']) ?></b> coins</td>
           <td><span class="badge <?= $g['is_active']?'ok':'danger' ?>"><?= $g['is_active']?'Active':'Inactive' ?></span></td>
           <td style="display:flex;gap:6px">
             <form method="post" style="display:inline"><input type="hidden" name="id" value="<?= $g['id'] ?>"><button class="btn" name="action" value="toggle"><?= $g['is_active']?'Disable':'Enable' ?></button></form>
