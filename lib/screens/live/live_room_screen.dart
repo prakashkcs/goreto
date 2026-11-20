@@ -46,16 +46,25 @@ String _giftEmojiFor(String name) {
   return '🎁';
 }
 
+/// What a line in the live chat actually is.
+///
+/// Join and leave notices used to be built as ordinary [_ChatMsg]s, so they
+/// rendered with the same 26px avatar and dark bubble as somebody speaking --
+/// which read as "Ram said: joined the live!" rather than as an event.
+enum _ChatKind { chat, join, leave }
+
 class _ChatMsg {
   final String sender;
   final String senderUserId;
   final String text;
   final Color color;
+  final _ChatKind kind;
   _ChatMsg({
     required this.sender,
     this.senderUserId = '',
     required this.text,
     required this.color,
+    this.kind = _ChatKind.chat,
   });
 }
 
@@ -195,6 +204,14 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
   /// line can still name them — once someone leaves they are gone from the
   /// roster, so their name is no longer available to look up.
   final Map<String, String> _viewerNames = {};
+
+  /// Live count from the room roster.
+  ///
+  /// The header used to print widget.viewerCount, which is whatever the feed
+  /// knew when this screen was pushed and is never updated -- so it read 0
+  /// for the whole broadcast however many people were watching. -1 means the
+  /// roster has not been polled yet, and the passed-in number still shows.
+  int _liveViewers = -1;
 
   // ── Zego messages ─────────────────────────────────────────────────
   StreamSubscription<ZegoInRoomMessage>? _messageSub;
@@ -375,6 +392,10 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
 
   @override
   void dispose() {
+    // An overlay entry outlives the widget unless it is taken down here.
+    _toastTimer?.cancel();
+    _toastEntry?.remove();
+    _toastEntry = null;
     FCMService.onForceEndLive = null;
     WidgetsBinding.instance.removeObserver(this);
     _messageSub?.cancel();
@@ -697,10 +718,20 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
               const Spacer(),
               Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
                 _profileActionBtn('Follow', Icons.person_add_rounded,
-                    const Color(0xFFFF2D55), () {
-                  _api.followUser(userId);
+                    const Color(0xFFFF2D55), () async {
+                  // The result used to be discarded, so "Followed" appeared
+                  // even when the request failed and nothing had happened.
                   Navigator.pop(ctx);
-                  _showSnack('Followed $userName');
+                  try {
+                    await _api.followUser(userId);
+                    _showSnack('Following $userName',
+                        icon: Icons.person_add_rounded,
+                        color: const Color(0xFFFF2D55));
+                  } catch (_) {
+                    _showSnack("Couldn't follow $userName",
+                        icon: Icons.error_outline_rounded,
+                        color: const Color(0xFFFF8A80));
+                  }
                 }),
                 _profileActionBtn('Message', Icons.chat_bubble_rounded,
                     const Color(0xFF8B5CF6), () {
@@ -895,8 +926,9 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
           _chatMessages.add(_ChatMsg(
             sender: name,
             senderUserId: uid,
-            text: 'joined the live!',
+            text: 'joined',
             color: const Color(0xFF69F0AE),
+            kind: _ChatKind.join,
           ));
           if (_chatMessages.length > 15) _chatMessages.removeAt(0);
         });
@@ -914,12 +946,19 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
           _chatMessages.add(_ChatMsg(
             sender: name,
             senderUserId: uid,
-            text: 'left the live',
+            text: 'left',
             color: const Color(0xFFFF8A80),
+            kind: _ChatKind.leave,
           ));
           if (_chatMessages.length > 15) _chatMessages.removeAt(0);
         });
         _scrollChat();
+      }
+
+      // The host is in the roster but is not a viewer of their own stream.
+      final count = currentIds.where((id) => id != widget.userId).length;
+      if (count != _liveViewers) {
+        setState(() => _liveViewers = count);
       }
 
       _prevViewerIds = currentIds;
@@ -1082,15 +1121,85 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
     _scrollChat();
   }
 
-  void _showSnack(String msg) {
+  /// A short confirmation that does not fight the stream for attention.
+  ///
+  /// This used to be a Material SnackBar: a full-width solid pink bar rising
+  /// from the bottom of a full-screen video, covering the chat and the gift
+  /// row for four seconds. A live room wants something closer to what the
+  /// rest of the overlay looks like -- a small dark pill, high enough to
+  /// clear the controls, gone in two.
+  OverlayEntry? _toastEntry;
+  Timer? _toastTimer;
+
+  void _showSnack(String msg, {IconData icon = Icons.check_circle_rounded, Color color = const Color(0xFF69F0AE)}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: const Color(0xFFFF2D55),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      margin: const EdgeInsets.all(16),
-    ));
+
+    // Replace whatever is showing rather than stacking.
+    _toastTimer?.cancel();
+    _toastEntry?.remove();
+    _toastEntry = null;
+
+    final overlay = Overlay.of(context);
+    final entry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        left: 0,
+        right: 0,
+        bottom: MediaQuery.of(ctx).size.height * 0.26,
+        child: IgnorePointer(
+          child: Center(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              builder: (_, t, child) => Opacity(
+                opacity: t,
+                child: Transform.translate(offset: Offset(0, 10 * (1 - t)), child: child),
+              ),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 32),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.82),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: color.withValues(alpha: 0.45)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 16,
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, color: color, size: 15),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        msg,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    overlay.insert(entry);
+    _toastEntry = entry;
+    _toastTimer = Timer(const Duration(milliseconds: 2000), () {
+      _toastEntry?.remove();
+      _toastEntry = null;
+    });
   }
 
   // ── Live backend ───────────────────────────────────────────────────
@@ -1617,7 +1726,10 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
                     const Icon(Icons.remove_red_eye_rounded,
                         color: Colors.white54, size: 11),
                     const SizedBox(width: 3),
-                    Text(_fmtViewers(widget.viewerCount ?? 0),
+                    Text(
+                        _fmtViewers(_liveViewers >= 0
+                            ? _liveViewers
+                            : (widget.viewerCount ?? 0)),
                         style: const TextStyle(
                             color: Colors.white60, fontSize: 10, fontWeight: FontWeight.w600)),
                   ]),
@@ -2380,6 +2492,75 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
     );
   }
 
+  /// A join or leave notice.
+  ///
+  /// Deliberately not shaped like a chat bubble: a thin tinted pill, a small
+  /// dot in the event's colour and the name in a lighter weight, so the eye
+  /// skips it while reading what people are actually saying. Tapping still
+  /// opens the person's preview, as it does on a chat line.
+  Widget _buildEventLine(_ChatMsg m) {
+    final joined = m.kind == _ChatKind.join;
+    final cached = widget.userProfileCache[m.senderUserId];
+    final avatarUrl = (cached?['avatar'] ?? '').toString();
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: m.senderUserId.isEmpty
+          ? null
+          : () => widget.onGifterTap?.call(m.senderUserId, m.sender, avatarUrl),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 5, left: 2),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(7, 3, 10, 3),
+              decoration: BoxDecoration(
+                color: m.color.withValues(alpha: 0.13),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: m.color.withValues(alpha: 0.30)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    joined
+                        ? Icons.arrow_downward_rounded
+                        : Icons.arrow_upward_rounded,
+                    size: 11,
+                    color: m.color.withValues(alpha: 0.9),
+                  ),
+                  const SizedBox(width: 5),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 150),
+                    child: Text(
+                      m.sender,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: m.color.withValues(alpha: 0.95),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    m.text,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.55),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildChatMessages() {
     if (widget.chatMessages.isEmpty) return const SizedBox.shrink();
     return SizedBox(
@@ -2390,6 +2571,9 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
         itemCount: widget.chatMessages.length,
         itemBuilder: (_, i) {
           final m = widget.chatMessages[i];
+          if (m.kind != _ChatKind.chat) {
+            return _buildEventLine(m);
+          }
           final cached = widget.userProfileCache[m.senderUserId];
           final avatarUrl = (cached?['avatar'] ?? '').toString();
           final rating = (cached?['rating'] ?? 0.0) as double;
