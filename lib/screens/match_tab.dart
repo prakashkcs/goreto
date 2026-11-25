@@ -2533,6 +2533,16 @@ class _RandomCallViewState extends State<RandomCallView>
     }
 
     final myUserId = UserPrefsCache.instance.userId ?? '';
+
+    // Mark the call as accepted on the server so the signal-polling loop in
+    // WebRTCCallScreen sees status 'accepted' and transitions to the connected
+    // (video) view. Without this, both sides stay on the ringing screen because
+    // neither sends accept_call — the handshake dialog is not wired to the
+    // regular call-status lifecycle.
+    try {
+      await SignalingService.instance.acceptCall(callId);
+    } catch (_) {}
+
     final session = CallSession(
       id: callUuid,
       callerId: myUserId,

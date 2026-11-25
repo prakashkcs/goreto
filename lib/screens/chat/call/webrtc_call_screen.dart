@@ -162,8 +162,12 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
 
   // â”€â”€ OUTGOING CALL â”€â”€
   Future<void> _startOutgoingCall() async {
+    final isRandom = widget.callSession.isRandomCall;
+
     setState(() => _callState = CallState.outgoing);
-    await SoundService().startOutgoingCallRingLoop();
+    if (!isRandom) {
+      await SoundService().startOutgoingCallRingLoop();
+    }
 
     try {
       if (_serverCallId == null) {
@@ -188,8 +192,15 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
       // Join the Zego room and render inline (don't navigate away)
       if (mounted && _videoManager.activeProvider != null) {
         await _videoManager.activeProvider!.joinCall(_callUuid);
-        // Do NOT set _callState to connected here. The custom UI should remain
-        // until the signaling server confirms the recipient has answered via onCallAccepted!
+        // Random calls: both sides already accepted via the handshake dialog,
+        // and acceptCall() was sent before navigation, so transition to the
+        // connected (video) view immediately instead of waiting for the poll.
+        if (isRandom && mounted) {
+          setState(() {
+            _callState = CallState.connected;
+            _startDurationTimer();
+          });
+        }
       } else {}
     } catch (e) {
       _endCall();
