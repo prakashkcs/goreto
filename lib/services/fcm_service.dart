@@ -418,6 +418,28 @@ void _navigateToCallWithRetry(int callId, String callUuid, String callerName,
   }
 }
 
+Future<void> _openLiveIfActive(
+    String hostId, String hostName, String hostAvatar) async {
+  Widget target;
+  try {
+    final lives = await ApiService().getLiveUsers();
+    final stillLive =
+        lives.any((l) => (l['user_id'] ?? l['id'] ?? '').toString() == hostId);
+    if (stillLive) {
+      target = LiveRoomScreen(
+          userId: hostId, userName: hostName, userAvatar: hostAvatar);
+    } else {
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null && ctx.mounted) NeonToast.info(ctx, 'This live has ended');
+      target = const NotificationsScreen();
+    }
+  } catch (_) {
+    target = LiveRoomScreen(
+        userId: hostId, userName: hostName, userAvatar: hostAvatar);
+  }
+  navigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => target));
+}
+
 void _navigateToScreenWithRetry(String? type, String? action,
     {String? senderId, Map<String, dynamic>? customData, int attempts = 0}) {
   if (navigatorKey.currentState != null) {
@@ -500,9 +522,11 @@ void _navigateToScreenWithRetry(String? type, String? action,
         final hostId = senderId ?? customData?['sender_id']?.toString() ?? '';
         final hostName = customData?['sender_name']?.toString() ?? 'Host';
         final hostAvatar = customData?['sender_avatar']?.toString() ?? '';
-        target = hostId.isNotEmpty
-            ? LiveRoomScreen(userId: hostId, userName: hostName, userAvatar: hostAvatar)
-            : const NotificationsScreen();
+        if (hostId.isNotEmpty) {
+          _openLiveIfActive(hostId, hostName, hostAvatar);
+          return;
+        }
+        target = const NotificationsScreen();
         break;
       case 'kyc_accept':
       case 'kyc_reject':

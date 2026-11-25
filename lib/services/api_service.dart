@@ -1231,6 +1231,50 @@ class ApiService {
 
   // --- Posts & Feed ---
 
+  Future<List<dynamic>> getSoundReels({int? soundId, String? soundName}) async {
+    final dio = await _ensureInitializedDio();
+    final response = await dio.get(
+      'posts.php',
+      queryParameters: {
+        'action': 'reels',
+        'limit': '100',
+        if (soundId != null && soundId > 0) 'sound_id': '$soundId',
+        if ((soundId == null || soundId <= 0) &&
+            soundName != null &&
+            soundName.isNotEmpty)
+          'sound_name': soundName,
+        '_t': DateTime.now().millisecondsSinceEpoch.toString(),
+      },
+      options: Options(responseType: ResponseType.plain),
+    );
+    dynamic payload = response.data;
+    if (payload is String) payload = jsonDecode(payload);
+    final list = payload is Map ? (payload['posts'] ?? payload['reels']) : payload;
+    return list is List ? list : <dynamic>[];
+  }
+
+  /// Turns a reel's own audio into a reusable sound (server-side FFmpeg).
+  /// Returns the sound map ({id, title, audio_url, ...}) or null.
+  Future<Map<String, dynamic>?> extractSoundFromPost(String postId) async {
+    final dio = await _ensureInitializedDio();
+    try {
+      final response = await dio.post(
+        'api_sounds.php',
+        data: FormData.fromMap({'action': 'extract', 'post_id': postId}),
+        options: Options(
+          responseType: ResponseType.plain,
+          receiveTimeout: const Duration(seconds: 60),
+        ),
+      );
+      dynamic payload = response.data;
+      if (payload is String) payload = jsonDecode(payload);
+      if (payload is Map && payload['status'] == 'success' && payload['sound'] is Map) {
+        return Map<String, dynamic>.from(payload['sound'] as Map);
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<List<dynamic>> getReels({String? type, String? soundName}) async {
     final dio = await _ensureInitializedDio();
     try {
@@ -1481,7 +1525,12 @@ class ApiService {
       );
 
       dynamic payload = response.data;
-      if (payload is String) payload = jsonDecode(payload);
+      if (payload is String) {
+        // PHP notices can precede the JSON; the post is already saved by then.
+        final s = payload.indexOf('{');
+        final e = payload.lastIndexOf('}');
+        payload = (s >= 0 && e > s) ? jsonDecode(payload.substring(s, e + 1)) : null;
+      }
 
       if (payload is Map<String, dynamic>) {
         final ok = payload['status'] == true ||
@@ -1490,6 +1539,7 @@ class ApiService {
         if (ok) return payload;
         throw Exception(payload['message']?.toString() ?? 'Upload failed');
       }
+      if ((response.statusCode ?? 0) == 200) return <String, dynamic>{'status': 'success'};
       throw Exception('Invalid response from server');
     } on DioException catch (e) {
       throw Exception(_handleError(e));

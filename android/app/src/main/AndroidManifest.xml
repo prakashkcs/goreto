@@ -86,6 +86,11 @@
             <meta-data
               android:name="io.flutter.embedding.android.EnableImpeller"
               android:value="false" />
+            <!-- Flutter's own deep linking (on by default since 3.27) swallows
+                 the URL before app_links/DeepLinkService can route it. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

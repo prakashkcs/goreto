@@ -2576,8 +2576,27 @@ class _RandomCallViewState extends State<RandomCallView>
     }
   }
 
+  bool _starting = false;
+
   Future<void> _startCall() async {
-    // Check permissions
+    if (_starting || _searching) return;
+    setState(() => _starting = true);
+    try {
+      await _startCallInner();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _searching = false;
+          _errorMsg = 'Could not start the call. Please try again.';
+        });
+        NeonToast.error(context, 'Could not start the call. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  Future<void> _startCallInner() async {
     Map<Permission, PermissionStatus> statuses = await [
       Permission.camera,
       Permission.microphone,
@@ -2599,18 +2618,20 @@ class _RandomCallViewState extends State<RandomCallView>
       if (!mounted) return;
 
       if (result == null || result['status'] != 'success') {
+        final msg = result?['message']?.toString() ?? 'Connection failed. Try again.';
         setState(() {
           _searching = false;
-          _errorMsg = result?['message'] ?? 'Connection failed. Try again.';
+          _errorMsg = msg;
         });
+        NeonToast.error(context, msg);
         return;
       }
 
       // Check if instantly matched (another user was already waiting)
       if (result['matched'] == true) {
-        final matchedUser = result['matched_user'] as Map<String, dynamic>;
-        final callId = result['call_id'] as int;
-        final callUuid = result['call_uuid'] as String;
+        final matchedUser = Map<String, dynamic>.from(result['matched_user'] as Map);
+        final callId = int.parse(result['call_id'].toString());
+        final callUuid = result['call_uuid'].toString();
         final handshakeRequired = result['handshake_required'] == true;
         if (handshakeRequired) {
           await _runRandomHandshake(matchedUser, callId, callUuid);
@@ -2652,9 +2673,9 @@ class _RandomCallViewState extends State<RandomCallView>
         if (pollResult != null && pollResult['matched'] == true) {
           timer.cancel();
           final matchedUser =
-              pollResult['matched_user'] as Map<String, dynamic>;
-          final callId = pollResult['call_id'] as int;
-          final callUuid = pollResult['call_uuid'] as String;
+              Map<String, dynamic>.from(pollResult['matched_user'] as Map);
+          final callId = int.parse(pollResult['call_id'].toString());
+          final callUuid = pollResult['call_uuid'].toString();
           // Queue matches always require the two-sided accept gate (App Store
           // 1.2 — no instant/anonymous connect). Broadcast-call matches were
           // already accepted via the incoming-call screen, so they connect.
@@ -2857,9 +2878,11 @@ class _RandomCallViewState extends State<RandomCallView>
               )
             else
               ElevatedButton(
-                onPressed: _startCall,
+                onPressed: _starting ? null : _startCall,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFFF007F),
+                  disabledBackgroundColor:
+                      const Color(0xFFFF007F).withValues(alpha: 0.6),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 48,
@@ -2871,10 +2894,18 @@ class _RandomCallViewState extends State<RandomCallView>
                   elevation: 8,
                   shadowColor: const Color(0xFFFF007F).withValues(alpha: 0.5),
                 ),
-                child: const Text(
-                  'Start Call',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
+                child: _starting
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2.5, color: Colors.white),
+                      )
+                    : const Text(
+                        'Start Call',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
               ),
           ],
         ),

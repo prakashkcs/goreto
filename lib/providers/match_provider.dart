@@ -99,16 +99,16 @@ class MatchProvider extends ChangeNotifier {
       final String? targetGender = results[0] as String?;
       final Position? position = results[1] as Position?;
 
-      // Update our location on the server BEFORE querying nearby, so that
-      // other users' queries can find us at our current position.
+      // Our own query sends lat/lng directly, so the server update can run
+      // alongside it instead of in front of it.
       if (position != null) {
-        try {
-          await _service.api.updateLocation(
-            userId: userId,
-            lat: position.latitude,
-            lng: position.longitude,
-          );
-        } catch (_) {}
+        _service.api
+            .updateLocation(
+              userId: userId,
+              lat: position.latitude,
+              lng: position.longitude,
+            )
+            .catchError((_) {});
       }
 
       final fetched = await _service.getNearbyUsers(
@@ -168,14 +168,19 @@ class MatchProvider extends ChangeNotifier {
           permission == LocationPermission.deniedForever) {
         return null;
       }
+      // A recent cached fix is good enough for "nearby" and is instant; a
+      // fresh GPS fix indoors can take the full timeout on every tab open.
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null &&
+          DateTime.now().difference(last.timestamp) < const Duration(minutes: 15)) {
+        return last;
+      }
       try {
         return await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.medium,
-        ).timeout(const Duration(seconds: 8));
+        ).timeout(const Duration(seconds: 4));
       } catch (_) {
-        // GPS timed out or failed — use last known position so the query
-        // still works rather than sending null coordinates.
-        return await Geolocator.getLastKnownPosition();
+        return last;
       }
     } catch (_) {
       return null;

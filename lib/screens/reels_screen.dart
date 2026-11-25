@@ -14,6 +14,7 @@ import 'package:love_vibe_pro/services/media_url_builder.dart';
 import 'package:love_vibe_pro/services/thumbnail_cache.dart';
 import 'package:love_vibe_pro/services/engagement_tracker.dart';
 import 'package:love_vibe_pro/screens/video_recorder_screen.dart';
+import 'package:love_vibe_pro/widgets/neon_toast.dart';
 
 import 'package:love_vibe_pro/widgets/reels_video_player.dart';
 import 'package:love_vibe_pro/widgets/share_bottom_sheet.dart';
@@ -1447,10 +1448,17 @@ class _ReelsScreenState extends State<ReelsScreen>
 
     if (result is Map && result['use_sound'] == true && mounted) {
       final soundName = result['sound_name']?.toString();
+      final soundUrl = result['sound_url']?.toString();
+      final soundId = (result['sound_id'] as num?)?.toInt();
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => VideoRecorderScreen(initialSoundName: soundName),
+          builder: (_) => VideoRecorderScreen(
+            initialSoundName: soundName,
+            initialSoundUrl:
+                (soundUrl != null && soundUrl.startsWith('http')) ? soundUrl : null,
+            initialSoundId: soundId,
+          ),
         ),
       );
     }
@@ -1945,11 +1953,17 @@ class _SoundDetailsScreenState extends State<_SoundDetailsScreen>
   late AnimationController _discCtrl;
   final Map<String, Uint8List?> _thumbCache = {};
 
-  String get _soundName => (widget.reel['sound_name'] ??
-          widget.reel['audio_name'] ??
-          widget.reel['music_name'] ??
-          'Original Audio')
-      .toString();
+  bool _resolvingSound = false;
+
+  String get _soundName {
+    for (final k in ['sound_name', 'sound_title', 'audio_name', 'music_name']) {
+      final v = (widget.reel[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return 'Original Audio';
+  }
+
+  int get _soundId => int.tryParse('${widget.reel['sound_id'] ?? ''}') ?? 0;
 
   String get _creatorName {
     final soundAuthor = (widget.reel['sound_author_username'] ?? '').toString().trim();
@@ -2007,23 +2021,25 @@ class _SoundDetailsScreenState extends State<_SoundDetailsScreen>
   Future<void> _fetchSoundReels() async {
     try {
       final sn = _soundName;
+      final sid = _soundId;
       List<dynamic> reels;
 
-      // Only fetch the sound feed when there is a real, non-empty sound name.
-      // Empty or 'Original Audio' means the reel uses the device mic — show
-      // only this single reel so we don't accidentally return all reels.
-      if (sn.isEmpty || sn == 'Original Audio') {
+      // 'Original Audio' with no sound id means nobody has reused this reel's
+      // audio yet — show only this reel so we don't return every reel.
+      if (sid <= 0 && (sn.isEmpty || sn == 'Original Audio')) {
         reels = [widget.reel];
       } else {
-        final all = await ApiService().getReels(type: 'trending', soundName: sn);
+        final all = await ApiService().getSoundReels(
+          soundId: sid > 0 ? sid : null,
+          soundName: sn,
+        );
         if (!mounted) return;
-        // Client-side filter: only keep reels that actually match this sound.
-        // A reel with an empty sound_name uses original audio and must NOT
-        // appear in a named-sound feed.
-        final filtered = all.where((r) {
-          final rSnd = (r['sound_name'] ?? r['audio_name'] ?? r['music_name'] ?? '').toString().trim();
-          return rSnd.isNotEmpty && rSnd == sn;
-        }).toList();
+        final filtered = sid > 0
+            ? all
+            : all.where((r) {
+                final rSnd = (r['sound_name'] ?? '').toString().trim();
+                return rSnd.isNotEmpty && rSnd == sn;
+              }).toList();
         final ids = filtered.map((r) => r['id']?.toString()).toSet();
         reels = [
           ...filtered,
@@ -2215,7 +2231,12 @@ class _SoundDetailsScreenState extends State<_SoundDetailsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
-      body: CustomScrollView(
+      body: RefreshIndicator(
+        color: const Color(0xFFFF007F),
+        backgroundColor: const Color(0xFF1A1A1A),
+        onRefresh: _fetchSoundReels,
+        child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverToBoxAdapter(child: _buildHeader()),
           SliverToBoxAdapter(
@@ -2297,8 +2318,40 @@ class _SoundDetailsScreenState extends State<_SoundDetailsScreen>
               ),
             ),
         ],
+        ),
       ),
     );
+  }
+
+  Future<void> _useThisSound() async {
+    if (_resolvingSound) return;
+    var id = _soundId;
+    var title = _soundName;
+    var url = (widget.reel['sound_url'] ?? '').toString();
+
+    if (id <= 0 || !url.startsWith('http')) {
+      final postId = (widget.reel['id'] ?? widget.reel['post_id'] ?? '').toString();
+      if (postId.isEmpty) return;
+      setState(() => _resolvingSound = true);
+      final sound = await ApiService().extractSoundFromPost(postId);
+      if (!mounted) return;
+      setState(() => _resolvingSound = false);
+      if (sound == null) {
+        NeonToast.error(context, 'Could not load this sound. Try again.');
+        return;
+      }
+      id = (sound['id'] as num?)?.toInt() ?? 0;
+      title = (sound['title'] ?? title).toString();
+      url = (sound['audio_url'] ?? '').toString();
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context, {
+      'use_sound': true,
+      'sound_name': title,
+      'sound_id': id,
+      'sound_url': url,
+    });
   }
 
   Widget _buildHeader() {
@@ -2479,10 +2532,7 @@ class _SoundDetailsScreenState extends State<_SoundDetailsScreen>
 
           // Use This Sound button
           GestureDetector(
-            onTap: () => Navigator.pop(
-              context,
-              {'use_sound': true, 'sound_name': _soundName},
-            ),
+            onTap: _useThisSound,
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 15),
@@ -2498,7 +2548,16 @@ class _SoundDetailsScreenState extends State<_SoundDetailsScreen>
                   ),
                 ],
               ),
-              child: const Row(
+              child: _resolvingSound
+                  ? const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2.2, color: Colors.white),
+                      ),
+                    )
+                  : const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.music_note, color: Colors.white, size: 18),

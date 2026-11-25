@@ -548,8 +548,23 @@ try {
 
     // Attach a custom sound to the post (if one was chosen).
     $soundIdIn = (int)($_POST['sound_id'] ?? ($reqPayload['sound_id'] ?? 0));
+    $soundNameIn = trim((string) ($_POST['sound_name'] ?? ($reqPayload['sound_name'] ?? '')));
     if ($soundIdIn > 0) {
-      try { $pdo->prepare("UPDATE $postsTbl SET sound_id = ? WHERE id = ?")->execute([$soundIdIn, $newId]); } catch (Throwable $e) {}
+      try {
+        $sndSt = $pdo->prepare("SELECT title FROM sounds WHERE id = ? LIMIT 1");
+        $sndSt->execute([$soundIdIn]);
+        $sndTitle = $sndSt->fetchColumn();
+        if ($sndTitle !== false) {
+          $pdo->prepare("UPDATE $postsTbl SET sound_id = ? WHERE id = ?")->execute([$soundIdIn, $newId]);
+          $pdo->prepare("INSERT IGNORE INTO sound_uses (sound_id, post_id, user_id) VALUES (?, ?, ?)")
+              ->execute([$soundIdIn, $newId, $userId]);
+          $pdo->prepare("UPDATE sounds SET use_count = use_count + 1 WHERE id = ?")->execute([$soundIdIn]);
+          if ($soundNameIn === '') $soundNameIn = (string) $sndTitle;
+        }
+      } catch (Throwable $e) {}
+    }
+    if ($soundNameIn !== '' && in_array('sound_name', $postsCols, true)) {
+      try { $pdo->prepare("UPDATE $postsTbl SET sound_name = ? WHERE id = ?")->execute([mb_substr($soundNameIn, 0, 255), $newId]); } catch (Throwable $e) {}
     }
 
     // Update moderation log with the new post ID

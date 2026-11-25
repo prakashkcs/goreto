@@ -16,6 +16,8 @@ import '../match/nearby_user_preview_screen.dart';
 import '../live/live_room_screen.dart';
 import '../../models/match_user.dart';
 import '../../services/group_chat_service.dart';
+import '../../services/api_service.dart';
+import '../../widgets/neon_toast.dart';
 import '../chat/group_chat_screen.dart';
 import '../chat/group_invites.dart';
 
@@ -90,7 +92,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   // ---- Navigation ----
-  void _onTap(AppNotification n) {
+  Future<void> _onTap(AppNotification n) async {
     switch (n.type) {
       // Content: open the post
       case 'like':
@@ -157,15 +159,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       case 'live_start':
         if (n.referenceId != null && n.referenceId! > 0) {
-          Navigator.push(
-              context,
-              _route(
-                LiveRoomScreen(
-                  userId: n.referenceId.toString(),
-                  userName: n.senderName,
-                  userAvatar: n.senderAvatar,
-                ),
-              ));
+          final hostId = n.referenceId.toString();
+          final lives = await ApiService().getLiveUsers();
+          final stillLive = lives.any((l) =>
+              (l['user_id'] ?? l['id'] ?? '').toString() == hostId);
+          if (!context.mounted) break;
+          if (stillLive) {
+            Navigator.push(
+                context,
+                _route(
+                  LiveRoomScreen(
+                    userId: hostId,
+                    userName: n.senderName,
+                    userAvatar: n.senderAvatar,
+                  ),
+                ));
+          } else {
+            NeonToast.info(context, 'This live has ended');
+          }
         }
         break;
 

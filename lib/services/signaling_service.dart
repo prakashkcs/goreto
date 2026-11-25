@@ -354,6 +354,10 @@ class SignalingService {
           'type': type,
           'gender_pref': genderPref,
         }),
+        options: Options(
+          sendTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 20),
+        ),
       );
       dynamic data = response.data;
       if (data is String) data = jsonDecode(data);

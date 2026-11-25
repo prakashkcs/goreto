@@ -1125,12 +1125,15 @@ class _HomeScreenState extends State<HomeScreen> {
     await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (ctx) => Container(
         decoration: const BoxDecoration(
           color: Color(0xFF111111),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 36),
+        padding: EdgeInsets.fromLTRB(
+            24, 16, 24, 24 + MediaQuery.of(ctx).viewPadding.bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

@@ -12,5 +12,7 @@
         <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+        <!-- The opt-out is ignored on Android 16 at targetSdk 36; pad for bars instead. -->
+        <item name="android:fitsSystemWindows">true</item>
     </style>
 </resources>

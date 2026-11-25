@@ -13,6 +13,7 @@ class PublishPostScreen extends StatefulWidget {
   final String? mediaPath;
   final String? initialCaption;
   final String? soundName;
+  final int? soundId;
 
   /// Pre-extracted thumbnail path (first frame via FFmpeg/video_thumbnail).
   /// When provided, this image is uploaded as the reel cover instead of
@@ -25,6 +26,7 @@ class PublishPostScreen extends StatefulWidget {
     this.mediaPath,
     this.initialCaption,
     this.soundName,
+    this.soundId,
     this.thumbnailPath,
   });
 
@@ -394,7 +396,8 @@ class _PublishPostScreenState extends State<PublishPostScreen>
 
         final soundTitle =
             (_selectedSound?['title'] ?? widget.soundName ?? '').toString();
-        final soundId = (_selectedSound?['id'] as num?)?.toInt() ?? 0;
+        final soundId =
+            (_selectedSound?['id'] as num?)?.toInt() ?? widget.soundId ?? 0;
         uploadResult = await ApiService().uploadPost(
           File(widget.mediaPath!),
           _captionController.text,
@@ -407,12 +410,6 @@ class _PublishPostScreenState extends State<PublishPostScreen>
           subscriberOnly: _subscriberOnly,
           thumbnailPath: thumbPath,
         );
-
-        // Link the sound to the new post + bump its virality ranking.
-        if (soundId > 0) {
-          final postId = _extractPostId(uploadResult);
-          if (postId > 0) await ApiService().useSound(soundId, postId);
-        }
       }
 
       if (!mounted) return;

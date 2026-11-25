@@ -51,22 +51,27 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
               minScale: 1,
               maxScale: 5,
               child: Center(
-                child: widget.heroTag != null
-                    ? Hero(tag: widget.heroTag!, child: img)
-                    : img,
-              ),
-            ),
-          ),
-
-          // On-screen watermark (bottom-right)
-          Positioned(
-            right: 16,
-            bottom: 24,
-            child: IgnorePointer(
-              child: Opacity(
-                opacity: 0.55,
-                child: Image.asset(_logoAsset, width: 44,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                // Stack sizes to the photo, so the watermark sits on the
+                // image's corner rather than the screen's.
+                child: Stack(
+                  children: [
+                    widget.heroTag != null
+                        ? Hero(tag: widget.heroTag!, child: img)
+                        : img,
+                    Positioned(
+                      right: 10,
+                      bottom: 10,
+                      child: IgnorePointer(
+                        child: Opacity(
+                          opacity: 0.55,
+                          child: Image.asset(_logoAsset, width: 40,
+                              errorBuilder: (_, __, ___) =>
+                                  const SizedBox.shrink()),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

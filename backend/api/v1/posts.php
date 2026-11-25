@@ -481,11 +481,12 @@ try {
       $vr = optionalUser($pdo);
       if ($vr) $vid = (int)$vr['id'];
 
+      // Must count the same tables the feed and like/comment actions write to.
       $stmt = $pdo->prepare("SELECT p.*, u.name AS author_name, u.username AS author_username, u.profile_pic AS author_avatar,
-        COALESCE((SELECT COUNT(*) FROM likes WHERE post_id = p.id),0) AS likes_count,
-        COALESCE((SELECT COUNT(*) FROM comments WHERE post_id = p.id),0) AS comments_count,
-        COALESCE((SELECT COUNT(*) FROM post_views WHERE post_id = p.id),0) AS views_total,
-        CASE WHEN (SELECT id FROM likes WHERE post_id = p.id AND user_id = ?) IS NOT NULL THEN 1 ELSE 0 END AS is_liked
+        COALESCE((SELECT COUNT(*) FROM $likesTbl WHERE post_id = p.id),0) AS likes_count,
+        COALESCE((SELECT COUNT(*) FROM $commentsTbl WHERE post_id = p.id),0) AS comments_count,
+        COALESCE((SELECT COUNT(*) FROM $viewsTbl WHERE post_id = p.id),0) AS views_total,
+        CASE WHEN EXISTS (SELECT 1 FROM $likesTbl WHERE post_id = p.id AND user_id = ?) THEN 1 ELSE 0 END AS is_liked
         FROM posts p LEFT JOIN users u ON p.user_id = u.id WHERE p.id = ? LIMIT 1");
       $stmt->execute([$vid, $reqPostId]);
       $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -545,6 +546,10 @@ try {
   $limit = max(1, min(500, intval($_GET['limit'] ?? $_POST['limit'] ?? 200)));
   $offset = max(0, intval($_GET['offset'] ?? $_POST['offset'] ?? 0));
   $soundNameFilter = trim((string) ($_GET['sound_name'] ?? $_POST['sound_name'] ?? ''));
+  $soundIdFilter = intval($_GET['sound_id'] ?? $_POST['sound_id'] ?? 0);
+  $hasPostSoundId = in_array('sound_id', $postsCols);
+  $hasSoundsTbl = false;
+  try { $hasSoundsTbl = (bool) $pdo->query("SHOW TABLES LIKE 'sounds'")->fetchColumn(); } catch (Throwable $e) {}
 
   // Resolve viewer from token for subscription check
   $authViewerId = 0;
@@ -591,6 +596,11 @@ try {
     $select[] = "p.$pThumbnail AS thumbnail_url";
   if ($pSoundName)
     $select[] = "p.$pSoundName AS sound_name";
+  if ($hasPostSoundId && $hasSoundsTbl) {
+    $select[] = "p.sound_id AS sound_id";
+    $select[] = "snd.title AS sound_title";
+    $select[] = "snd.audio_url AS sound_url";
+  }
   if ($uId) {
     $select[] = ($uName ? "u.$uName AS author_name" : "'' AS author_name");
     $select[] = ($uUsername ? "u.$uUsername AS author_username" : "'' AS author_username");
@@ -631,6 +641,9 @@ try {
   if ($authViewerId > 0 && $hasSubscriptionsTbl) {
     $joins[] = "LEFT JOIN user_subscriptions sub_chk ON sub_chk.subscriber_id = $authViewerId AND sub_chk.creator_id = p.$pUserId AND sub_chk.status = 'active' AND sub_chk.expires_at > NOW()";
   }
+  if ($hasPostSoundId && $hasSoundsTbl) {
+    $joins[] = "LEFT JOIN sounds snd ON snd.id = p.sound_id";
+  }
 
   // WHERE
   $where = [];
@@ -652,7 +665,13 @@ try {
     $where[] = "p.$pUserId = ?";
     $params[] = $filterUserId;
   }
-  if ($soundNameFilter !== '') {
+  if ($soundIdFilter > 0 && $hasPostSoundId) {
+    // A sound's page = the reel it was extracted from + every reel that used it.
+    $srcClause = $hasSoundsTbl ? " OR p.$pId IN (SELECT post_id FROM sounds WHERE id = ? AND post_id IS NOT NULL)" : "";
+    $where[] = "(p.sound_id = ?$srcClause)";
+    $params[] = $soundIdFilter;
+    if ($hasSoundsTbl) $params[] = $soundIdFilter;
+  } elseif ($soundNameFilter !== '') {
     if ($pSoundName) {
       $where[] = "p.$pSoundName = ?";
       $params[] = $soundNameFilter;
@@ -714,7 +733,10 @@ try {
       'image_url' => $displayMedia,
       'video' => $displayMedia,
       'thumbnail_url' => $effectiveThumb,
-      'sound_name' => (string) ($r['sound_name'] ?? ''),
+      'sound_name' => (string) (($r['sound_name'] ?? '') !== '' ? $r['sound_name'] : ($r['sound_title'] ?? '')),
+      'sound_id' => intval($r['sound_id'] ?? 0),
+      'sound_title' => (string) ($r['sound_title'] ?? ''),
+      'sound_url' => (string) ($r['sound_url'] ?? ''),
       'type' => (string) $r['type'],
       'post_type' => (string) $r['type'],
       'created_at' => (string) $r['created_at'],

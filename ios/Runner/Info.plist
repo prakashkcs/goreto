@@ -82,6 +82,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Goreto uses your camera for video calls, live streams, profile photos, and hands-free blink scrolling.</string>
 	<key>NSMicrophoneUsageDescription</key>

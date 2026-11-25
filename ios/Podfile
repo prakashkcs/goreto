@@ -56,6 +56,13 @@ post_install do |installer|
       # photos and tracking -- each is used and each has its string already.
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
         '$(inherited)',
+        # permission_handler reports any permission without =1 as denied on iOS.
+        'PERMISSION_CAMERA=1',
+        'PERMISSION_MICROPHONE=1',
+        'PERMISSION_PHOTOS=1',
+        'PERMISSION_NOTIFICATIONS=1',
+        'PERMISSION_LOCATION=1',
+        'PERMISSION_BLUETOOTH=1',
         'PERMISSION_CONTACTS=0',
         'PERMISSION_EVENTS=0',
         'PERMISSION_EVENTS_FULL_ACCESS=0',

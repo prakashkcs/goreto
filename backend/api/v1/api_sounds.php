@@ -207,7 +207,7 @@ if ($method === 'POST') {
             out(400, ['status' => 'error', 'message' => 'post_id required']);
 
         // Fetch the post's video file path
-        $ps = $pdo->prepare("SELECT file_url, user_id, caption FROM posts WHERE id = ? LIMIT 1");
+        $ps = $pdo->prepare("SELECT p.file_url, p.user_id, p.caption, u.username FROM posts p LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ? LIMIT 1");
         $ps->execute([$postId]);
         $post = $ps->fetch(PDO::FETCH_ASSOC);
         if (!$post)
@@ -266,22 +266,25 @@ if ($method === 'POST') {
 
         $audioUrl = $baseUrl . '/uploads/sounds/' . $soundFile;
 
-        if ($title === '') {
-            $title = trim((string) ($post['caption'] ?? ''));
-            if ($title === '')
-                $title = 'Original Sound';
-            // Truncate to 80 chars
+        if ($title === '' || strcasecmp($title, 'Original Audio') === 0) {
+            $uname = trim((string) ($post['username'] ?? ''));
+            $title = $uname !== '' ? "Original sound - $uname" : 'Original sound';
             if (mb_strlen($title) > 80)
                 $title = mb_substr($title, 0, 77) . '...';
         }
 
+        // Credit the reel's creator, not whoever tapped "Use This Sound".
+        $ownerId = (int) ($post['user_id'] ?? $userId);
         $ins = $pdo->prepare("INSERT INTO sounds (post_id, user_id, title, audio_url, duration, category) VALUES (?, ?, ?, ?, ?, 'original')");
-        $ins->execute([$postId, $userId, $title, $audioUrl, $duration]);
+        $ins->execute([$postId, $ownerId, $title, $audioUrl, $duration]);
         $soundId = (int) $pdo->lastInsertId();
 
-        // Link back to post
         try {
             $pdo->prepare("UPDATE posts SET sound_id = ? WHERE id = ?")->execute([$soundId, $postId]);
+        } catch (Throwable $_) {
+        }
+        try {
+            $pdo->prepare("UPDATE posts SET sound_name = ? WHERE id = ? AND (sound_name IS NULL OR sound_name = '')")->execute([$title, $postId]);
         } catch (Throwable $_) {
         }
 

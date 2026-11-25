@@ -16,8 +16,14 @@ class VideoRecorderScreen extends StatefulWidget {
   final String? initialSoundName;
   /// Direct audio URL for the pre-selected sound — avoids a lookup.
   final String? initialSoundUrl;
+  final int? initialSoundId;
 
-  const VideoRecorderScreen({super.key, this.initialSoundName, this.initialSoundUrl});
+  const VideoRecorderScreen({
+    super.key,
+    this.initialSoundName,
+    this.initialSoundUrl,
+    this.initialSoundId,
+  });
 
   @override
   State<VideoRecorderScreen> createState() => _VideoRecorderScreenState();
@@ -768,6 +774,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
   final AudioPlayer _tickPlayer         = AudioPlayer(); // countdown tick
   final AudioPlayer _previewPlayer      = AudioPlayer(); // preview in picker
   String? _selectedSoundUrl;                             // URL to stream during rec
+  int? _selectedSoundId;
   String? _previewingName;                               // which sound is previewing
 
   // ── Countdown timer ───────────────────────────────────────────────────────
@@ -786,6 +793,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
     _selectedSoundName = widget.initialSoundName;
     // Pre-populate URL if provided directly (avoids async lookup)
     _selectedSoundUrl = widget.initialSoundUrl;
+    _selectedSoundId = widget.initialSoundId;
     // Start with front (selfie) camera for reels creation
     _initCamera(cameraIndex: 1);
     _loadTrendingSounds();
@@ -852,7 +860,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
 
       final ctrl = CameraController(
         _cameras[idx],
-        ResolutionPreset.high,
+        ResolutionPreset.veryHigh,
         enableAudio: true,
         // Use nv21 for better compatibility with front-facing cameras on Android
         imageFormatGroup: Platform.isAndroid
@@ -1025,6 +1033,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
             mediaType: 'reel',
             mediaPath: file.path,
             soundName: _selectedSoundName,
+            soundId: _selectedSoundId,
             thumbnailPath: thumbnailPath,
           ),
         ),
@@ -1062,6 +1071,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
                 'name': (s['title'] ?? s['name'] ?? '').toString(),
                 'url':  (s['audio_url'] ?? s['url'] ?? '').toString(),
                 'cat':  (s['category'] ?? '').toString(),
+                'id':   (s['id'] ?? '').toString(),
               })
           .where((e) => e['name']!.isNotEmpty && e['url']!.startsWith('http'))
           .toList();
@@ -1073,16 +1083,45 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
           _loadingSounds = false;
         });
         // If a sound was pre-selected (from "Use This Sound"), wire its URL
-        if (_selectedSoundName != null) {
-          _selectedSoundUrl = _soundItems
+        if (_selectedSoundName != null && _selectedSoundUrl == null) {
+          final match = _soundItems
               .where((e) => e['name'] == _selectedSoundName)
-              .map((e) => e['url'])
               .firstOrNull;
+          if (match != null) {
+            _selectedSoundUrl = match['url'];
+            _selectedSoundId ??= int.tryParse(match['id'] ?? '');
+          }
         }
       }
     } catch (_) {
       if (mounted) setState(() => _loadingSounds = false);
     }
+  }
+
+  /// Fills the screen like BoxFit.cover. A bare CameraPreview under
+  /// StackFit.expand gets stretched to the screen's aspect ratio.
+  Widget _buildCoverPreview(CameraController ctrl) {
+    final size = ctrl.value.previewSize; // landscape: width > height
+    Widget preview = CameraPreview(ctrl);
+    if (_selectedFilterIndex != 0) {
+      preview = ColorFiltered(
+        colorFilter: _filters[_selectedFilterIndex].filter!,
+        child: preview,
+      );
+    }
+    if (size == null) return preview;
+    return ClipRect(
+      child: SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          child: SizedBox(
+            width: size.height,
+            height: size.width,
+            child: preview,
+          ),
+        ),
+      ),
+    );
   }
 
   String get _recordingProgress {
@@ -1099,12 +1138,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
         children: [
           // Camera preview with selected filter
           if (_cameraReady && _controller != null)
-            _selectedFilterIndex == 0
-                ? CameraPreview(_controller!)
-                : ColorFiltered(
-                    colorFilter: _filters[_selectedFilterIndex].filter!,
-                    child: CameraPreview(_controller!),
-                  )
+            _buildCoverPreview(_controller!)
           else
             const Center(
                 child: CircularProgressIndicator(color: Color(0xFFFF007F))),
@@ -1632,6 +1666,8 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
                           GestureDetector(
                             onTap: () => setState(() {
                               _selectedSoundName = null;
+                              _selectedSoundUrl = null;
+                              _selectedSoundId = null;
                               _showSoundPicker = false;
                             }),
                             child: const Text(
@@ -1688,13 +1724,12 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
       onTap: () {
         HapticFeedback.selectionClick();
         setState(() {
-          _selectedSoundName = isOriginal ? null : name;
-          _selectedSoundUrl = isOriginal
+          final match = isOriginal
               ? null
-              : _soundItems
-                  .where((e) => e['name'] == name)
-                  .map((e) => e['url'])
-                  .firstOrNull;
+              : _soundItems.where((e) => e['name'] == name).firstOrNull;
+          _selectedSoundName = isOriginal ? null : name;
+          _selectedSoundUrl = match?['url'];
+          _selectedSoundId = int.tryParse(match?['id'] ?? '');
           _showSoundPicker = false;
         });
       },
