@@ -15,6 +15,9 @@ import '../match/nearby_screen.dart';
 import '../match/nearby_user_preview_screen.dart';
 import '../live/live_room_screen.dart';
 import '../../models/match_user.dart';
+import '../../services/group_chat_service.dart';
+import '../chat/group_chat_screen.dart';
+import '../chat/group_invites.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -180,9 +183,32 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         Navigator.push(context, _route(const WalletScreen()));
         break;
 
+      case 'group_invite':
+        Navigator.push(context, _route(const GroupInvitesScreen()));
+        break;
+
+      case 'group_join_request':
+        if (n.referenceId != null && n.referenceId! > 0) {
+          Navigator.push(
+              context, _route(GroupRequestsScreen(groupId: n.referenceId!)));
+        }
+        break;
+
+      case 'group_request_approved':
+      case 'group_invite_accepted':
+        _openGroup(n.referenceId);
+        break;
+
       default:
         break;
     }
+  }
+
+  Future<void> _openGroup(int? groupId) async {
+    if (groupId == null || groupId <= 0) return;
+    final group = await GroupChatService().getGroupDetails(groupId);
+    if (!mounted || group == null || !group.isMember) return;
+    Navigator.push(context, _route(GroupChatScreen(group: group)));
   }
 
   /// Opens GiftsNotificationScreen only if this specific gift notification
@@ -287,6 +313,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             icon: Icons.wifi_tethering_rounded,
             color: const Color(0xFFFF3B30)
           ),
+        'group_invite' ||
+        'group_join_request' ||
+        'group_request_approved' ||
+        'group_invite_accepted' =>
+          (icon: Icons.groups_rounded, color: const Color(0xFFD946EF)),
         'system' || 'admin' => (
             icon: Icons.campaign_rounded,
             color: const Color(0xFF64D2FF)
@@ -687,6 +718,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return 'Your income proof was approved.';
       case 'income_reject':
         return 'Your income proof was rejected.';
+      case 'group_invite':
+      case 'group_join_request':
+      case 'group_invite_accepted':
+        {
+          // Server text already starts with the sender's name, which is shown
+          // in bold just before this — strip it to avoid "Ram Ram invited…".
+          final m = n.message.isNotEmpty ? n.message : n.title;
+          final s = n.senderName ?? '';
+          return s.isNotEmpty && m.startsWith(s)
+              ? m.substring(s.length).trimLeft()
+              : m;
+        }
+      case 'group_request_approved':
+        return 'approved your request. ${n.message}';
       default:
         return n.message.isNotEmpty ? n.message : n.title;
     }

@@ -12,6 +12,7 @@ import 'package:love_vibe_pro/screens/profile_screen.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/screens/chat/group_chat_list_tab.dart';
 import 'package:love_vibe_pro/services/socket_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -845,8 +846,11 @@ class _ChatStreakCard extends StatefulWidget {
 }
 
 class _ChatStreakCardState extends State<_ChatStreakCard> {
+  static const _dismissKey = 'chat_streak_card_dismissed';
+
   Map<String, dynamic>? _chat;
   bool _loaded = false;
+  String? _dismissedFor;
 
   @override
   void initState() {
@@ -855,6 +859,8 @@ class _ChatStreakCardState extends State<_ChatStreakCard> {
   }
 
   Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    _dismissedFor = prefs.getString(_dismissKey);
     final info = await ApiService().getStreakInfo();
     if (!mounted) return;
     setState(() {
@@ -863,6 +869,21 @@ class _ChatStreakCardState extends State<_ChatStreakCard> {
           : null;
       _loaded = true;
     });
+  }
+
+  /// Identifies what the card is currently saying. Dismissing hides the card
+  /// until this changes (the streak starts, grows or resets), so the user
+  /// isn't nagged with the same "Start a chat streak" message again.
+  String _signature(int display, int current) {
+    if (display > 0) return 'started:$display';
+    if (current > 0) return 'building:$current';
+    return 'idle';
+  }
+
+  Future<void> _dismiss(String signature) async {
+    setState(() => _dismissedFor = signature);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_dismissKey, signature);
   }
 
   int _i(dynamic v) => int.tryParse('${v ?? 0}') ?? 0;
@@ -886,6 +907,8 @@ class _ChatStreakCardState extends State<_ChatStreakCard> {
         ? 3
         : _i(_chat!['start_threshold']);
     final secondsLeft = _i(_chat!['seconds_left']);
+    final signature = _signature(display, current);
+    if (_dismissedFor == signature) return const SizedBox.shrink();
 
     final bool started = display > 0;
     final IconData icon =
@@ -951,6 +974,20 @@ class _ChatStreakCardState extends State<_ChatStreakCard> {
             Text('🔥 $display',
                 style: TextStyle(
                     color: color, fontWeight: FontWeight.w800, fontSize: 18)),
+          const SizedBox(width: 4),
+          Semantics(
+            button: true,
+            label: 'Dismiss',
+            child: InkWell(
+              onTap: () => _dismiss(signature),
+              customBorder: const CircleBorder(),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(Icons.close_rounded,
+                    size: 16, color: Colors.white.withValues(alpha: 0.45)),
+              ),
+            ),
+          ),
         ],
       ),
     );

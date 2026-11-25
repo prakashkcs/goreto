@@ -50,8 +50,6 @@ android {
 
     buildTypes {
         release {
-            // Signed with the upload keystore (android/key.properties). Falls back
-            // to debug signing only if key.properties is missing.
             signingConfig = if (keystorePropertiesFile.exists())
                 signingConfigs.getByName("release")
             else
@@ -68,7 +66,6 @@ android {
             isShrinkResources = false
         }
     }
-
 }
 
 flutter {
@@ -79,7 +76,6 @@ dependencies {
     implementation("com.android.installreferrer:installreferrer:2.2")
     implementation("androidx.core:core-splashscreen:1.0.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-    // Required for IncomingCallActivity and CallFirebaseMessagingService
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("com.google.firebase:firebase-messaging:24.0.0")

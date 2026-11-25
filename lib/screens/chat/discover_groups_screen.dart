@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/models/group_chat.dart';
+import 'package:love_vibe_pro/screens/chat/group_ui.dart';
 import 'package:love_vibe_pro/services/group_chat_service.dart';
 import 'package:love_vibe_pro/services/profile_service.dart';
 import 'package:love_vibe_pro/screens/chat/group_chat_screen.dart';
@@ -147,7 +147,29 @@ class _DiscoverGroupsScreenState extends State<DiscoverGroupsScreen> {
     });
   }
 
+  void _replace(ChatGroup updated) {
+    setState(() {
+      _all = _all.map((x) => x.id == updated.id ? updated : x).toList();
+      _displayed =
+          _displayed.map((x) => x.id == updated.id ? updated : x).toList();
+    });
+  }
+
   Future<void> _join(ChatGroup g) async {
+    if (g.requestPending) {
+      final cancel = await gConfirm(
+        context,
+        title: 'Cancel request?',
+        message: 'Your request to join ${g.name} is waiting for admin approval.',
+        confirmLabel: 'Cancel request',
+        destructive: true,
+      );
+      if (!cancel) return;
+      final ok = await _service.cancelJoinRequest(g.id);
+      if (!mounted) return;
+      if (ok) _replace(g.copyWith(requestPending: false));
+      return;
+    }
     if (g.joinFee > 0) {
       final ok = await showDialog<bool>(
         context: context,
@@ -175,28 +197,21 @@ class _DiscoverGroupsScreenState extends State<DiscoverGroupsScreen> {
     final res = await _service.joinGroup(g.id);
     if (!mounted) return;
     if (res['success'] == true) {
-      NeonToast.success(context, 'Joined ${g.name}!');
-      setState(() {
-        _all       = _all.map((x) => x.id == g.id ? _patch(x) : x).toList();
-        _displayed = _displayed.map((x) => x.id == g.id ? _patch(x) : x).toList();
-      });
+      if (res['state'] == 'requested') {
+        NeonToast.info(context, 'Request sent. An admin will review it.');
+        _replace(g.copyWith(requestPending: true));
+      } else {
+        NeonToast.success(context, 'Joined ${g.name}!');
+        final joined = g.copyWith(
+            isMember: true, myRole: 'member', memberCount: g.memberCount + 1);
+        _replace(joined);
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => GroupChatScreen(group: joined)));
+      }
     } else {
-      NeonToast.error(context, res['msg'] ?? 'Failed to join');
+      NeonToast.error(context, (res['msg'] ?? 'Failed to join').toString());
     }
   }
-
-  ChatGroup _patch(ChatGroup x) => ChatGroup(
-        id: x.id, name: x.name, username: x.username, avatar: x.avatar,
-        bio: x.bio, joinFee: x.joinFee, monthlyFee: x.monthlyFee,
-        createdBy: x.createdBy, memberCount: x.memberCount + 1,
-        isMember: true, myRole: 'member', lastMessage: x.lastMessage,
-        lastMessageType: x.lastMessageType, lastMessageSender: x.lastMessageSender,
-        lastMessageSenderId: x.lastMessageSenderId,
-        lastMessageTime: x.lastMessageTime, isPrivate: x.isPrivate,
-        permissions: x.permissions, messageDelay: x.messageDelay,
-        viewsCount: x.viewsCount, lastActive: x.lastActive,
-        unreadCount: x.unreadCount,
-      );
 
   String _fmt(int n) {
     if (n >= 1000) return '${(n / 1000).toStringAsFixed(n >= 10000 ? 0 : 1)}k';
@@ -531,15 +546,7 @@ class _GroupCard extends StatelessWidget {
                             ),
                           ],
                         ),
-                        child: ClipOval(
-                          child: g.avatarUrl != null
-                              ? CachedNetworkImage(
-                                  imageUrl: g.avatarUrl!,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (_, __, ___) => _initials(g.name),
-                                )
-                              : _initials(g.name),
-                        ),
+                        child: GroupAvatar.of(g, size: 54),
                       ),
                       if (isActive)
                         Positioned(
@@ -690,6 +697,36 @@ class _GroupCard extends StatelessWidget {
                               ],
                             ),
                           )
+                        : g.requestPending
+                        ? GestureDetector(
+                            onTap: onJoin,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.15)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.schedule_rounded,
+                                      color: Colors.white54, size: 12),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Requested',
+                                    style: TextStyle(
+                                      color: Colors.white60,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
                         : GestureDetector(
                             onTap: onJoin,
                             child: Container(
@@ -708,7 +745,9 @@ class _GroupCard extends StatelessWidget {
                                 ],
                               ),
                               child: Text(
-                                g.joinFee > 0 ? 'Pay & Join' : 'Join',
+                                g.joinApproval
+                                    ? 'Request'
+                                    : (g.joinFee > 0 ? 'Pay & Join' : 'Join'),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 12,
@@ -726,15 +765,4 @@ class _GroupCard extends StatelessWidget {
       ),
     );
   }
-
-  Widget _initials(String name) => Center(
-        child: Text(
-          name.isNotEmpty ? name[0].toUpperCase() : '?',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      );
 }

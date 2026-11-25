@@ -1,15 +1,35 @@
-import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:love_vibe_pro/core/theme.dart';
 import 'package:love_vibe_pro/models/group_chat.dart';
 import 'package:love_vibe_pro/providers/auth_provider.dart';
+import 'package:love_vibe_pro/screens/chat/create_group_screen.dart'
+    show GroupTypeSelector;
+import 'package:love_vibe_pro/screens/chat/group_invites.dart';
+import 'package:love_vibe_pro/screens/chat/group_ui.dart';
 import 'package:love_vibe_pro/services/group_chat_service.dart';
+import 'package:love_vibe_pro/widgets/neon_toast.dart';
+import 'package:love_vibe_pro/widgets/user_preview_sheet.dart';
 
+/// Result values this screen pops with so the chat screen can react.
+class GroupSettingsResult {
+  static const left = 'left';
+  static const deleted = 'deleted';
+  static const cleared = 'cleared';
+}
+
+/// Group info & settings.
 class GroupSettingsScreen extends StatefulWidget {
   final ChatGroup group;
-  const GroupSettingsScreen({super.key, required this.group});
+
+  /// Called whenever the group changes (name, avatar, settings…), so the
+  /// screen underneath can update without a reload.
+  final ValueChanged<ChatGroup>? onGroupUpdated;
+
+  const GroupSettingsScreen(
+      {super.key, required this.group, this.onGroupUpdated});
 
   @override
   State<GroupSettingsScreen> createState() => _GroupSettingsScreenState();
@@ -17,1190 +37,1465 @@ class GroupSettingsScreen extends StatefulWidget {
 
 class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   final GroupChatService _service = GroupChatService();
-  bool _isLoading = true;
-  String _myRole = 'member';
+
+  late ChatGroup _group;
   List<ChatGroupMember> _members = [];
+  String _myRole = 'member';
+  int _ownerId = 0;
   int _myId = 0;
+  bool _membersLoading = true;
+  bool _showAllMembers = false;
 
-  late TextEditingController _nameCtrl;
-  late TextEditingController _feeCtrl;
-  late TextEditingController _monthlyFeeCtrl;
-  late TextEditingController _delayCtrl;
+  String? _localAvatar;
+  bool _avatarUploading = false;
 
-  bool _isPrivate = false;
-  late GroupPermissions _permissions;
+  bool get _isAdmin => _myRole == 'admin';
+  bool get _isOwner => _ownerId != 0 && _ownerId == _myId;
+  bool get _canInvite => _isAdmin || _group.membersCanInvite;
 
   @override
   void initState() {
     super.initState();
     final auth = Provider.of<AuthProvider>(context, listen: false);
     _myId = int.tryParse(auth.currentUserId ?? '0') ?? 0;
-    _nameCtrl = TextEditingController(text: widget.group.name);
-    _feeCtrl = TextEditingController(text: widget.group.joinFee.toString());
-    _monthlyFeeCtrl = TextEditingController(
-      text: widget.group.monthlyFee.toString(),
-    );
-    _delayCtrl = TextEditingController(
-      text: widget.group.messageDelay.toString(),
-    );
-    _isPrivate = widget.group.isPrivate;
-    _permissions = widget.group.permissions;
-    _loadData();
+    _group = widget.group;
+    _myRole = widget.group.myRole ??
+        (widget.group.createdBy == _myId ? 'admin' : 'member');
+    _ownerId = widget.group.createdBy;
+    _load();
   }
 
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _feeCtrl.dispose();
-    _monthlyFeeCtrl.dispose();
-    _delayCtrl.dispose();
-    super.dispose();
+  Future<void> _load() async {
+    final results = await Future.wait([
+      _service.getGroupDetails(_group.id),
+      _service.getGroupMembers(_group.id),
+    ]);
+    if (!mounted) return;
+    final g = results[0] as ChatGroup?;
+    final m = results[1] as Map<String, dynamic>;
+    setState(() {
+      if (g != null) _setGroup(g, notify: false);
+      _members = (m['members'] as List<ChatGroupMember>?) ?? [];
+      _myRole = (m['my_role'] ?? _myRole).toString();
+      final owner = m['owner_id'] as int? ?? 0;
+      if (owner > 0) _ownerId = owner;
+      _membersLoading = false;
+    });
+    if (g != null) widget.onGroupUpdated?.call(_group);
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-    try {
-      final data = await _service.getGroupMembers(widget.group.id);
-      if (mounted) {
-        String role = data['my_role']?.toString() ?? 'member';
-        if (widget.group.createdBy == _myId && role == 'member') {
-          role = 'admin';
-        }
-        setState(() {
-          _myRole = role;
-          _members = (data['members'] as List<ChatGroupMember>?) ?? [];
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        String role = 'member';
-        if (widget.group.createdBy == _myId) {
-          role = 'admin';
-        }
-        setState(() {
-          _myRole = role;
-          _members = [];
-          _isLoading = false;
-        });
-      }
+  void _setGroup(ChatGroup g, {bool notify = true}) {
+    _group = g;
+    if (g.myRole != null) _myRole = g.myRole!;
+    if (g.createdBy > 0) _ownerId = g.createdBy;
+    if (notify) widget.onGroupUpdated?.call(g);
+  }
+
+  /// Saves settings and applies the fresh server copy. Returns an error
+  /// message, or null on success.
+  Future<String?> _save({
+    String? name,
+    String? username,
+    String? bio,
+    bool? isPrivate,
+    bool? joinApproval,
+    bool? membersCanInvite,
+    int? joinFee,
+    int? messageDelay,
+    GroupPermissions? permissions,
+  }) async {
+    final r = await _service.updateSettings(
+      _group.id,
+      name: name,
+      username: username,
+      bio: bio,
+      isPrivate: isPrivate,
+      joinApproval: joinApproval,
+      membersCanInvite: membersCanInvite,
+      joinFee: joinFee,
+      messageDelay: messageDelay,
+      permissions: permissions,
+    );
+    if (!mounted) return null;
+    if (!r.success) return r.message.isNotEmpty ? r.message : 'Could not save';
+    if (r.group != null) setState(() => _setGroup(r.group!));
+    return null;
+  }
+
+  Future<void> _quickSave(
+      Future<String?> Function() op, ChatGroup optimistic) async {
+    final previous = _group;
+    setState(() => _group = optimistic);
+    final err = await op();
+    if (!mounted) return;
+    if (err != null) {
+      setState(() => _group = previous);
+      NeonToast.error(context, err);
     }
   }
 
-  Future<void> _saveSettings() async {
-    if (_myRole != 'admin') return;
-    final fee = int.tryParse(_feeCtrl.text) ?? 0;
-    final monthlyFee = int.tryParse(_monthlyFeeCtrl.text) ?? 0;
-    final delay = int.tryParse(_delayCtrl.text) ?? 0;
+  // ── Avatar ────────────────────────────────────────────────────────────────
 
-    setState(() => _isLoading = true);
-    await _service.updateSettings(
-      widget.group.id,
-      name: _nameCtrl.text.trim(),
-      joinFee: fee,
-      monthlyFee: monthlyFee,
-      isPrivate: _isPrivate,
-      messageDelay: delay,
-      permissions: _permissions,
-    );
-    _showSnackBar('Settings updated');
-    _loadData();
-  }
-
-  Future<void> _editUsername() async {
-    if (_myRole != 'admin') return;
-    final ctrl = TextEditingController(text: widget.group.username);
-    final newUsername = await showDialog<String>(
-      context: context,
-      builder: (c) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text(
-          'Edit Username',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: TextField(
-          controller: ctrl,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Enter username',
-            hintStyle: TextStyle(color: Colors.white54),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(c, ctrl.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (newUsername != null && newUsername.isNotEmpty) {
-      setState(() => _isLoading = true);
-      await _service.updateSettings(widget.group.id, username: newUsername);
-      _showSnackBar('Username updated');
-      _loadData();
+  void _onAvatarTap() {
+    if (!_isAdmin) {
+      if (_group.avatarUrl != null) _viewPhoto();
+      return;
     }
-  }
-
-  Future<void> _editBio() async {
-    if (_myRole != 'admin') return;
-    final ctrl = TextEditingController(text: widget.group.bio);
-    final newBio = await showDialog<String>(
-      context: context,
-      builder: (c) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text('Edit Bio', style: TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: ctrl,
-          maxLines: 3,
-          maxLength: 100,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Enter bio (keywords for search)',
-            hintStyle: TextStyle(color: Colors.white54),
-          ),
+    showGSheet<void>(context, builder: (ctx) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const GSheetHeader(title: 'Group photo'),
+            GSheetAction(
+              icon: Icons.photo_library_outlined,
+              label: 'Choose from gallery',
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAvatar(ImageSource.gallery);
+              },
+            ),
+            GSheetAction(
+              icon: Icons.photo_camera_outlined,
+              label: 'Take a photo',
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAvatar(ImageSource.camera);
+              },
+            ),
+            if (_group.avatarUrl != null)
+              GSheetAction(
+                icon: Icons.fullscreen_rounded,
+                label: 'View photo',
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _viewPhoto();
+                },
+              ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(c, ctrl.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (newBio != null) {
-      setState(() => _isLoading = true);
-      await _service.updateSettings(widget.group.id, bio: newBio);
-      _showSnackBar('Bio updated');
-      _loadData();
-    }
-  }
-
-  Future<void> _updateAvatar() async {
-    if (_myRole != 'admin') return;
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 70,
-    );
-    if (pickedFile != null) {
-      setState(() => _isLoading = true);
-      await _service.updateSettings(
-        widget.group.id,
-        avatarPath: pickedFile.path,
       );
-      _showSnackBar('Avatar updated');
-      _loadData();
-    }
+    });
   }
 
-  Future<void> _deleteGroup() async {
-    if (_myRole != 'admin') return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text(
-          'Delete Group',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: const Text(
-          'Are you sure you want to delete this group? This action cannot be undone.',
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+  Future<void> _pickAvatar(ImageSource source) async {
+    final picked = await ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 85,
     );
+    if (picked == null || !mounted) return;
 
-    if (confirmed == true) {
-      setState(() => _isLoading = true);
-      final success = await _service.deleteGroup(widget.group.id);
-      if (success && mounted) {
-        Navigator.pop(context);
-        Navigator.pop(context);
-      } else {
-        _showSnackBar('Failed to delete group');
-        _loadData();
-      }
-    }
-  }
-
-  Future<void> _leaveGroup() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text('Leave Group', style: TextStyle(color: Colors.white)),
-        content: const Text(
-          'Are you sure you want to leave this group?',
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('Leave', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      final ok = await _service.leaveGroup(widget.group.id);
-      if (ok && mounted) {
-        Navigator.pop(context);
-        Navigator.pop(context);
-      } else {
-        _showSnackBar('Failed to leave group');
-      }
-    }
-  }
-
-  Future<void> _clearMyChat() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text('Clear Chat', style: TextStyle(color: Colors.white)),
-        content: const Text(
-          'Delete all your messages from this group? This cannot be undone.',
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('Clear', style: TextStyle(color: Colors.orange)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      final ok = await _service.clearMyChat(widget.group.id);
-      if (ok && mounted) {
-        _showSnackBar('Chat cleared');
-        Navigator.pop(context);
-        Navigator.pop(context);
-      } else {
-        _showSnackBar('Failed to clear chat');
-      }
-    }
-  }
-
-  Future<void> _inviteUserDialog() async {
+    // Show the new photo right away; upload in the background.
+    setState(() {
+      _localAvatar = picked.path;
+      _avatarUploading = true;
+    });
+    final r = await _service.updateSettings(_group.id, avatarPath: picked.path);
     if (!mounted) return;
-    final memberIds = _members.map((m) => m.id).toSet();
-
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A1A1A),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _InviteSheet(
-        groupId: widget.group.id,
-        memberIds: memberIds,
-        service: _service,
-        onInvited: (msg) {
-          _showSnackBar(msg);
-          _loadData();
-        },
-      ),
-    );
+    setState(() => _avatarUploading = false);
+    if (r.success && r.group != null) {
+      final url = r.group!.avatarUrl;
+      if (url != null) {
+        // Warm the cache so every screen shows it instantly.
+        await precacheImage(CachedNetworkImageProvider(url), context)
+            .catchError((_) {});
+      }
+      if (!mounted) return;
+      setState(() {
+        _setGroup(r.group!);
+        _localAvatar = null;
+      });
+      NeonToast.success(context, 'Group photo updated');
+    } else {
+      setState(() => _localAvatar = null);
+      NeonToast.error(context, r.message.isNotEmpty ? r.message : 'Upload failed');
+    }
   }
 
-  void _showSnackBar(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
+  void _viewPhoto() {
+    final url = _group.avatarUrl;
+    if (url == null) return;
+    Navigator.push(
       context,
-    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.pink));
+      MaterialPageRoute(builder: (_) => _PhotoViewer(url: url, title: _group.name)),
+    );
   }
 
-  void _manageMember(ChatGroupMember m) {
-    if (_myRole != 'admin' || m.role == 'admin') return;
+  // ── Editors ───────────────────────────────────────────────────────────────
 
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
-      builder: (c) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.star, color: Colors.amber),
-                title: const Text(
-                  'Make Admin',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () async {
-                  Navigator.pop(c);
-                  await _service.setRole(widget.group.id, m.id, 'admin');
-                  _loadData();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.exit_to_app, color: Colors.orange),
-                title: const Text(
-                  'Kick Member',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () async {
-                  Navigator.pop(c);
-                  await _service.kickMember(widget.group.id, m.id);
-                  _loadData();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.block, color: Colors.red),
-                title: const Text(
-                  'Ban Permanently',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () async {
-                  Navigator.pop(c);
-                  await _service.banMember(widget.group.id, m.id);
-                  _loadData();
-                },
-              ),
-            ],
-          ),
-        );
+  Future<void> _editName() async {
+    await _showTextEditor(
+      title: 'Group name',
+      subtitle: 'Everyone in the group will see the new name.',
+      initial: _group.name,
+      hint: 'Group name',
+      maxLength: 60,
+      onSave: (v) {
+        if (v.trim().isEmpty) return Future.value('Name cannot be empty');
+        return _save(name: v.trim());
       },
     );
   }
 
-  void _showPermissionsDialog() {
-    if (_myRole != 'admin') return;
+  Future<void> _editBio() async {
+    await _showTextEditor(
+      title: 'Description',
+      subtitle:
+          'Tell people what the group is about. Words here also help it show up in search.',
+      initial: _group.bio ?? '',
+      hint: 'What is this group about?',
+      maxLength: 300,
+      maxLines: 5,
+      onSave: (v) => _save(bio: v.trim()),
+    );
+  }
 
-    showDialog(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1E1E1E),
-          title: const Text(
-            'Member Permissions',
-            style: TextStyle(color: Colors.white),
-          ),
-          content: Column(
+  Future<void> _showTextEditor({
+    required String title,
+    required String subtitle,
+    required String initial,
+    required String hint,
+    required int maxLength,
+    int maxLines = 1,
+    required Future<String?> Function(String) onSave,
+  }) async {
+    final saved = await showGSheet<bool>(
+      context,
+      builder: (_) => _TextEditorSheet(
+        title: title,
+        subtitle: subtitle,
+        initial: initial,
+        hint: hint,
+        maxLength: maxLength,
+        maxLines: maxLines,
+        onSave: onSave,
+      ),
+    );
+    if (saved == true && mounted) NeonToast.success(context, '$title updated');
+  }
+
+  Future<void> _editUsername() async {
+    final saved = await showGSheet<bool>(
+      context,
+      builder: (_) => _UsernameEditorSheet(
+        group: _group,
+        service: _service,
+        onSave: (v) => _save(username: v),
+      ),
+    );
+    if (saved == true && mounted) NeonToast.success(context, 'Username updated');
+  }
+
+  Future<void> _editGroupType() async {
+    bool isPrivate = _group.isPrivate;
+    final result = await showGSheet<bool>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SwitchListTile(
-                title: const Text(
-                  'Send Text',
-                  style: TextStyle(color: Colors.white),
-                ),
-                value: _permissions.canSendText,
-                activeThumbColor: GalacticTheme.laserPink,
-                onChanged: (v) => setDialogState(
-                  () => _permissions = GroupPermissions(
-                    canSendText: v,
-                    canSendMedia: _permissions.canSendMedia,
-                    canSendVoice: _permissions.canSendVoice,
-                    canSendStickers: _permissions.canSendStickers,
-                  ),
+              const GSheetHeader(
+                title: 'Group type',
+                subtitle: 'Choose who can find and join this group.',
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: GroupTypeSelector(
+                  isPrivate: isPrivate,
+                  onChanged: (v) => setSheet(() => isPrivate = v),
                 ),
               ),
-              SwitchListTile(
-                title: const Text(
-                  'Send Media',
-                  style: TextStyle(color: Colors.white),
-                ),
-                value: _permissions.canSendMedia,
-                activeThumbColor: GalacticTheme.laserPink,
-                onChanged: (v) => setDialogState(
-                  () => _permissions = GroupPermissions(
-                    canSendText: _permissions.canSendText,
-                    canSendMedia: v,
-                    canSendVoice: _permissions.canSendVoice,
-                    canSendStickers: _permissions.canSendStickers,
-                  ),
-                ),
-              ),
-              SwitchListTile(
-                title: const Text(
-                  'Send Voice',
-                  style: TextStyle(color: Colors.white),
-                ),
-                value: _permissions.canSendVoice,
-                activeThumbColor: GalacticTheme.laserPink,
-                onChanged: (v) => setDialogState(
-                  () => _permissions = GroupPermissions(
-                    canSendText: _permissions.canSendText,
-                    canSendMedia: _permissions.canSendMedia,
-                    canSendVoice: v,
-                    canSendStickers: _permissions.canSendStickers,
-                  ),
-                ),
-              ),
-              SwitchListTile(
-                title: const Text(
-                  'Send Stickers',
-                  style: TextStyle(color: Colors.white),
-                ),
-                value: _permissions.canSendStickers,
-                activeThumbColor: GalacticTheme.laserPink,
-                onChanged: (v) => setDialogState(
-                  () => _permissions = GroupPermissions(
-                    canSendText: _permissions.canSendText,
-                    canSendMedia: _permissions.canSendMedia,
-                    canSendVoice: _permissions.canSendVoice,
-                    canSendStickers: v,
-                  ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: GPrimaryButton(
+                  label: 'Save',
+                  onPressed: () => Navigator.pop(ctx, isPrivate),
                 ),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('Cancel'),
+        ),
+      ),
+    );
+    if (result == null || result == _group.isPrivate) return;
+    await _quickSave(
+      () => _save(isPrivate: result),
+      _group.copyWith(isPrivate: result),
+    );
+    if (mounted) {
+      NeonToast.success(context,
+          result ? 'Group is now private' : 'Group is now public');
+    }
+  }
+
+  Future<void> _editPermissions() async {
+    final result = await showGSheet<GroupPermissions>(
+      context,
+      builder: (_) => _PermissionsSheet(initial: _group.permissions),
+    );
+    if (result == null) return;
+    await _quickSave(() => _save(permissions: result),
+        _group.copyWith(permissions: result));
+    if (mounted) NeonToast.success(context, 'Permissions updated');
+  }
+
+  Future<void> _editSlowMode() async {
+    const options = [0, 5, 10, 30, 60, 300, 900];
+    final result = await showGSheet<int>(
+      context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const GSheetHeader(
+              title: 'Slow mode',
+              subtitle:
+                  'Set how long members wait between messages. Admins are not limited.',
             ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(c);
-                _saveSettings();
-              },
-              child: const Text('Save'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: options.map((s) {
+                  final sel = s == _group.messageDelay;
+                  return GestureDetector(
+                    onTap: () => Navigator.pop(ctx, s),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 11),
+                      decoration: BoxDecoration(
+                        gradient: sel ? GUI.gradient : null,
+                        color: sel ? null : GUI.surface2,
+                        borderRadius: BorderRadius.circular(12),
+                        border: sel ? null : Border.all(color: GUI.border),
+                      ),
+                      child: Text(_delayLabel(s),
+                          style: TextStyle(
+                              color: sel ? Colors.white : GUI.textMid,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
+          ],
+        ),
+      ),
+    );
+    if (result == null || result == _group.messageDelay) return;
+    await _quickSave(() => _save(messageDelay: result),
+        _group.copyWith(messageDelay: result));
+  }
+
+  Future<void> _editJoinFee() async {
+    await _showTextEditor(
+      title: 'Join fee',
+      subtitle:
+          'Coins charged when someone joins. People invited by an admin join for free. Use 0 for a free group.',
+      initial: _group.joinFee.toString(),
+      hint: '0',
+      maxLength: 6,
+      onSave: (v) {
+        final fee = int.tryParse(v.trim());
+        if (fee == null || fee < 0) {
+          return Future.value('Enter a valid number of coins');
+        }
+        return _save(joinFee: fee);
+      },
+    );
+  }
+
+  String _delayLabel(int s) {
+    if (s == 0) return 'Off';
+    if (s < 60) return '${s}s';
+    return '${s ~/ 60}m';
+  }
+
+  String _permissionSummary(GroupPermissions p) {
+    final allowed = <String>[
+      if (p.canSendText) 'Text',
+      if (p.canSendMedia) 'Media',
+      if (p.canSendVoice) 'Voice',
+      if (p.canSendStickers) 'Stickers',
+    ];
+    if (allowed.length == 4) return 'Members can send everything';
+    if (allowed.isEmpty) return 'Only admins can send messages';
+    return 'Allowed: ${allowed.join(', ')}';
+  }
+
+  // ── Members ───────────────────────────────────────────────────────────────
+
+  Future<void> _addMembers() async {
+    final n = await AddMembersSheet.show(context, _group);
+    if (n != null && n > 0) _load();
+  }
+
+  Future<void> _openRequests() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            GroupRequestsScreen(groupId: _group.id, groupName: _group.name),
+      ),
+    );
+    _load();
+  }
+
+  String? _roleLabel(ChatGroupMember m) {
+    if (m.id == _ownerId) return 'Owner';
+    if (m.isAdmin) return 'Admin';
+    return null;
+  }
+
+  void _openMember(ChatGroupMember m) {
+    final isMe = m.id == _myId;
+    final targetIsOwner = m.id == _ownerId;
+    final canManage = _isAdmin && !isMe && !targetIsOwner && (!m.isAdmin || _isOwner);
+
+    UserPreviewSheet.show(
+      context,
+      userId: m.id.toString(),
+      name: m.name,
+      username: m.username,
+      avatar: m.avatar,
+      isMe: isMe,
+      roleLabel: _roleLabel(m),
+      extraActions: !canManage
+          ? null
+          : (ctx) => <Widget>[
+                GSheetAction(
+                  icon: m.isAdmin
+                      ? Icons.remove_moderator_outlined
+                      : Icons.add_moderator_outlined,
+                  label: m.isAdmin ? 'Remove as admin' : 'Make group admin',
+                  subtitle: m.isAdmin
+                      ? 'They will become a regular member'
+                      : 'Admins can manage members and settings',
+                  color: GUI.info,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _setRole(m, m.isAdmin ? 'member' : 'admin');
+                  },
+                ),
+                GSheetAction(
+                  icon: Icons.person_remove_outlined,
+                  label: 'Remove from group',
+                  subtitle: 'They can rejoin or be invited again',
+                  color: GUI.warning,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _removeMember(m, ban: false);
+                  },
+                ),
+                GSheetAction(
+                  icon: Icons.block_rounded,
+                  label: 'Ban from group',
+                  subtitle: 'Removes them and blocks them from rejoining',
+                  destructive: true,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _removeMember(m, ban: true);
+                  },
+                ),
+              ],
+    );
+  }
+
+  Future<void> _setRole(ChatGroupMember m, String role) async {
+    final r = await _service.setRole(_group.id, m.id, role);
+    if (!mounted) return;
+    if (r.success) {
+      NeonToast.success(context,
+          role == 'admin' ? '${m.name} is now an admin' : '${m.name} is no longer an admin');
+      _load();
+    } else {
+      NeonToast.error(context, r.message);
+    }
+  }
+
+  Future<void> _removeMember(ChatGroupMember m, {required bool ban}) async {
+    final ok = await gConfirm(
+      context,
+      title: ban ? 'Ban ${m.name}?' : 'Remove ${m.name}?',
+      message: ban
+          ? 'They will be removed and won\'t be able to rejoin this group.'
+          : 'They will be removed from the group. They can be invited again later.',
+      confirmLabel: ban ? 'Ban' : 'Remove',
+      destructive: true,
+      icon: ban ? Icons.block_rounded : Icons.person_remove_outlined,
+    );
+    if (!ok) return;
+    final r = ban
+        ? await _service.banMember(_group.id, m.id)
+        : await _service.kickMember(_group.id, m.id);
+    if (!mounted) return;
+    if (r.success) {
+      setState(() => _members.removeWhere((x) => x.id == m.id));
+      NeonToast.success(context, ban ? '${m.name} was banned' : '${m.name} was removed');
+      _load();
+    } else {
+      NeonToast.error(context, r.message);
+    }
+  }
+
+  // ── Danger zone ───────────────────────────────────────────────────────────
+
+  Future<void> _clearChat() async {
+    final ok = await gConfirm(
+      context,
+      title: 'Clear chat history?',
+      message:
+          'Messages will be removed for you only. Other members will still see them.',
+      confirmLabel: 'Clear',
+      destructive: true,
+      icon: Icons.cleaning_services_outlined,
+    );
+    if (!ok) return;
+    final done = await _service.clearMyChat(_group.id);
+    if (!mounted) return;
+    if (done) {
+      NeonToast.success(context, 'Chat cleared');
+      Navigator.pop(context, GroupSettingsResult.cleared);
+    } else {
+      NeonToast.error(context, 'Failed to clear chat');
+    }
+  }
+
+  Future<void> _leave() async {
+    final ok = await gConfirm(
+      context,
+      title: 'Leave ${_group.name}?',
+      message: _isAdmin && _members.where((m) => m.isAdmin).length <= 1
+          ? 'You are the only admin. Another member will be made admin automatically.'
+          : 'You will stop receiving messages from this group.',
+      confirmLabel: 'Leave',
+      destructive: true,
+      icon: Icons.logout_rounded,
+    );
+    if (!ok) return;
+    final done = await _service.leaveGroup(_group.id);
+    if (!mounted) return;
+    if (done) {
+      Navigator.pop(context, GroupSettingsResult.left);
+    } else {
+      NeonToast.error(context, 'Failed to leave group');
+    }
+  }
+
+  Future<void> _delete() async {
+    final ok = await gConfirm(
+      context,
+      title: 'Delete group?',
+      message:
+          'This permanently deletes ${_group.name}, its messages and members for everyone. This can\'t be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+      icon: Icons.delete_forever_rounded,
+    );
+    if (!ok) return;
+    final done = await _service.deleteGroup(_group.id);
+    if (!mounted) return;
+    if (done) {
+      Navigator.pop(context, GroupSettingsResult.deleted);
+    } else {
+      NeonToast.error(context, 'Failed to delete group');
+    }
+  }
+
+  void _copyUsername() {
+    final u = _group.username;
+    if (u == null || u.isEmpty) return;
+    Clipboard.setData(ClipboardData(text: '@$u'));
+    NeonToast.success(context, 'Copied @$u');
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: GUI.bg,
+      appBar: AppBar(
+        backgroundColor: GUI.bg,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('Group info',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+        centerTitle: true,
+      ),
+      body: RefreshIndicator(
+        color: GUI.accent,
+        backgroundColor: GUI.surface,
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 40),
+          children: [
+            _header(),
+            _quickActions(),
+            if (_isAdmin) ..._adminSections(),
+            ..._memberSection(),
+            const GSectionLabel('More'),
+            GSection(children: [
+              GTile(
+                icon: Icons.cleaning_services_outlined,
+                iconColor: GUI.warning,
+                title: 'Clear chat history',
+                subtitle: 'Removes messages for you only',
+                onTap: _clearChat,
+              ),
+              GTile(
+                icon: Icons.logout_rounded,
+                title: 'Leave group',
+                destructive: true,
+                onTap: _leave,
+              ),
+              if (_isOwner)
+                GTile(
+                  icon: Icons.delete_forever_rounded,
+                  title: 'Delete group',
+                  subtitle: 'Permanently delete for everyone',
+                  destructive: true,
+                  onTap: _delete,
+                ),
+            ]),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCard({required String title, required List<Widget> children}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-      ),
+  Widget _header() {
+    final g = _group;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 4),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: GalacticTheme.laserPink,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
-              ),
+          GestureDetector(
+            onTap: _onAvatarTap,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                      shape: BoxShape.circle, gradient: GUI.gradient),
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                        shape: BoxShape.circle, color: GUI.bg),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        GroupAvatar.of(g, size: 104, localPath: _localAvatar),
+                        if (_avatarUploading)
+                          Container(
+                            width: 104,
+                            height: 104,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.black.withValues(alpha: 0.45),
+                            ),
+                            child: const Center(
+                              child: SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2.5),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_isAdmin)
+                  Positioned(
+                    right: 2,
+                    bottom: 4,
+                    child: Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        gradient: GUI.gradient,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: GUI.bg, width: 3),
+                      ),
+                      child: const Icon(Icons.camera_alt_rounded,
+                          color: Colors.white, size: 16),
+                    ),
+                  ),
+              ],
             ),
           ),
-          ...children,
+          const SizedBox(height: 16),
+          Text(g.name,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: GUI.textHi,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3)),
+          if ((g.username ?? '').isNotEmpty) ...[
+            const SizedBox(height: 4),
+            GestureDetector(
+              onTap: _copyUsername,
+              child: Text('@${g.username}',
+                  style: const TextStyle(color: GUI.accent, fontSize: 14.5)),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _chip(g.isPrivate ? Icons.lock_rounded : Icons.public_rounded,
+                  g.isPrivate ? 'Private' : 'Public',
+                  g.isPrivate ? GUI.warning : GUI.success),
+              const SizedBox(width: 8),
+              _chip(Icons.people_alt_rounded,
+                  formatMemberCount(_membersLoading ? g.memberCount : _members.length),
+                  GUI.info),
+              if (g.joinFee > 0) ...[
+                const SizedBox(width: 8),
+                _chip(Icons.monetization_on_rounded, '${g.joinFee}', GUI.warning),
+              ],
+            ],
+          ),
+          if ((g.bio ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text(g.bio!.trim(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: GUI.textMid, fontSize: 14, height: 1.45)),
+          ] else if (_isAdmin) ...[
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: _editBio,
+              child: const Text('+ Add a description',
+                  style: TextStyle(
+                      color: GUI.accent,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildListTile({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    VoidCallback? onTap,
-    Widget? trailing,
-    Color iconColor = GalacticTheme.laserPink,
-  }) {
-    return ListTile(
-      onTap: onTap,
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: iconColor.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: iconColor, size: 22),
+  Widget _chip(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
       ),
-      title: Text(
-        title,
-        style: const TextStyle(color: Colors.white, fontSize: 15),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(label,
+              style: TextStyle(
+                  color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
       ),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle,
-              style: const TextStyle(color: Colors.white54, fontSize: 12),
-            )
-          : null,
-      trailing: trailing ??
-          (onTap != null
-              ? const Icon(Icons.chevron_right, color: Colors.white38)
-              : null),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isAdmin = _myRole == 'admin';
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
-      appBar: AppBar(
-        title: const Text(
-          'Group Settings',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: const Color(0xFF1A1A1A),
-        elevation: 0,
+  Widget _quickActions() {
+    final actions = <Widget>[
+      if (_canInvite)
+        _QuickAction(
+            icon: Icons.person_add_alt_1_rounded,
+            label: 'Add',
+            onTap: _addMembers),
+      _QuickAction(
+          icon: Icons.alternate_email_rounded,
+          label: 'Copy @',
+          onTap: _copyUsername),
+      if (_isAdmin)
+        _QuickAction(
+            icon: Icons.how_to_reg_rounded,
+            label: 'Requests',
+            badge: _group.pendingRequests,
+            onTap: _openRequests),
+      _QuickAction(
+          icon: Icons.logout_rounded,
+          label: 'Leave',
+          color: GUI.danger,
+          onTap: _leave),
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+      child: Row(
+        children: [
+          for (var i = 0; i < actions.length; i++) ...[
+            if (i > 0) const SizedBox(width: 10),
+            Expanded(child: actions[i]),
+          ],
+        ],
       ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: GalacticTheme.laserPink),
-            )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+    );
+  }
+
+  List<Widget> _adminSections() {
+    final g = _group;
+    return [
+      const GSectionLabel('Group details'),
+      GSection(children: [
+        GTile(
+          icon: Icons.drive_file_rename_outline_rounded,
+          title: 'Name',
+          value: g.name,
+          onTap: _editName,
+        ),
+        GTile(
+          icon: Icons.alternate_email_rounded,
+          iconColor: GUI.info,
+          title: 'Username',
+          value: (g.username ?? '').isEmpty ? 'Not set' : '@${g.username}',
+          onTap: _editUsername,
+        ),
+        GTile(
+          icon: Icons.notes_rounded,
+          iconColor: GUI.success,
+          title: 'Description',
+          subtitle: (g.bio ?? '').trim().isEmpty ? 'Add a description' : g.bio!.trim(),
+          onTap: _editBio,
+        ),
+      ]),
+      const GSectionLabel('Privacy & access'),
+      GSection(children: [
+        GTile(
+          icon: g.isPrivate ? Icons.lock_rounded : Icons.public_rounded,
+          iconColor: g.isPrivate ? GUI.warning : GUI.success,
+          title: 'Group type',
+          subtitle: g.isPrivate
+              ? 'Hidden from Discover · invite or approval only'
+              : 'Visible in Discover · anyone can find it',
+          value: g.isPrivate ? 'Private' : 'Public',
+          onTap: _editGroupType,
+        ),
+        if (!g.isPrivate)
+          GSwitchTile(
+            icon: Icons.verified_user_outlined,
+            iconColor: GUI.info,
+            title: 'Approve new members',
+            subtitle: 'Review join requests before people get in',
+            value: g.joinApproval,
+            onChanged: (v) => _quickSave(
+                () => _save(joinApproval: v), g.copyWith(joinApproval: v)),
+          ),
+        GSwitchTile(
+          icon: Icons.group_add_outlined,
+          iconColor: GUI.accent2,
+          title: 'Members can invite',
+          subtitle: 'Let everyone send invitations, not just admins',
+          value: g.membersCanInvite,
+          onChanged: (v) => _quickSave(() => _save(membersCanInvite: v),
+              g.copyWith(membersCanInvite: v)),
+        ),
+        GTile(
+          icon: Icons.how_to_reg_rounded,
+          iconColor: GUI.success,
+          title: 'Requests & invites',
+          subtitle: 'Approve join requests, manage sent invites',
+          badge: g.pendingRequests,
+          onTap: _openRequests,
+        ),
+      ]),
+      const GSectionLabel('Messaging'),
+      GSection(children: [
+        GTile(
+          icon: Icons.admin_panel_settings_outlined,
+          title: 'Member permissions',
+          subtitle: _permissionSummary(g.permissions),
+          onTap: _editPermissions,
+        ),
+        GTile(
+          icon: Icons.timer_outlined,
+          iconColor: GUI.warning,
+          title: 'Slow mode',
+          value: _delayLabel(g.messageDelay),
+          onTap: _editSlowMode,
+        ),
+        GTile(
+          icon: Icons.monetization_on_outlined,
+          iconColor: GUI.warning,
+          title: 'Join fee',
+          value: g.joinFee > 0 ? '${g.joinFee} coins' : 'Free',
+          onTap: _editJoinFee,
+        ),
+      ]),
+    ];
+  }
+
+  List<Widget> _memberSection() {
+    final count = _members.length;
+    final visible =
+        _showAllMembers || count <= 8 ? _members : _members.take(8).toList();
+    return [
+      GSectionLabel(
+        _membersLoading ? 'Members' : 'Members · $count',
+      ),
+      GSection(children: [
+        if (_canInvite)
+          GTile(
+            icon: Icons.person_add_alt_1_rounded,
+            title: 'Add members',
+            subtitle: 'Invite friends by name or @username',
+            onTap: _addMembers,
+            trailing: const SizedBox.shrink(),
+          ),
+        if (_membersLoading)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(
+                child: CircularProgressIndicator(
+                    color: GUI.accent, strokeWidth: 2)),
+          )
+        else
+          ...visible.map(_memberRow),
+        if (!_membersLoading && count > 8)
+          InkWell(
+            onTap: () => setState(() => _showAllMembers = !_showAllMembers),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Center(
+                child: Text(
+                  _showAllMembers ? 'Show less' : 'See all $count members',
+                  style: const TextStyle(
+                      color: GUI.accent, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ),
+      ]),
+    ];
+  }
+
+  Widget _memberRow(ChatGroupMember m) {
+    final role = _roleLabel(m);
+    final isMe = m.id == _myId;
+    return InkWell(
+      onTap: () => _openMember(m),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            UserAvatar(url: m.avatarUrl, name: m.name, seed: m.id, size: 42),
+            const SizedBox(width: 12),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Center(
-                    child: GestureDetector(
-                      onTap: isAdmin ? _updateAvatar : null,
-                      child: Stack(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: const LinearGradient(
-                                colors: [
-                                  GalacticTheme.laserPink,
-                                  Color(0xFF8B5CF6),
-                                ],
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: GalacticTheme.laserPink.withValues(
-                                    alpha: 0.4,
-                                  ),
-                                  blurRadius: 20,
-                                  spreadRadius: 2,
-                                ),
-                              ],
-                            ),
-                            child: CircleAvatar(
-                              radius: 50,
-                              backgroundColor: Colors.white12,
-                              backgroundImage: widget.group.avatarUrl != null
-                                  ? CachedNetworkImageProvider(
-                                      widget.group.avatarUrl!,
-                                    )
-                                  : null,
-                              child: widget.group.avatarUrl == null
-                                  ? const Icon(
-                                      Icons.group,
-                                      size: 50,
-                                      color: Colors.white54,
-                                    )
-                                  : null,
-                            ),
-                          ),
-                          if (isAdmin)
-                            Positioned(
-                              bottom: 0,
-                              right: 0,
-                              child: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: const BoxDecoration(
-                                  color: GalacticTheme.laserPink,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.camera_alt,
-                                  size: 18,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Center(
-                    child: Text(
-                      widget.group.name,
+                  Text(isMe ? '${m.name} (You)' : m.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  if (widget.group.username != null)
-                    Center(
-                      child: Text(
-                        '@${widget.group.username}',
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 24),
-                  if (isAdmin) ...[
-                    _buildCard(
-                      title: 'GROUP INFO',
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: TextField(
-                            controller: _nameCtrl,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: InputDecoration(
-                              labelText: 'Group Name',
-                              labelStyle: const TextStyle(
-                                color: Colors.white54,
-                              ),
-                              prefixIcon: const Icon(
-                                Icons.edit,
-                                color: GalacticTheme.laserPink,
-                              ),
-                              filled: true,
-                              fillColor: Colors.white.withValues(alpha: 0.05),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _feeCtrl,
-                                  keyboardType: TextInputType.number,
-                                  style: const TextStyle(color: Colors.white),
-                                  decoration: InputDecoration(
-                                    labelText: 'Join Fee',
-                                    labelStyle: const TextStyle(
-                                      color: Colors.white54,
-                                    ),
-                                    prefixIcon: const Icon(
-                                      Icons.monetization_on,
-                                      color: Colors.amber,
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.white.withValues(
-                                      alpha: 0.05,
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: BorderSide.none,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: TextField(
-                            controller: _delayCtrl,
-                            keyboardType: TextInputType.number,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: InputDecoration(
-                              labelText: 'Message Delay (seconds)',
-                              labelStyle: const TextStyle(
-                                color: Colors.white54,
-                              ),
-                              prefixIcon: const Icon(
-                                Icons.timer,
-                                color: Colors.orange,
-                              ),
-                              filled: true,
-                              fillColor: Colors.white.withValues(alpha: 0.05),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                    ),
-                    _buildCard(
-                      title: 'PRIVACY',
-                      children: [
-                        SwitchListTile(
-                          title: const Text(
-                            'Private Group',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                          subtitle: Text(
-                            _isPrivate
-                                ? 'Only admins can see group info'
-                                : 'Anyone can discover this group',
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 12,
-                            ),
-                          ),
-                          value: _isPrivate,
-                          activeThumbColor: GalacticTheme.laserPink,
-                          onChanged: (v) => setState(() => _isPrivate = v),
-                        ),
-                      ],
-                    ),
-                    _buildCard(
-                      title: 'MANAGE',
-                      children: [
-                        _buildListTile(
-                          icon: Icons.alternate_email,
-                          title: 'Username',
-                          subtitle: widget.group.username ?? 'Not set',
-                          onTap: _editUsername,
-                        ),
-                        _buildListTile(
-                          icon: Icons.description,
-                          title: 'Bio',
-                          subtitle: widget.group.bio ?? 'Not set',
-                          onTap: _editBio,
-                        ),
-                        _buildListTile(
-                          icon: Icons.security,
-                          title: 'Permissions',
-                          subtitle: 'Manage member permissions',
-                          onTap: _showPermissionsDialog,
-                        ),
-                        _buildListTile(
-                          icon: Icons.person_add,
-                          title: 'Invite Members',
-                          subtitle: 'Add users to group',
-                          onTap: _inviteUserDialog,
-                          iconColor: Colors.green,
-                        ),
-                      ],
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ElevatedButton(
-                        onPressed: _saveSettings,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: GalacticTheme.laserPink,
-                          minimumSize: const Size(double.infinity, 50),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text(
-                          'Save Settings',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                  _buildCard(
-                    title: 'MEMBERS (${_members.length})',
-                    children: [
-                      ..._members.map(
-                        (m) => ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                          leading: CircleAvatar(
-                            radius: 22,
-                            backgroundImage: m.avatarUrl != null
-                                ? CachedNetworkImageProvider(m.avatarUrl!)
-                                : null,
-                            backgroundColor: Colors.white12,
-                            child: m.avatar == null
-                                ? Text(
-                                    m.name[0].toUpperCase(),
-                                    style: const TextStyle(color: Colors.white),
-                                  )
-                                : null,
-                          ),
-                          title: Text(
-                            m.name,
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                          subtitle: Text(
-                            '@${m.username}',
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 12,
-                            ),
-                          ),
-                          trailing: m.role == 'admin'
-                              ? Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: GalacticTheme.laserPink.withValues(
-                                      alpha: 0.2,
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Text(
-                                    'Admin',
-                                    style: TextStyle(
-                                      color: GalacticTheme.laserPink,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                )
-                              : (isAdmin
-                                  ? IconButton(
-                                      icon: const Icon(
-                                        Icons.more_vert,
-                                        color: Colors.white54,
-                                      ),
-                                      onPressed: () => _manageMember(m),
-                                    )
-                                  : null),
-                        ),
-                      ),
-                    ],
-                  ),
-                  _buildCard(
-                    title: 'ACTIONS',
-                    children: [
-                      _buildListTile(
-                        icon: Icons.delete_sweep,
-                        title: 'Clear My Chat',
-                        subtitle: 'Delete your messages',
-                        onTap: _clearMyChat,
-                        iconColor: Colors.orange,
-                      ),
-                      _buildListTile(
-                        icon: Icons.exit_to_app,
-                        title: 'Leave Group',
-                        subtitle: 'Exit this group',
-                        onTap: _leaveGroup,
-                        iconColor: Colors.red,
-                      ),
-                      if (isAdmin)
-                        _buildListTile(
-                          icon: Icons.delete_forever,
-                          title: 'Delete Group',
-                          subtitle: 'Permanently delete',
-                          onTap: _deleteGroup,
-                          iconColor: Colors.red,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
+                          color: GUI.textHi,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500)),
+                  if (m.username.isNotEmpty)
+                    Text('@${m.username}',
+                        style: const TextStyle(color: GUI.textLo, fontSize: 12.5)),
                 ],
               ),
             ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
+            if (role != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: (role == 'Owner' ? GUI.warning : GUI.accent)
+                      .withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(role,
+                    style: TextStyle(
+                        color: role == 'Owner' ? GUI.warning : GUI.accent,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700)),
+              ),
+          ],
         ),
       ),
     );
   }
 }
 
-// ── Live-search invite sheet ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Pieces
+// ═══════════════════════════════════════════════════════════════════════════
 
-class _InviteSheet extends StatefulWidget {
-  final int groupId;
-  final Set<int> memberIds;
-  final GroupChatService service;
-  final void Function(String msg) onInvited;
+class _QuickAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color color;
+  final int badge;
 
-  const _InviteSheet({
-    required this.groupId,
-    required this.memberIds,
-    required this.service,
-    required this.onInvited,
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color = GUI.accent,
+    this.badge = 0,
   });
 
   @override
-  State<_InviteSheet> createState() => _InviteSheetState();
+  Widget build(BuildContext context) {
+    return Material(
+      color: GUI.surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: GUI.border),
+          ),
+          child: Column(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(icon, color: color, size: 23),
+                  if (badge > 0)
+                    Positioned(
+                      right: -10,
+                      top: -6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: GUI.danger,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text('$badge',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(label,
+                  style: TextStyle(
+                      color: color == GUI.danger ? GUI.danger : GUI.textMid,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _InviteSheetState extends State<_InviteSheet> {
-  final _searchCtrl = TextEditingController();
-  List<Map<String, dynamic>> _results = [];
-  final Set<int> _invited = {};
-  bool _searching = false;
-  dynamic _debounce;
+/// Generic single-field editor (name, description, join fee).
+class _TextEditorSheet extends StatefulWidget {
+  final String title;
+  final String subtitle;
+  final String initial;
+  final String hint;
+  final int maxLength;
+  final int maxLines;
+  final Future<String?> Function(String) onSave;
+
+  const _TextEditorSheet({
+    required this.title,
+    required this.subtitle,
+    required this.initial,
+    required this.hint,
+    required this.maxLength,
+    required this.maxLines,
+    required this.onSave,
+  });
+
+  @override
+  State<_TextEditorSheet> createState() => _TextEditorSheetState();
+}
+
+class _TextEditorSheetState extends State<_TextEditorSheet> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.initial);
+  bool _saving = false;
+  String? _error;
 
   @override
   void dispose() {
-    _searchCtrl.dispose();
+    _ctrl.dispose();
     super.dispose();
   }
 
-  void _onChanged(String v) {
-    if (_debounce != null) (_debounce as Future).ignore();
-    setState(() => _searching = v.trim().isNotEmpty);
-    if (v.trim().isEmpty) {
-      setState(() {
-        _results = [];
-        _searching = false;
-      });
+  bool get _isNumber => widget.title == 'Join fee';
+
+  Future<void> _submit() async {
+    if (_ctrl.text.trim() == widget.initial.trim()) {
+      Navigator.pop(context, false);
       return;
     }
-    Future.delayed(const Duration(milliseconds: 400), () async {
-      if (!mounted || _searchCtrl.text.trim() != v.trim()) return;
-      final res = await widget.service.searchUsers(v.trim());
-      if (!mounted || _searchCtrl.text.trim() != v.trim()) return;
-      setState(() {
-        _results = res;
-        _searching = false;
-      });
+    setState(() {
+      _saving = true;
+      _error = null;
     });
-  }
-
-  Future<void> _invite(Map<String, dynamic> user) async {
-    final uid = int.tryParse(user['id'].toString()) ?? 0;
-    if (uid == 0) return;
-    setState(() => _invited.add(uid));
-    final res = await widget.service.inviteByUserId(widget.groupId, uid);
+    final err = await widget.onSave(_ctrl.text);
     if (!mounted) return;
-    widget.onInvited(res['msg'] ?? 'Invited');
-    Navigator.pop(context);
+    if (err == null) {
+      Navigator.pop(context, true);
+    } else {
+      setState(() {
+        _saving = false;
+        _error = err;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.7,
-      maxChildSize: 0.92,
-      minChildSize: 0.5,
-      expand: false,
-      builder: (_, scrollCtrl) => Column(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle
-          const SizedBox(height: 12),
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.white24,
-              borderRadius: BorderRadius.circular(2),
+          GSheetHeader(title: widget.title, subtitle: widget.subtitle),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+            child: GTextField(
+              controller: _ctrl,
+              hint: widget.hint,
+              autofocus: true,
+              maxLength: widget.maxLength,
+              maxLines: widget.maxLines,
+              errorText: _error,
+              keyboardType: _isNumber ? TextInputType.number : null,
+              formatters:
+                  _isNumber ? [FilteringTextInputFormatter.digitsOnly] : null,
+              onChanged: (_) {
+                if (_error != null) setState(() => _error = null);
+              },
             ),
           ),
-          const SizedBox(height: 14),
-          const Text(
-            'Invite Members',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 50,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.white.withValues(alpha: 0.06),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      child: const Text('Cancel',
+                          style: TextStyle(
+                              color: GUI.textMid, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: GPrimaryButton(
+                      label: 'Save', loading: _saving, onPressed: _submit),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 14),
-          // Search field
+        ],
+      ),
+    );
+  }
+}
+
+/// Username editor with live availability.
+class _UsernameEditorSheet extends StatefulWidget {
+  final ChatGroup group;
+  final GroupChatService service;
+  final Future<String?> Function(String) onSave;
+
+  const _UsernameEditorSheet(
+      {required this.group, required this.service, required this.onSave});
+
+  @override
+  State<_UsernameEditorSheet> createState() => _UsernameEditorSheetState();
+}
+
+class _UsernameEditorSheetState extends State<_UsernameEditorSheet> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.group.username ?? '');
+  late final UsernameChecker _checker;
+  UsernameState _state = UsernameState.idle;
+  String? _msg;
+  String? _suggestion;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checker = UsernameChecker(
+      service: widget.service,
+      groupId: widget.group.id,
+      onResult: (s, m, sug) {
+        if (mounted) {
+          setState(() {
+            _state = s;
+            _msg = m;
+            _suggestion = sug;
+          });
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _checker.dispose();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _use(String v) {
+    _ctrl.value = TextEditingValue(
+        text: v, selection: TextSelection.collapsed(offset: v.length));
+    _checker.check(v, original: widget.group.username);
+  }
+
+  bool get _unchanged =>
+      _ctrl.text.trim().toLowerCase() ==
+      (widget.group.username ?? '').toLowerCase();
+
+  Future<void> _submit() async {
+    final v = _ctrl.text.trim().toLowerCase();
+    if (_unchanged) {
+      Navigator.pop(context, false);
+      return;
+    }
+    setState(() => _saving = true);
+    final err = await widget.onSave(v);
+    if (!mounted) return;
+    if (err == null) {
+      Navigator.pop(context, true);
+    } else {
+      setState(() {
+        _saving = false;
+        _state = UsernameState.taken;
+        _msg = err;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSave = !_saving &&
+        _ctrl.text.trim().isNotEmpty &&
+        _state != UsernameState.taken &&
+        _state != UsernameState.invalid &&
+        _state != UsernameState.checking;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const GSheetHeader(
+            title: 'Username',
+            subtitle:
+                'People can find and mention the group with its @username.',
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: GTextField(
+              controller: _ctrl,
+              autofocus: true,
+              hint: 'group_username',
+              formatters: usernameFormatter,
+              onChanged: (v) => _checker.check(v, original: widget.group.username),
+              prefix: const Padding(
+                padding: EdgeInsets.only(left: 16, right: 2),
+                child: Text('@',
+                    style: TextStyle(
+                        color: GUI.textLo,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              height: 46,
-              decoration: BoxDecoration(
-                color: const Color(0xFF242424),
-                borderRadius: BorderRadius.circular(23),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.1),
-                ),
-              ),
-              child: TextField(
-                controller: _searchCtrl,
-                autofocus: true,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-                onChanged: _onChanged,
-                decoration: InputDecoration(
-                  hintText: 'Search by name or username...',
-                  hintStyle: const TextStyle(color: Colors.white30, fontSize: 14),
-                  prefixIcon: const Icon(Icons.search_rounded,
-                      color: Colors.white30, size: 20),
-                  suffixIcon: _searchCtrl.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.close_rounded,
-                              color: Colors.white30, size: 18),
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            _onChanged('');
-                          },
-                        )
-                      : null,
-                  border: InputBorder.none,
-                  contentPadding:
-                      const EdgeInsets.symmetric(vertical: 13),
-                ),
-              ),
+            child: UsernameStatusLine(
+              state: _state,
+              message: _msg,
+              suggestion: _suggestion,
+              onUseSuggestion: _use,
             ),
           ),
-          const SizedBox(height: 8),
-          const Divider(color: Colors.white12, height: 1),
-          // Results
-          Expanded(
-            child: _searching
-                ? const Center(
-                    child: CircularProgressIndicator(
-                        color: GalacticTheme.laserPink, strokeWidth: 2),
-                  )
-                : _results.isEmpty && _searchCtrl.text.trim().isNotEmpty
-                    ? Center(
-                        child: Text(
-                          'No users found for "${_searchCtrl.text.trim()}"',
-                          style: const TextStyle(
-                              color: Colors.white38, fontSize: 13),
-                        ),
-                      )
-                    : _results.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'Type to search users',
-                              style: TextStyle(
-                                  color: Colors.white24, fontSize: 13),
-                            ),
-                          )
-                        : ListView.builder(
-                            controller: scrollCtrl,
-                            itemCount: _results.length,
-                            itemBuilder: (_, i) {
-                              final u = _results[i];
-                              final uid =
-                                  int.tryParse(u['id'].toString()) ?? 0;
-                              final isMember =
-                                  widget.memberIds.contains(uid);
-                              final justInvited = _invited.contains(uid);
-                              final name = u['name']?.toString() ?? '';
-                              final username =
-                                  u['username']?.toString() ?? '';
-                              final avatar = u['avatar']?.toString();
-
-                              return ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 4),
-                                leading: CircleAvatar(
-                                  radius: 22,
-                                  backgroundColor: Colors.white12,
-                                  backgroundImage: (avatar != null &&
-                                          avatar.isNotEmpty)
-                                      ? CachedNetworkImageProvider(avatar)
-                                      : null,
-                                  child: (avatar == null || avatar.isEmpty)
-                                      ? Text(
-                                          name.isNotEmpty
-                                              ? name[0].toUpperCase()
-                                              : '?',
-                                          style: const TextStyle(
-                                              color: Colors.white),
-                                        )
-                                      : null,
-                                ),
-                                title: Text(
-                                  name,
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w500),
-                                ),
-                                subtitle: username.isNotEmpty
-                                    ? Text(
-                                        '@$username',
-                                        style: const TextStyle(
-                                            color: Colors.white38,
-                                            fontSize: 12),
-                                      )
-                                    : null,
-                                trailing: (isMember || justInvited)
-                                    ? Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 5),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.07),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          isMember ? 'Added' : 'Invited',
-                                          style: const TextStyle(
-                                              color: Colors.white38,
-                                              fontSize: 12),
-                                        ),
-                                      )
-                                    : GestureDetector(
-                                        onTap: () => _invite(u),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 14, vertical: 7),
-                                          decoration: BoxDecoration(
-                                            gradient: const LinearGradient(
-                                              colors: [
-                                                Color(0xFFD946EF),
-                                                Color(0xFF8B5CF6),
-                                              ],
-                                            ),
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                          ),
-                                          child: const Text(
-                                            'Invite',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                              );
-                            },
-                          ),
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: GUI.surface2,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Rule('3 to 30 characters'),
+                _Rule('Lowercase letters, numbers, underscores and dots'),
+                _Rule('Can\'t start or end with _ or .'),
+              ],
+            ),
           ),
-          SizedBox(
-              height: MediaQuery.of(context).viewInsets.bottom > 0 ? 8 : 24),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: GPrimaryButton(
+              label: 'Save username',
+              loading: _saving,
+              onPressed: canSave ? _submit : null,
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _Rule extends StatelessWidget {
+  final String text;
+  const _Rule(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          const Icon(Icons.check_rounded, size: 14, color: GUI.textLo),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text,
+                style: const TextStyle(color: GUI.textLo, fontSize: 12.5)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Member permissions editor.
+class _PermissionsSheet extends StatefulWidget {
+  final GroupPermissions initial;
+  const _PermissionsSheet({required this.initial});
+
+  @override
+  State<_PermissionsSheet> createState() => _PermissionsSheetState();
+}
+
+class _PermissionsSheetState extends State<_PermissionsSheet> {
+  late GroupPermissions _p = widget.initial;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const GSheetHeader(
+            title: 'Member permissions',
+            subtitle:
+                'Choose what regular members can send. Admins can always send everything.',
+          ),
+          const SizedBox(height: 8),
+          GSection(children: [
+            GSwitchTile(
+              icon: Icons.chat_bubble_outline_rounded,
+              title: 'Send messages',
+              subtitle: 'Text messages',
+              value: _p.canSendText,
+              onChanged: (v) => setState(() => _p = _p.copyWith(canSendText: v)),
+            ),
+            GSwitchTile(
+              icon: Icons.photo_library_outlined,
+              iconColor: GUI.info,
+              title: 'Send photos & videos',
+              subtitle: 'Images and video clips',
+              value: _p.canSendMedia,
+              onChanged: (v) =>
+                  setState(() => _p = _p.copyWith(canSendMedia: v)),
+            ),
+            GSwitchTile(
+              icon: Icons.mic_none_rounded,
+              iconColor: GUI.success,
+              title: 'Send voice messages',
+              subtitle: 'Recorded audio notes',
+              value: _p.canSendVoice,
+              onChanged: (v) =>
+                  setState(() => _p = _p.copyWith(canSendVoice: v)),
+            ),
+            GSwitchTile(
+              icon: Icons.emoji_emotions_outlined,
+              iconColor: GUI.warning,
+              title: 'Send stickers & GIFs',
+              subtitle: 'Stickers, GIFs and emoji reactions',
+              value: _p.canSendStickers,
+              onChanged: (v) =>
+                  setState(() => _p = _p.copyWith(canSendStickers: v)),
+            ),
+          ]),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+            child: GPrimaryButton(
+              label: 'Save permissions',
+              onPressed: () => Navigator.pop(context, _p),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PhotoViewer extends StatelessWidget {
+  final String url;
+  final String title;
+  const _PhotoViewer({required this.url, required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        title: Text(title, style: const TextStyle(fontSize: 16)),
+      ),
+      body: InteractiveViewer(
+        minScale: 0.8,
+        maxScale: 5,
+        child: Center(
+          child: CachedNetworkImage(
+            imageUrl: url,
+            fit: BoxFit.contain,
+            placeholder: (_, __) => const CircularProgressIndicator(
+                color: GUI.accent, strokeWidth: 2),
+            errorWidget: (_, __, ___) => const Icon(Icons.broken_image_outlined,
+                color: Colors.white38, size: 56),
+          ),
+        ),
       ),
     );
   }

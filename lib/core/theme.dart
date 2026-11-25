@@ -64,7 +64,7 @@ class GalacticTheme {
             TargetPlatform.android: ZoomPageTransitionsBuilder(
               allowEnterRouteSnapshotting: false,
             ),
-            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.iOS: FadeUpwardsPageTransitionsBuilder(),
           },
         ),
       );

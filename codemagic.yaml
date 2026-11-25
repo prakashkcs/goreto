@@ -46,7 +46,7 @@
 # upload-keystore.jks already used locally.
 
 definitions:
-  flutter_version: &flutter_version 3.41.6
+  flutter_version: &flutter_version 3.47.9
 
   base_cache: &base_cache
     cache_paths:
