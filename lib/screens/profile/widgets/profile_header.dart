@@ -7,6 +7,7 @@ import 'package:love_vibe_pro/screens/profile/widgets/social_links_row.dart';
 import 'package:love_vibe_pro/screens/match/proposals_screen.dart';
 import 'package:love_vibe_pro/screens/profile_screen.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
+import 'package:love_vibe_pro/widgets/full_screen_photo_viewer.dart';
 import 'package:love_vibe_pro/widgets/gifter_badge.dart';
 
 /// Profile header with cover photo, avatar, bio, and action buttons
@@ -189,7 +190,11 @@ class ProfileHeader extends StatelessWidget {
                         behavior: HitTestBehavior.opaque,
                         onTap: profile.isOwnProfile
                             ? onEditAvatar
-                            : (isLive ? onLiveTap : null),
+                            : (isLive
+                                ? onLiveTap
+                                : (avatarUrl.isNotEmpty && avatarUrl.startsWith('http')
+                                    ? () => FullScreenPhotoViewer.open(context, avatarUrl)
+                                    : null)),
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [

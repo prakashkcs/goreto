@@ -743,11 +743,7 @@ class FCMService {
             presentAlert: true,
             presentBadge: true,
             presentSound: true,
-            // The Android side plays assets/ringtone.mp3 through a raw
-            // resource. iOS can only play a sound that is a resource of the
-            // app bundle, and a Flutter asset is not one, so naming a file
-            // here would leave the notification silent instead of using the
-            // default alert. Left unset deliberately.
+            sound: isCall ? 'ringtone.mp3' : null,
             categoryIdentifier: isCall ? _iosCallCategory : null,
           ),
         ),
