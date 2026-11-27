@@ -15,6 +15,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit; }
 require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/auth_middleware.php';
 
+const REFERRAL_REWARD = 100;
+
 function out(array $d, int $code = 200): void {
     http_response_code($code);
     echo json_encode($d);
@@ -61,9 +63,9 @@ try {
 
         $referrerId = (int)$referrer['id'];
 
-        // Reward amounts (coins) — adjust as needed
-        $referrerReward = 50;
-        $referredReward = 20;
+        // The wallet screen advertises "+100 each"; pay what it promises.
+        $referrerReward = REFERRAL_REWARD;
+        $referredReward = REFERRAL_REWARD;
 
         $pdo->beginTransaction();
         try {
@@ -79,11 +81,30 @@ try {
             $pdo->prepare("UPDATE users SET referral_used = 1, referral_used_code = ? WHERE id = ?")
                 ->execute([$code, $userId]);
 
+            // Wallet history entries. Without them the coins arrived silently
+            // and both people reported that nothing was received.
+            $tx = $pdo->prepare("INSERT INTO wallet_transactions (user_id, type, direction, coins, status, reference, note)
+                                 VALUES (?, 'referral_bonus', 'credit', ?, 'completed', ?, ?)");
+            $tx->execute([$referrerId, $referrerReward, 'ref_' . $userId, 'Referral bonus: a friend used your code']);
+            $tx->execute([$userId, $referredReward, 'ref_' . $referrerId, "Referral bonus: used code $code"]);
+
             $pdo->commit();
         } catch (Throwable $e) {
             $pdo->rollBack();
             out(['status' => 'error', 'message' => 'Could not apply referral: ' . $e->getMessage()], 500);
         }
+
+        // Tell the code owner they earned coins.
+        try {
+            require_once __DIR__ . '/notification_helper.php';
+            if (function_exists('send_app_notification')) {
+                $nm = $pdo->prepare("SELECT COALESCE(NULLIF(name, ''), username, 'Someone') FROM users WHERE id = ?");
+                $nm->execute([$userId]);
+                $who = (string) ($nm->fetchColumn() ?: 'Someone');
+                send_app_notification($pdo, $referrerId, $userId, 'referral', 'Referral bonus',
+                    "$who used your referral code. +$referrerReward coins added to your wallet.");
+            }
+        } catch (Throwable $e) { /* reward already saved */ }
 
         // Return new balance
         $bSt = $pdo->prepare("SELECT COALESCE(balance_coins, 0) FROM user_wallets WHERE user_id = ? LIMIT 1");
@@ -130,7 +151,24 @@ try {
         out([
             'status'        => 'success',
             'referral_code' => $code,
+            'coins_reward'  => REFERRAL_REWARD,
             'plans'         => [],
+        ]);
+    }
+
+    // ── Live availability check while editing a code (like usernames) ─────────
+    if ($action === 'check_code') {
+        $c = strtoupper(trim((string) ($merged['code'] ?? '')));
+        if (strlen($c) < 4 || strlen($c) > 20 || !preg_match('/^[A-Z0-9]+$/', $c)) {
+            out(['status' => 'success', 'available' => false, 'message' => 'Use 4-20 letters or numbers']);
+        }
+        $st = $pdo->prepare("SELECT id FROM users WHERE UPPER(referral_code) = ? LIMIT 1");
+        $st->execute([$c]);
+        $owner = (int) ($st->fetchColumn() ?: 0);
+        out([
+            'status'    => 'success',
+            'available' => $owner === 0 || $owner === $userId,
+            'message'   => ($owner === 0 || $owner === $userId) ? 'Available' : 'Not available',
         ]);
     }
 

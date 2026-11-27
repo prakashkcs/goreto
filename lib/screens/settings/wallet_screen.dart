@@ -1,5 +1,7 @@
-﻿import 'dart:convert';
+﻿import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -361,60 +363,144 @@ class _WalletScreenState extends State<WalletScreen> {
 
     final controller = TextEditingController(text: _referralCode);
     final formKey = GlobalKey<FormState>();
+    final dio = await ApiService().getDioClient();
+    if (!mounted) return;
+
+    // Live availability, like picking a username: checked as you type so a
+    // taken code is caught before Save instead of failing afterwards.
+    Timer? debounce;
+    bool? available;
+    String status = '';
+    bool checking = false;
 
     final newCode = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: const Text(
-          'Edit Referral Code',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: controller,
-            style: const TextStyle(color: Colors.white),
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-              hintText: 'Enter new code',
-              hintStyle: TextStyle(color: Colors.white54),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) {
+          void check(String raw) {
+            debounce?.cancel();
+            final v = raw.trim().toUpperCase();
+            if (v.length < 4 || !RegExp(r'^[A-Z0-9]+$').hasMatch(v)) {
+              setDialog(() {
+                available = null;
+                status = '';
+              });
+              return;
+            }
+            if (v == _referralCode.toUpperCase()) {
+              setDialog(() {
+                available = null;
+                status = 'This is your current code';
+              });
+              return;
+            }
+            setDialog(() => checking = true);
+            debounce = Timer(const Duration(milliseconds: 400), () async {
+              try {
+                final r = await dio.get('/api_referral.php',
+                    queryParameters: {'action': 'check_code', 'code': v});
+                final d = r.data is String ? jsonDecode(r.data) : r.data;
+                if (controller.text.trim().toUpperCase() != v) return;
+                setDialog(() {
+                  checking = false;
+                  available = d['available'] == true;
+                  status = (d['message'] ?? '').toString();
+                });
+              } catch (_) {
+                setDialog(() => checking = false);
+              }
+            });
+          }
+
+          final statusColor = available == true
+              ? const Color(0xFF22C55E)
+              : (available == false ? const Color(0xFFFF4D6D) : Colors.white54);
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1A1A1A),
+            title: const Text(
+              'Edit Referral Code',
+              style: TextStyle(color: Colors.white),
             ),
-            validator: (value) {
-              final v = (value ?? '').trim();
-              if (v.length < 4) return 'Minimum 4 characters';
-              final ok = RegExp(r'^[A-Za-z0-9]+$').hasMatch(v);
-              if (!ok) return 'Use letters and numbers only';
-              return null;
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (!(formKey.currentState?.validate() ?? false)) return;
-              Navigator.pop(context, controller.text.trim().toUpperCase());
-            },
-            child: const Text('Save'),
-          ),
-        ],
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: controller,
+                    style: const TextStyle(color: Colors.white),
+                    textCapitalization: TextCapitalization.characters,
+                    maxLength: 20,
+                    onChanged: check,
+                    decoration: InputDecoration(
+                      hintText: 'Enter new code',
+                      hintStyle: const TextStyle(color: Colors.white54),
+                      counterText: '',
+                      suffixIcon: checking
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2)),
+                            )
+                          : (available == null
+                              ? null
+                              : Icon(
+                                  available! ? Icons.check_circle : Icons.cancel,
+                                  color: statusColor,
+                                )),
+                    ),
+                    validator: (value) {
+                      final v = (value ?? '').trim();
+                      if (v.length < 4) return 'Minimum 4 characters';
+                      final ok = RegExp(r'^[A-Za-z0-9]+$').hasMatch(v);
+                      if (!ok) return 'Use letters and numbers only';
+                      return null;
+                    },
+                  ),
+                  if (status.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(status, style: TextStyle(color: statusColor, fontSize: 12.5)),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: (available == true && !checking)
+                    ? () {
+                        if (!(formKey.currentState?.validate() ?? false)) return;
+                        Navigator.pop(context, controller.text.trim().toUpperCase());
+                      }
+                    : null,
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
       ),
     );
+    debounce?.cancel();
 
     if (newCode == null || newCode.isEmpty) return;
 
     if (mounted) setState(() => _isLoading = true);
 
-    final dio = await ApiService().getDioClient();
     try {
       final response = await dio.post(
         '/profile.php',
         queryParameters: {'action': 'update_referral_code'},
         data: {'referral_code': newCode},
+        // The server answers a taken/invalid code with HTTP 400 + a message;
+        // read that message instead of surfacing a raw Dio exception.
+        options: Options(validateStatus: (_) => true),
       );
       final payload =
           response.data is String ? jsonDecode(response.data) : response.data;
@@ -435,7 +521,7 @@ class _WalletScreenState extends State<WalletScreen> {
         _showSnack(payload['message'] ?? 'Failed to update referral code');
       }
     } catch (e) {
-      _showSnack('Error updating referral code: $e');
+      _showSnack('Could not update the referral code. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

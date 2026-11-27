@@ -398,6 +398,38 @@ class ProfileService {
     }
   }
 
+  /// Remove the profile photo ([cover] false) or cover photo ([cover] true).
+  Future<bool> removePhoto({required bool cover}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('app_token') ?? prefs.getString('auth_token');
+      if (token == null) return false;
+      final baseUrl = await AppEnv.getBaseUrlAsync();
+      final r = await _dio.post(
+        '${baseUrl}profile_v19.php',
+        data: {
+          'action': 'update_profile',
+          if (cover) 'cover_pic': '' else 'profile_pic': '',
+        },
+        options: Options(
+          headers: {'Authorization': 'Bearer $token'},
+          responseType: ResponseType.plain,
+        ),
+      );
+      final d = r.data is String ? jsonDecode(r.data as String) : r.data;
+      if (d is! Map || d['status'] != 'success') return false;
+      final cached = await getCachedProfile();
+      if (cached != null) {
+        await cacheProfile(cover
+            ? cached.copyWith(cover: '', coverPicUrl: '')
+            : cached.copyWith(avatar: '', profilePicUrl: ''));
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Update profile fields
   Future<void> updateProfile({
     String? name,

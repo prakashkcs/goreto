@@ -41,8 +41,14 @@ class MatchProvider extends ChangeNotifier {
           ? _matchQueue[_currentIndex + 1]
           : null;
 
-  List<MatchUser> get nearbyUsers {
-    final list = List<MatchUser>.from(_nearbyAll);
+  List<MatchUser> get nearbyUsers => _sorted(_nearbyAll);
+
+  /// Sorting happens here, in the app, for both the Nearby list and the
+  /// Matches cards. The menu used to only re-request the server (which
+  /// ignored it) and never re-ordered the cards, so it looked broken.
+  /// `newest` is the menu's "Ages" option: youngest first.
+  List<MatchUser> _sorted(List<MatchUser> source) {
+    final list = List<MatchUser>.from(source);
     switch (_sortMode) {
       case NearbySortMode.closest:
         list.sort((a, b) {
@@ -55,8 +61,11 @@ class MatchProvider extends ChangeNotifier {
         list.sort((a, b) => b.rating.compareTo(a.rating));
         break;
       case NearbySortMode.newest:
-        // "newest" = reverse of our natural order (id desc approximation)
-        list.sort((a, b) => b.id.compareTo(a.id));
+        list.sort((a, b) {
+          final aa = a.age > 0 ? a.age : 999;
+          final ab = b.age > 0 ? b.age : 999;
+          return aa.compareTo(ab);
+        });
         break;
     }
     return list;
@@ -137,7 +146,7 @@ class MatchProvider extends ChangeNotifier {
       }
 
       // Separate data: match queue = full list; nearby = full list
-      _matchQueue = List<MatchUser>.from(filtered);
+      _matchQueue = _sorted(filtered);
       _nearbyAll = List<MatchUser>.from(filtered);
       _currentIndex = 0;
 
@@ -240,7 +249,10 @@ class MatchProvider extends ChangeNotifier {
   void setSortMode(NearbySortMode mode) {
     if (_sortMode == mode) return;
     _sortMode = mode;
-    loadNearbyUsers(); // Fetch newly sorted list from API
+    // Re-order instantly and restart the cards from the top of the new order.
+    _matchQueue = _sorted(_matchQueue);
+    _currentIndex = 0;
+    _history.clear();
     notifyListeners();
   }
 }

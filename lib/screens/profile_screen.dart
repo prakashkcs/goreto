@@ -156,6 +156,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // during logout sets the notifier to null, which would otherwise trigger
     // a spurious reload that throws an "Unauthenticated" exception.
     if (_loggingOut) return;
+    // Only the viewer's OWN profile depends on that cache. Visited profiles
+    // used to reload too, so every proposal action refreshed every profile in
+    // the back stack at once (lag + stacked error dialogs eating Back taps).
+    if (!_isOwnProfileView) return;
     // If the notifier has been cleared (set to null), it means we need fresh data
     if (_profileService.currentProfileNotifier.value == null && mounted) {
       _refreshProfileData();
@@ -391,8 +395,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  /// Show a non-crashing error dialog with the backend message.
+  bool _errorDialogOpen = false;
+
+  /// Show a non-crashing error dialog with the backend message. Never stacks:
+  /// repeated reload failures used to pile up dialogs that swallowed Back.
   void _showErrorDialog(String message) {
+    if (_errorDialogOpen) return;
+    _errorDialogOpen = true;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -412,7 +421,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-    );
+    ).whenComplete(() => _errorDialogOpen = false);
   }
 
   UserProfile _mergeProfileStats(
@@ -711,8 +720,64 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // PROFILE EDITING (QUICK ACTIONS)
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
+  /// "Change" / "Remove" sheet for the profile or cover photo. Returns null
+  /// when dismissed. Remove is only offered when a photo is set.
+  Future<String?> _photoOptions({required bool cover}) {
+    final p = _profile!;
+    final hasPhoto = cover
+        ? (p.cover.isNotEmpty || p.coverPicUrl.isNotEmpty)
+        : (p.avatar.isNotEmpty || p.profilePicUrl.isNotEmpty);
+    if (!hasPhoto) return Future.value('change');
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF15101F),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded, color: Color(0xFF00E5FF)),
+              title: Text(cover ? 'Change cover photo' : 'Change profile photo',
+                  style: const TextStyle(color: Colors.white)),
+              onTap: () => Navigator.pop(ctx, 'change'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF4D6D)),
+              title: Text(cover ? 'Remove cover photo' : 'Remove profile photo',
+                  style: const TextStyle(color: Color(0xFFFF4D6D))),
+              onTap: () => Navigator.pop(ctx, 'remove'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _removePhoto({required bool cover}) async {
+    final ok = await ProfileService.instance.removePhoto(cover: cover);
+    if (!mounted) return;
+    if (ok) {
+      setState(() {
+        _profile = cover
+            ? _profile!.copyWith(cover: '', coverPicUrl: '')
+            : _profile!.copyWith(avatar: '', profilePicUrl: '');
+      });
+      NeonToast.success(context, cover ? 'Cover photo removed' : 'Profile photo removed');
+    } else {
+      NeonToast.error(context, 'Could not remove the photo. Please try again.');
+    }
+  }
+
   Future<void> _handleUpdateAvatar() async {
     if (_profile == null || !_isOwnProfileView) return;
+
+    final choice = await _photoOptions(cover: false);
+    if (choice == null || !mounted) return;
+    if (choice == 'remove') return _removePhoto(cover: false);
 
     final pickedFile = await ImagePicker().pickImage(
       source: ImageSource.gallery,
@@ -793,6 +858,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _handleUpdateCover() async {
     if (_profile == null || !_isOwnProfileView) return;
 
+    final choice = await _photoOptions(cover: true);
+    if (choice == null || !mounted) return;
+    if (choice == 'remove') return _removePhoto(cover: true);
+
     final pickedFile = await ImagePicker().pickImage(
       source: ImageSource.gallery,
       imageQuality: 90,
@@ -829,6 +898,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() {
           _profile = _profile!.copyWith(cover: url, coverPicUrl: url);
         });
+        // Same as the profile picture: share it as a post so it appears in
+        // the Photos tab for anyone visiting the profile.
+        try {
+          await ApiService().uploadPost(
+            File(croppedFile.path),
+            '🖼️ Updated cover photo',
+            'image',
+          );
+        } catch (_) {}
         if (mounted) NeonToast.success(context, 'Cover updated!');
       } else {
         throw Exception('Upload failed');

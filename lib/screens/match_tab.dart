@@ -248,13 +248,21 @@ class _MatchTabContentState extends State<_MatchTabContent>
               if (value == 'similarity')
                 p.setSortMode(NearbySortMode.highestRated);
             },
-            itemBuilder: (_) => [
-              _sortItem('similarity', Icons.favorite, 'Similarity',
-                  const Color(0xFFFF2D55)),
-              _sortItem(
-                  'nearby', Icons.near_me, 'Nearby', const Color(0xFF00E5FF)),
-              _sortItem('age', Icons.cake, 'Ages', const Color(0xFFD946EF)),
-            ],
+            itemBuilder: (_) {
+              final mode =
+                  Provider.of<MatchProvider>(context, listen: false).sortMode;
+              return [
+                _sortItem('similarity', Icons.star_rounded, 'Top rated',
+                    const Color(0xFFFF2D55),
+                    selected: mode == NearbySortMode.highestRated),
+                _sortItem('nearby', Icons.near_me, 'Closest first',
+                    const Color(0xFF00E5FF),
+                    selected: mode == NearbySortMode.closest),
+                _sortItem('age', Icons.cake, 'Youngest first',
+                    const Color(0xFFD946EF),
+                    selected: mode == NearbySortMode.newest),
+              ];
+            },
           ),
         ],
       ),
@@ -275,13 +283,21 @@ class _MatchTabContentState extends State<_MatchTabContent>
   }
 
   PopupMenuEntry<String> _sortItem(
-      String value, IconData icon, String label, Color color) {
+      String value, IconData icon, String label, Color color,
+      {bool selected = false}) {
     return PopupMenuItem<String>(
       value: value,
       child: Row(children: [
         Icon(icon, color: color, size: 16),
         const SizedBox(width: 10),
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
+        Expanded(
+          child: Text(label,
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w500)),
+        ),
+        if (selected) Icon(Icons.check_rounded, color: color, size: 16),
       ]),
     );
   }

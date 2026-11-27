@@ -290,9 +290,13 @@ if ($action === 'received') {
             'id'          => (int)$r['id'],
             'gift_id'     => (int)$r['gift_id'],
             'gift_name'   => $r['gift_name'],
+            // The app reads 'name' and 'total_value'; without them every
+            // gift in "My gifts" showed a blank name and a value of 0.
+            'name'        => $r['gift_name'] ?? 'Gift',
             'emoji'       => $r['emoji'],
             'qty'         => (int)$r['qty'],
             'coin_price'  => (int)$r['coin_price'],
+            'total_value' => (int)$r['coin_price'] * (int)$r['qty'],
             'gif_url'     => abs_url($r['gif_url'] ?? ''),
             'thumb_image' => abs_url($r['thumb_image'] ?? ''),
             'sender_name' => $r['sender_name'],
@@ -333,9 +337,13 @@ if ($action === 'wallet') {
             'id'          => (int)$r['id'],
             'gift_id'     => (int)$r['gift_id'],
             'gift_name'   => $r['gift_name'],
+            // The app reads 'name' and 'total_value'; without them every
+            // gift in "My gifts" showed a blank name and a value of 0.
+            'name'        => $r['gift_name'] ?? 'Gift',
             'emoji'       => $r['emoji'],
             'qty'         => (int)$r['qty'],
             'coin_price'  => (int)$r['coin_price'],
+            'total_value' => (int)$r['coin_price'] * (int)$r['qty'],
             'gif_url'     => abs_url($r['gif_url'] ?? ''),
             'thumb_image' => abs_url($r['thumb_image'] ?? ''),
             'sender_name' => $r['sender_name'],
