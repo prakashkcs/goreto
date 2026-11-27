@@ -704,7 +704,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case 'follow':
         return 'started following you.';
       case 'gift':
-        return 'sent you a gift.';
+        {
+          // Server body: "You received Rose 🌹 (+10 coins)" — show which gift.
+          final m = RegExp(r'received\s+(.+?)\s*\(\+?(\d+)\s*coins?\)')
+              .firstMatch(n.message);
+          if (m != null) return 'sent you ${m.group(1)} (+${m.group(2)} coins).';
+          final g = RegExp(r'received\s+(.+)$').firstMatch(n.message);
+          return g != null ? 'sent you ${g.group(1)}.' : 'sent you a gift.';
+        }
       case 'proposal':
         return 'sent you a proposal.';
       case 'proposal_accepted':

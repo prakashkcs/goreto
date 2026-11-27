@@ -32,6 +32,20 @@ class IncomingCallForegroundService : Service() {
         private const val TIMEOUT_MS = 65_000L
         private const val WAKE_LOCK_TAG = "Goreto:IncomingCall"
         const val EXTRA_NOTIFICATION = "notification"
+
+        // Own id + silent channel. Sharing CALL_NOTIFICATION_ID made the
+        // Accept/Decline tray the service's foreground notification, which
+        // NotificationManager.cancel() cannot remove — so it lingered after the
+        // call was missed, cut or answered.
+        private const val SERVICE_NOTIFICATION_ID = 999990
+        private const val SERVICE_CHANNEL_ID = "call_service_v1"
+
+        /** Stop ringing-out support; safe to call when not running. */
+        fun stop(context: android.content.Context) {
+            try {
+                context.stopService(Intent(context, IncomingCallForegroundService::class.java))
+            } catch (_: Exception) {}
+        }
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -44,28 +58,33 @@ class IncomingCallForegroundService : Service() {
         // than rebuilding here. The foreground spec just needs *some* ongoing
         // notification — we hand it a minimal placeholder bound to the same
         // call channel so Android shows nothing extra.
-        val placeholder: Notification = NotificationCompat.Builder(this, CallFirebaseMessagingService.CALL_CHANNEL_ID)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+            if (nm.getNotificationChannel(SERVICE_CHANNEL_ID) == null) {
+                nm.createNotificationChannel(
+                    android.app.NotificationChannel(
+                        SERVICE_CHANNEL_ID, "Call connection",
+                        android.app.NotificationManager.IMPORTANCE_MIN,
+                    ).apply { setSound(null, null); enableVibration(false) }
+                )
+            }
+        }
+        val placeholder: Notification = NotificationCompat.Builder(this, SERVICE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_goreto)
-            .setContentTitle("Incoming call")
+            .setContentTitle("Connecting call")
             .setOngoing(true)
+            .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
-                CallFirebaseMessagingService.CALL_NOTIFICATION_ID,
-                placeholder,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL,
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                CallFirebaseMessagingService.CALL_NOTIFICATION_ID,
+                SERVICE_NOTIFICATION_ID,
                 placeholder,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL,
             )
         } else {
-            startForeground(CallFirebaseMessagingService.CALL_NOTIFICATION_ID, placeholder)
+            startForeground(SERVICE_NOTIFICATION_ID, placeholder)
         }
 
         // Partial wake lock keeps the CPU running while the user reacts to the

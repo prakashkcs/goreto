@@ -40,6 +40,7 @@ class CallActionReceiver : BroadcastReceiver() {
         // Cancel the notification immediately so the user sees visual feedback
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.cancel(CallFirebaseMessagingService.CALL_NOTIFICATION_ID)
+        IncomingCallForegroundService.stop(context)
 
         // Tear down the Telecom connection
         try {

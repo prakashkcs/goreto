@@ -609,13 +609,17 @@ try {
   $select[] = ($viewerId > 0) ? "CASE WHEN ul.user_id IS NULL THEN 0 ELSE 1 END AS is_liked" : "0 AS is_liked";
   if ($viewerId > 0) {
     $select[] = "CASE WHEN fl.follower_id IS NOT NULL THEN 1 ELSE 0 END AS is_following";
+    // Author follows the viewer back -> the app labels mutual follows "Friends".
+    $select[] = "CASE WHEN fb.follower_id IS NOT NULL THEN 1 ELSE 0 END AS follows_me";
   } else {
     $select[] = "0 AS is_following";
+    $select[] = "0 AS follows_me";
   }
 
   $joins = [];
   if ($viewerId > 0) {
     $joins[] = "LEFT JOIN follows fl ON fl.follower_id = $viewerId AND fl.following_id = p.$pUserId";
+    $joins[] = "LEFT JOIN follows fb ON fb.follower_id = p.$pUserId AND fb.following_id = $viewerId";
   }
   if ($uId)
     $joins[] = "LEFT JOIN $usersTbl u ON u.$uId = p.$pUserId";
@@ -757,7 +761,8 @@ try {
       'subscriber_only' => $subscriberOnly,
       'is_locked' => $isLocked,
       'is_subscribed' => $isSubscribed,
-      'is_following' => intval($r['is_following'] ?? 0)
+      'is_following' => intval($r['is_following'] ?? 0),
+      'follows_me' => intval($r['follows_me'] ?? 0)
     ];
   }
 

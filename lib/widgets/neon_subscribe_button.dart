@@ -14,6 +14,10 @@ class NeonSubscribeButton extends StatelessWidget {
   final bool showSubscribeMode;
   final bool hasSubscriptionPlan;
 
+  /// The author follows the viewer. With [isSubscribed] (viewer follows the
+  /// author) that's mutual -> "Friends"; on its own -> "Follow back".
+  final bool followsYou;
+
   const NeonSubscribeButton({
     super.key,
     this.onTap,
@@ -21,6 +25,7 @@ class NeonSubscribeButton extends StatelessWidget {
     this.isOwnPost = false,
     this.showSubscribeMode = false,
     this.hasSubscriptionPlan = true,
+    this.followsYou = false,
   });
 
   @override
@@ -54,7 +59,9 @@ class NeonSubscribeButton extends StatelessWidget {
               Icon(Icons.check_circle_rounded, color: color, size: 12),
               const SizedBox(width: 4),
               Text(
-                showSubscribeMode ? 'Subscribed' : 'Following',
+                showSubscribeMode
+                    ? 'Subscribed'
+                    : (followsYou ? 'Friends' : 'Following'),
                 style: TextStyle(
                   color: color,
                   fontWeight: FontWeight.w700,
@@ -173,18 +180,18 @@ class NeonSubscribeButton extends StatelessWidget {
             ),
           ],
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
+            const Icon(
               Icons.add_rounded,
               color: Color(0xFF00E5FF),
               size: 13,
             ),
-            SizedBox(width: 3),
+            const SizedBox(width: 3),
             Text(
-              'Follow',
-              style: TextStyle(
+              followsYou ? 'Follow back' : 'Follow',
+              style: const TextStyle(
                 color: Color(0xFF00E5FF),
                 fontWeight: FontWeight.w700,
                 fontSize: 11,

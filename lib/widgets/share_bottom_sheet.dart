@@ -137,14 +137,16 @@ class _ShareBottomSheetState extends State<ShareBottomSheet> {
     final id = (conv.otherUserId ?? conv.id ?? '').toString();
     if (id.isEmpty || _sentTo.contains(id)) return;
     final ctx = widget.hostContext;
+    // Show "Sent" immediately; the network call used to block the tap for
+    // seconds, which felt laggy. Roll back only if it actually fails.
+    setState(() => _sentTo.add(id));
     try {
       await ChatService.instance.sendMessage(
         receiverId: id,
         content: widget.postUrl,
       );
-      if (mounted) setState(() => _sentTo.add(id));
-      if (ctx.mounted) NeonToast.success(ctx, 'Sent!');
     } catch (e) {
+      if (mounted) setState(() => _sentTo.remove(id));
       if (ctx.mounted) {
         final msg = e.toString().replaceAll('Exception: ', '');
         NeonToast.error(ctx, msg.isNotEmpty ? msg : 'Failed to send');

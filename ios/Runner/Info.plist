@@ -86,6 +86,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Goreto uses your camera for video calls, live streams, profile photos, and hands-free blink scrolling.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Goreto lets you choose a song to add as music to your post.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Goreto uses your microphone for video and audio calls, live streams, and voice messages.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

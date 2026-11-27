@@ -274,6 +274,7 @@ class MainActivity : FlutterActivity() {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.cancel(CallFirebaseMessagingService.CALL_NOTIFICATION_ID)
         } catch (_: Exception) {}
+        IncomingCallForegroundService.stop(this)
         try {
             val broadcast = Intent("com.nex.ekloapp.CALL_CANCELLED").apply {
                 putExtra("call_id", callId)

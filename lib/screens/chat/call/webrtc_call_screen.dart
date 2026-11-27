@@ -450,7 +450,12 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
             _buildEndedOverlay(otherName)
           else if (_callState == CallState.connected &&
               _videoManager.activeProvider != null)
-            _buildCachedCallView()
+            // Keep the SDK's button bar above the Android nav bar / iOS home
+            // indicator instead of underneath it.
+            ColoredBox(
+              color: Colors.black,
+              child: SafeArea(top: false, child: _buildCachedCallView()),
+            )
           else ...[
             // Background Profile Image blurred
             if (otherAvatar != null && otherAvatar.isNotEmpty) ...[

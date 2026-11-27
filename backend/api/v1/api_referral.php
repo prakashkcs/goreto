@@ -102,10 +102,34 @@ try {
     if ($action === 'settings' || $action === 'get_plans') {
         $cSt = $pdo->prepare("SELECT COALESCE(referral_code, '') AS referral_code FROM users WHERE id = ?");
         $cSt->execute([$userId]);
-        $row = $cSt->fetch(PDO::FETCH_ASSOC) ?: ['referral_code' => ''];
+        $code = (string) ($cSt->fetchColumn() ?: '');
+
+        // Nobody had a code stored, so the app showed one it made up locally
+        // and every redemption failed as "invalid". Persist a real code now —
+        // preferring the one this phone already displayed (and the user may
+        // have shared), as long as no one else owns it.
+        if ($code === '') {
+            $taken = $pdo->prepare("SELECT 1 FROM users WHERE UPPER(referral_code) = ? LIMIT 1");
+            $local = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) ($merged['local_code'] ?? '')));
+            $candidate = '';
+            if (strlen($local) >= 4 && strlen($local) <= 20) {
+                $taken->execute([$local]);
+                if (!$taken->fetchColumn()) $candidate = $local;
+            }
+            for ($i = 0; $candidate === '' && $i < 10; $i++) {
+                $try = strtoupper(substr(bin2hex(random_bytes(6)), 0, 8));
+                $taken->execute([$try]);
+                if (!$taken->fetchColumn()) $candidate = $try;
+            }
+            $pdo->prepare("UPDATE users SET referral_code = ? WHERE id = ? AND (referral_code IS NULL OR referral_code = '')")
+                ->execute([$candidate, $userId]);
+            $cSt->execute([$userId]);
+            $code = (string) ($cSt->fetchColumn() ?: $candidate);
+        }
+
         out([
             'status'        => 'success',
-            'referral_code' => $row['referral_code'],
+            'referral_code' => $code,
             'plans'         => [],
         ]);
     }

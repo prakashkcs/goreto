@@ -93,7 +93,15 @@ class _AudioPickerSheetState extends State<AudioPickerSheet> {
 
   Future<void> _uploadOwn() async {
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+      // iOS: FileType.audio opens the Music library (DRM'd tracks can't be
+      // read, and it crashed without NSAppleMusicUsageDescription). The Files
+      // picker returns real, uploadable audio files.
+      final result = Platform.isIOS
+          ? await FilePicker.platform.pickFiles(
+              type: FileType.custom,
+              allowedExtensions: const ['mp3', 'm4a', 'aac', 'wav', 'caf', 'aiff'],
+            )
+          : await FilePicker.platform.pickFiles(type: FileType.audio);
       final path = result?.files.single.path;
       if (path == null) return;
       if (!mounted) return;

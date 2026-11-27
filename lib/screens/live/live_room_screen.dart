@@ -16,6 +16,7 @@ import 'package:love_vibe_pro/services/user_prefs_cache.dart';
 import 'package:love_vibe_pro/services/fcm_service.dart';
 import 'package:love_vibe_pro/services/socket_service.dart';
 import 'package:zego_uikit_prebuilt_live_streaming/zego_uikit_prebuilt_live_streaming.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 String _giftEmojiFor(String name) {
   final n = name.toLowerCase();
@@ -638,17 +639,58 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
   /// host — like a video/audio call inside the live.
   Future<void> _inviteGuest(ZegoUIKitUser viewer) async {
     if (!_isHost) return;
+    // Sent over the live's own message channel, which already reaches every
+    // viewer. Zego's separate co-host invitation reported success on the host
+    // but the viewer never saw a request.
     try {
-      final ok = await ZegoUIKitPrebuiltLiveStreamingController()
-          .coHost
-          .hostSendCoHostInvitationToAudience(viewer, withToast: false);
+      _sendRoomText('COHOST_INVITE|${viewer.id}');
       if (!mounted) return;
-      _showSnack(ok
-          ? 'Guest invite sent to ${viewer.name}. They go live once they accept.'
-          : 'Could not invite ${viewer.name} right now.');
+      _showSnack('Guest invite sent to ${viewer.name}. They go live once they accept.');
     } catch (_) {
       if (mounted) _showSnack('Could not send the guest invite.');
     }
+  }
+
+  bool _guestDialogOpen = false;
+
+  Future<void> _showGuestInviteDialog(String hostName) async {
+    if (_guestDialogOpen || !mounted) return;
+    _guestDialogOpen = true;
+    final accept = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1025),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Join the live?',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+        content: Text(
+          '${hostName.isNotEmpty ? hostName : 'The host'} invited you to join as a guest. '
+          'Your camera and microphone will turn on.',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not now', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Join',
+                style: TextStyle(color: Color(0xFFFF007F), fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+    _guestDialogOpen = false;
+    if (accept != true || !mounted) return;
+    final perms = await [Permission.camera, Permission.microphone].request();
+    if (!(perms[Permission.camera]?.isGranted ?? false) ||
+        !(perms[Permission.microphone]?.isGranted ?? false)) {
+      if (mounted) _showSnack('Camera and microphone are needed to join as a guest.');
+      return;
+    }
+    final ok = await ZegoUIKitPrebuiltLiveStreamingController().coHost.startCoHost();
+    if (mounted && !ok) _showSnack('Could not join the live right now.');
   }
 
   void _showUserProfilePreview(
@@ -844,6 +886,15 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
   /// animations for a chat/gift message, whichever transport delivered it
   /// (Zego's in-room stream, or the Socket.IO relay for other providers).
   void _onMessage(String text, String senderId, String senderName) {
+    // Host -> viewer guest invite: 'COHOST_INVITE|<viewerId>'. Never shown in
+    // chat; only the invited viewer reacts.
+    if (text.startsWith('COHOST_INVITE|')) {
+      final target = text.split('|').elementAtOrNull(1) ?? '';
+      if (!_isHost && target == _currentUserId && senderId == widget.userId) {
+        _showGuestInviteDialog(senderName);
+      }
+      return;
+    }
     if (text.startsWith('GIFT|')) {
       final parts = text.split('|');
       if (parts.length >= 5) {
@@ -922,17 +973,13 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
         // Fetch the joiner's avatar + rating so the join message shows their
         // profile pic and star rating (not a "?" placeholder).
         _fetchUserProfile(uid);
-        setState(() {
-          _chatMessages.add(_ChatMsg(
-            sender: name,
-            senderUserId: uid,
-            text: 'joined',
-            color: const Color(0xFF69F0AE),
-            kind: _ChatKind.join,
-          ));
-          if (_chatMessages.length > 15) _chatMessages.removeAt(0);
-        });
-        _scrollChat();
+        _addEventLine(_ChatMsg(
+          sender: name,
+          senderUserId: uid,
+          text: 'joined',
+          color: const Color(0xFF69F0AE),
+          kind: _ChatKind.join,
+        ));
       }
 
       // Anyone who was in the roster a moment ago and is not any more has
@@ -942,17 +989,13 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
       for (final uid in goneIds) {
         if (uid == _currentUserId) continue;
         final name = _viewerNames[uid] ?? 'Someone';
-        setState(() {
-          _chatMessages.add(_ChatMsg(
-            sender: name,
-            senderUserId: uid,
-            text: 'left',
-            color: const Color(0xFFFF8A80),
-            kind: _ChatKind.leave,
-          ));
-          if (_chatMessages.length > 15) _chatMessages.removeAt(0);
-        });
-        _scrollChat();
+        _addEventLine(_ChatMsg(
+          sender: name,
+          senderUserId: uid,
+          text: 'left',
+          color: const Color(0xFFFF8A80),
+          kind: _ChatKind.leave,
+        ));
       }
 
       // The host is in the roster but is not a viewer of their own stream.
@@ -963,6 +1006,20 @@ class _LiveRoomScreenState extends State<LiveRoomScreen>
 
       _prevViewerIds = currentIds;
     } catch (_) {}
+  }
+
+  /// Join/leave notices are transient: shown, then removed after 5 s so they
+  /// don't crowd out real chat.
+  void _addEventLine(_ChatMsg m) {
+    setState(() {
+      _chatMessages.add(m);
+      if (_chatMessages.length > 15) _chatMessages.removeAt(0);
+    });
+    _scrollChat();
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted || !_chatMessages.contains(m)) return;
+      setState(() => _chatMessages.remove(m));
+    });
   }
 
   void _scrollChat() {
@@ -2281,20 +2338,6 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
 
     return Stack(
       children: [
-        // Gift notification (slides in from left)
-        if (widget.activeNotif != null)
-          Positioned(
-            left: 12,
-            bottom: targetBottom + 235,
-            child: SlideTransition(
-              position: widget.notifSlide,
-              child: FadeTransition(
-                opacity: widget.notifFade,
-                child: _buildNotifBubble(widget.activeNotif!),
-              ),
-            ),
-          ),
-
         // Main bottom controls
         AnimatedPositioned(
           duration: const Duration(milliseconds: 260),
@@ -2306,6 +2349,20 @@ class _LiveViewerOverlayState extends State<_LiveViewerOverlay>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Gift notification sits in the same column, directly above the
+              // chat, so it can never cover join/leave or chat lines (it was
+              // pinned 235px up, inside the viewer's ~285px-tall chat block).
+              if (widget.activeNotif != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 12, bottom: 6),
+                  child: SlideTransition(
+                    position: widget.notifSlide,
+                    child: FadeTransition(
+                      opacity: widget.notifFade,
+                      child: _buildNotifBubble(widget.activeNotif!),
+                    ),
+                  ),
+                ),
               _buildChatMessages(),
               if (!widget.isHost) ...[
                 const SizedBox(height: 6),

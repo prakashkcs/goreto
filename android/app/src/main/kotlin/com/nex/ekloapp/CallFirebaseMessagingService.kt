@@ -154,6 +154,7 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
         if (isCancelled) {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.cancel(CALL_NOTIFICATION_ID)
+            IncomingCallForegroundService.stop(this)
             // Tear down the Telecom self-managed Connection so the OS stops
             // showing the ongoing-call indicator and considers the call done.
             try {
@@ -235,18 +236,21 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
         }
         val declinePi = PendingIntent.getBroadcast(this, CALL_NOTIFICATION_ID + 2, declineIntent, flags)
 
-        // Accept: BroadcastReceiver that opens MainActivity only for the active-answer path.
-        val acceptIntent = Intent(CallActionReceiver.ACTION_ACCEPT).apply {
-            setPackage(packageName)
-            putExtra(CallActionReceiver.EXTRA_CALL_ID,      callId)
-            putExtra(CallActionReceiver.EXTRA_CALL_UUID,    callUuid)
-            putExtra(CallActionReceiver.EXTRA_CALLER_ID,    callerId)
-            putExtra(CallActionReceiver.EXTRA_CALLER_NAME,  callerName)
-            putExtra(CallActionReceiver.EXTRA_CALLER_AVATAR, callerAvatar)
-            putExtra(CallActionReceiver.EXTRA_CALL_TYPE,    callType)
-            putExtra(CallActionReceiver.EXTRA_IS_RANDOM,    isRandom)
+        // Accept opens MainActivity directly. Android 12+ blocks starting an
+        // activity from a receiver fired by a notification ("trampoline"), so
+        // the old broadcast-based Accept silently did nothing.
+        val acceptIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("action",        "accept_call")
+            putExtra("call_id",       callId)
+            putExtra("call_uuid",     callUuid)
+            putExtra("caller_id",     callerId)
+            putExtra("caller_name",   callerName)
+            putExtra("caller_avatar", callerAvatar)
+            putExtra("type",          callType)
+            putExtra("is_random",     isRandom)
         }
-        val acceptPi = PendingIntent.getBroadcast(this, CALL_NOTIFICATION_ID + 3, acceptIntent, flags)
+        val acceptPi = PendingIntent.getActivity(this, CALL_NOTIFICATION_ID + 3, acceptIntent, flags)
 
         val builder = NotificationCompat.Builder(this, CALL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_goreto)

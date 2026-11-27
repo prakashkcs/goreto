@@ -64,7 +64,10 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
                       child: IgnorePointer(
                         child: Opacity(
                           opacity: 0.55,
+                          // The asset is 2000x2000; decoding it at display
+                          // size is what makes the watermark appear instantly.
                           child: Image.asset(_logoAsset, width: 40,
+                              cacheWidth: 120,
                               errorBuilder: (_, __, ___) =>
                                   const SizedBox.shrink()),
                         ),

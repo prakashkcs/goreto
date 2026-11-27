@@ -58,13 +58,47 @@ class IncomingCallActivity : Activity() {
         }
     }
 
-    private fun dismissAndFinish() {
-        // Cancel the tray notification and the Telecom connection so neither
-        // the system call indicator nor the lock-screen overlay lingers.
+    private var ringtone: android.media.MediaPlayer? = null
+
+    // The full-screen UI replaces the tray notification, so it has to ring
+    // itself once that notification (and its one-shot sound) is removed.
+    private fun startRinging() {
+        try {
+            val uri = android.net.Uri.parse("android.resource://$packageName/raw/ringtone")
+            ringtone = android.media.MediaPlayer().apply {
+                setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                setDataSource(this@IncomingCallActivity, uri)
+                isLooping = true
+                prepare()
+                start()
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun stopRinging() {
+        try { ringtone?.stop() } catch (_: Exception) {}
+        try { ringtone?.release() } catch (_: Exception) {}
+        ringtone = null
+    }
+
+    private fun clearCallNotification() {
         try {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.cancel(CallFirebaseMessagingService.CALL_NOTIFICATION_ID)
         } catch (_: Exception) {}
+    }
+
+    private fun dismissAndFinish() {
+        // Cancel the tray notification and the Telecom connection so neither
+        // the system call indicator nor the lock-screen overlay lingers.
+        stopRinging()
+        clearCallNotification()
+        IncomingCallForegroundService.stop(this)
         try {
             EkloConnectionService.activeIncoming?.let { conn ->
                 conn.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.REMOTE))
@@ -185,7 +219,13 @@ class IncomingCallActivity : Activity() {
         // Accept button — answer the Telecom connection so the OS stops
         // showing the ongoing-call indicator, then launch MainActivity so
         // Dart/WebRTCCallScreen takes over the actual call media.
+        // Full-screen call is visible: drop the duplicate tray notification.
+        clearCallNotification()
+        startRinging()
+
         findViewById<ImageButton>(R.id.btnAccept).setOnClickListener {
+            stopRinging()
+            IncomingCallForegroundService.stop(this)
             try {
                 EkloConnectionService.activeIncoming?.let { conn ->
                     conn.setActive()
@@ -211,6 +251,8 @@ class IncomingCallActivity : Activity() {
         // Decline button — disconnect the Telecom connection (REJECTED), then
         // tell Dart to fire the backend decline endpoint.
         findViewById<ImageButton>(R.id.btnDecline).setOnClickListener {
+            stopRinging()
+            IncomingCallForegroundService.stop(this)
             try {
                 EkloConnectionService.activeIncoming?.let { conn ->
                     conn.setDisconnected(
@@ -258,6 +300,7 @@ class IncomingCallActivity : Activity() {
     }
 
     override fun onDestroy() {
+        stopRinging()
         handler.removeCallbacks(statusPoller)
         super.onDestroy()
         executor.shutdown()

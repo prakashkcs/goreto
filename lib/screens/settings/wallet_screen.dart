@@ -138,12 +138,24 @@ class _WalletScreenState extends State<WalletScreen> {
   Future<void> _loadReferralSettings() async {
     try {
       final dio = await ApiService().getDioClient();
-      final response = await dio.get('/api_referral.php', queryParameters: {'action': 'settings'});
+      // Send the code this phone has been showing so the server can adopt it
+      // if this account has none stored yet (codes already shared keep working).
+      _settingsStore ??= await SettingsStore.getInstance();
+      final localCode = await _settingsStore?.getReferralCode() ?? '';
+      final response = await dio.get('/api_referral.php', queryParameters: {
+        'action': 'settings',
+        if (localCode.isNotEmpty) 'local_code': localCode,
+      });
       final data = response.data is String
           ? (jsonDecode(response.data) as Map<String, dynamic>)
           : (response.data as Map<String, dynamic>);
       if (data['status'] == 'success' && mounted) {
+        final serverCode = (data['referral_code'] ?? '').toString().trim();
+        if (serverCode.isNotEmpty) {
+          await _settingsStore?.setReferralCode(serverCode);
+        }
         setState(() {
+          if (serverCode.isNotEmpty) _referralCode = serverCode;
           _referralCoinsReward = (data['coins_reward'] as num?)?.toInt() ?? 100;
           _playstoreUrl = (data['playstore_url'] as String?) ?? '';
           _appstoreUrl  = (data['appstore_url']  as String?) ?? '';

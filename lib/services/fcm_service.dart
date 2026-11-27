@@ -113,6 +113,28 @@ Future<void> fcmBackgroundMessageHandler(RemoteMessage message) async {
   // not exist in a background isolate. Routing happens via onMessageOpenedApp.
 }
 
+/// Notification action tapped while the app is in the background or killed.
+/// Without this, the call tray's Decline did nothing unless the app was open.
+@pragma('vm:entry-point')
+Future<void> notificationTapBackground(NotificationResponse response) async {
+  if (response.actionId != 'decline_call') return;
+  try {
+    final data = jsonDecode(response.payload ?? '{}') as Map;
+    final callId = data['call_id']?.toString() ?? '';
+    if (callId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('app_token') ?? prefs.getString('auth_token');
+    if (token == null || token.isEmpty) return;
+    var base = prefs.getString('api_base_url') ?? 'https://goreto.org/ekloadmin/api/v1/';
+    if (!base.endsWith('/')) base = '$base/';
+    await http.post(
+      Uri.parse('${base}signaling.php'),
+      headers: {'Authorization': 'Bearer $token'},
+      body: {'action': 'decline_call', 'call_id': callId},
+    ).timeout(const Duration(seconds: 8));
+  } catch (_) {}
+}
+
 /// Tracks when a nearby alert was last shown for a given sender ID to prevent spam.
 final Map<String, DateTime> _lastNearbyAlerts = {};
 
@@ -388,6 +410,8 @@ void _navigateToCallWithRetry(int callId, String callUuid, String callerName,
 
     // â”€â”€ CHECK STATUS BEFORE NAV â”€â”€
     SignalingService.instance.checkCallStatus(callId).then((status) {
+      // The full-screen call UI replaces the tray; never show both.
+      FCMService.dismissCallNotification();
       // null = network error — attempt anyway; only block definitively ended calls
       if (status != null && status != 'ringing' && status != 'accepted') {
         if (navigatorKey.currentContext != null) {
@@ -628,6 +652,7 @@ class FCMService {
         AndroidInitializationSettings('@mipmap/launcher_icon');
     await _localNotifications.initialize(
       InitializationSettings(android: initAndroid, iOS: _initDarwin),
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
     _localNotificationsReady = true;
   }
@@ -876,8 +901,24 @@ class FCMService {
               _handleNotificationData(data, isFromTap: true);
             }
           },
+          onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
         );
         _localNotificationsReady = true;
+
+        // Accept tapped while the app was killed: the tap launched the app
+        // but onDidReceiveNotificationResponse never fires for that launch.
+        final launch = await _localNotifications.getNotificationAppLaunchDetails();
+        final resp = launch?.notificationResponse;
+        if (launch?.didNotificationLaunchApp == true &&
+            resp?.actionId == 'accept_call' &&
+            (resp?.payload ?? '').isNotEmpty) {
+          try {
+            final data = Map<String, dynamic>.from(jsonDecode(resp!.payload!));
+            Future.delayed(const Duration(milliseconds: 1200), () {
+              _handleNotificationData(data, autoAccept: true, isFromTap: true);
+            });
+          } catch (_) {}
+        }
       } catch (e) {}
 
       FirebaseMessaging messaging = FirebaseMessaging.instance;

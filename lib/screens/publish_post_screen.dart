@@ -453,8 +453,10 @@ class _PublishPostScreenState extends State<PublishPostScreen>
                         const SizedBox(height: 16),
                         _buildThumbnailPicker(),
                       ],
-                      const SizedBox(height: 20),
-                      _buildCaptionInput(),
+                      if (widget.mediaType != 'text') ...[
+                        const SizedBox(height: 20),
+                        _buildCaptionInput(),
+                      ],
                       // Custom music — for photo/image posts (videos keep their
                       // own audio track).
                       if (widget.mediaType == 'photo' ||
@@ -642,7 +644,7 @@ class _PublishPostScreenState extends State<PublishPostScreen>
         AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
-          height: 220,
+          constraints: const BoxConstraints(minHeight: 220),
           width: double.infinity,
           padding: const EdgeInsets.all(28),
           decoration: BoxDecoration(
@@ -664,18 +666,19 @@ class _PublishPostScreenState extends State<PublishPostScreen>
               ),
             ],
           ),
+          // Type straight onto the card — no separate caption box.
           child: Center(
-            child: Text(
-              _captionController.text.isEmpty
-                  ? '✨ Your text will appear here...'
-                  : _captionController.text,
+            child: TextField(
+              controller: _captionController,
+              focusNode: _captionFocus,
+              autofocus: true,
               textAlign: _textAlign,
-              maxLines: 6,
-              overflow: TextOverflow.ellipsis,
+              maxLines: null,
+              maxLength: 2200,
+              keyboardType: TextInputType.multiline,
+              cursorColor: Colors.white,
               style: TextStyle(
-                color: _captionController.text.isEmpty
-                    ? Colors.white.withValues(alpha: 0.35)
-                    : Colors.white,
+                color: Colors.white,
                 fontSize: _fontSize,
                 fontWeight: FontWeight.w600,
                 height: 1.5,
@@ -685,6 +688,17 @@ class _PublishPostScreenState extends State<PublishPostScreen>
                     blurRadius: 6,
                   ),
                 ],
+              ),
+              decoration: InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                counterText: '',
+                hintText: "✨ What's on your mind?",
+                hintStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.45),
+                  fontSize: _fontSize,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),

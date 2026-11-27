@@ -16,6 +16,7 @@ import 'package:love_vibe_pro/services/chat_service.dart';
 import 'package:love_vibe_pro/models/call_session.dart';
 import 'package:love_vibe_pro/screens/chat/call/webrtc_call_screen.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
+import 'package:love_vibe_pro/widgets/chat_link_text.dart';
 import 'package:love_vibe_pro/services/subscription_plan_service.dart';
 import 'package:love_vibe_pro/services/sound_service.dart';
 import 'package:path_provider/path_provider.dart';
@@ -2400,7 +2401,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         return _buildCallMessage(message, isMe);
       case MessageType.text:
       default:
-        return Text(
+        return ChatLinkText(
           message.content ?? '',
           style: const TextStyle(
             color: Colors.white,

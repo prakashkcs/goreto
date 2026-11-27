@@ -134,6 +134,10 @@ class ZegoProvider implements VideoCallProvider {
     config.turnOnMicrophoneWhenJoining = true;
     config.useSpeakerWhenJoining = true;
     config.topMenuBar.isVisible = false;
+    // Keep hang-up / camera / mic always on screen. Zego hides the bar after
+    // a few seconds by default, which read as "no call buttons" on iOS.
+    config.bottomMenuBar.hideAutomatically = false;
+    config.bottomMenuBar.hideByClick = false;
     config.bottomMenuBar.buttons = isVideoCall
         ? [
             ZegoCallMenuBarButtonName.toggleCameraButton,

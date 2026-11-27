@@ -898,8 +898,10 @@ class _VideoFeedItemState extends State<VideoFeedItem>
               ],
             ),
           ),
+          // Top-right, below the header row: top-left is where the poster's
+          // avatar and name sit, and the badge was covering them.
           Positioned(
-            top: 12, left: 12,
+            top: 64, right: 12,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: _kReelBadgeDecoration,
@@ -1401,6 +1403,8 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                             isSubscribed: hasPlan ? isSubscribed : _isFollowing,
                             isOwnPost: _isOwnPost,
                             showSubscribeMode: hasPlan,
+                            followsYou: widget.post['follows_me'] == 1 ||
+                                widget.post['follows_me'] == true,
                             onTap: _handleFollow,
                           );
                         }),

@@ -1140,6 +1140,8 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                                         hasPlan ? isSubscribed : _isFollowing,
                                     isOwnPost: _isOwnPost,
                                     showSubscribeMode: hasPlan,
+                                    followsYou: widget.post['follows_me'] == 1 ||
+                                        widget.post['follows_me'] == true,
                                     onTap: _handleFollow,
                                   ),
                                 );

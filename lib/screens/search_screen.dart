@@ -276,13 +276,22 @@ class _SearchScreenState extends State<SearchScreen>
 
   Widget _buildSearchBar() {
     final focused = _focusNode.hasFocus || _query.isNotEmpty;
+    // iOS has no system back button, so this arrow must always be able to
+    // leave the screen: clear an active search first, otherwise pop.
+    final canPop = Navigator.of(context).canPop();
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
       child: Row(
         children: [
-          if (focused)
+          if (focused || canPop)
             GestureDetector(
-              onTap: _clearSearch,
+              onTap: () {
+                if (focused) {
+                  _clearSearch();
+                } else {
+                  Navigator.of(context).maybePop();
+                }
+              },
               child: Container(
                 width: 38,
                 height: 38,

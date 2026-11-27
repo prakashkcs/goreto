@@ -78,7 +78,9 @@ class SignalingService {
   // â”€â”€ Start polling for incoming calls (run in background) â”€â”€
   void startIncomingCallPolling() {
     _incomingPollTimer?.cancel();
-    _incomingPollTimer = Timer.periodic(const Duration(milliseconds: 800), (
+    // Push (FCM) delivers calls instantly; this poll is only a fallback. At
+    // 0.8 s it was ~3/4 of all server traffic.
+    _incomingPollTimer = Timer.periodic(const Duration(milliseconds: 2500), (
       _,
     ) {
       _pollIncomingCall();
@@ -249,9 +251,16 @@ class SignalingService {
     _callAcceptedNotified = false;
     _activeCallId = callId;
     _signalPollTimer?.cancel();
+    var tick = 0;
     _signalPollTimer = Timer.periodic(
       const Duration(milliseconds: 800),
-      (_) => _pollSignals(callId),
+      (_) {
+        // Fast while ringing; once connected only the end/heartbeat check
+        // matters, so every 5th tick (4 s) is plenty and spares the server.
+        tick++;
+        if (_callAcceptedNotified && tick % 5 != 0) return;
+        _pollSignals(callId);
+      },
     );
   }
 

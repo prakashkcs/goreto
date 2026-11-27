@@ -65,6 +65,31 @@ function requestStatusLabel(array $rs, bool $isFriend): string {
     return $rs['i_am_requester'] ? 'pending_sent' : 'pending_received';
 }
 
+// Columns for edit / unsend / pin / react / forward. The app has sent these
+// actions for a while but nothing stored them, so every change reverted the
+// next time the chat loaded. Added once, on first use.
+function ensureMessageActionColumns(PDO $pdo): void {
+    $has = $pdo->query("SHOW COLUMNS FROM messages LIKE 'is_edited'")->fetch();
+    if ($has) return;
+    $pdo->exec("ALTER TABLE messages
+        ADD COLUMN is_edited TINYINT(1) NOT NULL DEFAULT 0,
+        ADD COLUMN is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+        ADD COLUMN deleted_for_sender TINYINT(1) NOT NULL DEFAULT 0,
+        ADD COLUMN deleted_for_receiver TINYINT(1) NOT NULL DEFAULT 0,
+        ADD COLUMN is_pinned TINYINT(1) NOT NULL DEFAULT 0,
+        ADD COLUMN reaction VARCHAR(16) NULL,
+        ADD COLUMN reaction_by INT NULL,
+        ADD COLUMN forwarded_from INT NULL");
+}
+
+// Loads a 1:1 message the viewer is part of, or null.
+function loadOwnMessage(PDO $pdo, int $messageId, int $userId): ?array {
+    $s = $pdo->prepare("SELECT * FROM messages WHERE id = ? AND (sender_id = ? OR receiver_id = ?) LIMIT 1");
+    $s->execute([$messageId, $userId, $userId]);
+    $row = $s->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
 function buildAvatarUrl(string $rawPic): string {
     if ($rawPic === '') return '';
     if (preg_match('~^https?://~i', $rawPic)) return $rawPic;
@@ -145,7 +170,14 @@ try {
         $rSt = $pdo->prepare("UPDATE messages SET status='read', read_at=NOW() WHERE receiver_id=? AND sender_id=? AND status!='read'");
         $rSt->execute([$userId, $withUserId]);
 
-        $stmt = $pdo->prepare('SELECT * FROM messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY created_at ASC LIMIT 200');
+        ensureMessageActionColumns($pdo);
+        // Latest 200, oldest first; skip messages this viewer unsent "for me".
+        $stmt = $pdo->prepare('SELECT * FROM (
+                SELECT * FROM messages
+                WHERE ((sender_id = ? AND receiver_id = ? AND deleted_for_sender = 0)
+                    OR (sender_id = ? AND receiver_id = ? AND deleted_for_receiver = 0))
+                ORDER BY created_at DESC LIMIT 200
+            ) recent ORDER BY created_at ASC');
         $stmt->execute([$userId, $withUserId, $withUserId, $userId]);
         $msgs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -175,7 +207,11 @@ try {
         $rSt = $pdo->prepare("UPDATE messages SET status='read', read_at=NOW() WHERE receiver_id=? AND sender_id=? AND id > ? AND status!='read'");
         $rSt->execute([$userId, $withUserId, $lastId]);
 
-        $stmt = $pdo->prepare('SELECT * FROM messages WHERE id > ? AND ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) ORDER BY created_at ASC');
+        ensureMessageActionColumns($pdo);
+        $stmt = $pdo->prepare('SELECT * FROM messages WHERE id > ?
+            AND ((sender_id = ? AND receiver_id = ? AND deleted_for_sender = 0)
+              OR (sender_id = ? AND receiver_id = ? AND deleted_for_receiver = 0))
+            ORDER BY created_at ASC');
         $stmt->execute([$lastId, $userId, $withUserId, $withUserId, $userId]);
         $msgs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -412,6 +448,115 @@ try {
     }
 
     // ── accept_request ────────────────────────────────────────────────────────
+    // ── edit_message (sender, text only) ──────────────────────────────────────
+    elseif ($action === 'edit_message') {
+        ensureMessageActionColumns($pdo);
+        $messageId = (int) ($_REQUEST['message_id'] ?? 0);
+        $content = trim((string) ($_REQUEST['content'] ?? ''));
+        if ($messageId <= 0 || $content === '') {
+            echo json_encode(['status' => 'error', 'message' => 'message_id and content required']);
+            exit;
+        }
+        $st = $pdo->prepare("UPDATE messages SET content = ?, message = ?, is_edited = 1
+                             WHERE id = ? AND sender_id = ? AND is_deleted = 0
+                               AND (type = 'text' OR type IS NULL OR type = '')");
+        $st->execute([$content, $content, $messageId, $userId]);
+        echo json_encode($st->rowCount() > 0
+            ? ['status' => 'success']
+            : ['status' => 'error', 'message' => 'Message not found or not editable']);
+    }
+
+    // ── unsend_message: scope 'me' hides for the viewer, 'everyone' (sender) deletes ──
+    elseif ($action === 'unsend_message') {
+        ensureMessageActionColumns($pdo);
+        $messageId = (int) ($_REQUEST['message_id'] ?? 0);
+        $scope = ($_REQUEST['scope'] ?? 'me') === 'everyone' ? 'everyone' : 'me';
+        $msg = loadOwnMessage($pdo, $messageId, $userId);
+        if (!$msg) {
+            echo json_encode(['status' => 'error', 'message' => 'Message not found']);
+            exit;
+        }
+        if ($scope === 'everyone') {
+            if ((int) $msg['sender_id'] !== $userId) {
+                echo json_encode(['status' => 'error', 'message' => 'Only the sender can unsend for everyone']);
+                exit;
+            }
+            $pdo->prepare("UPDATE messages SET is_deleted = 1, content = '', message = '', media_url = NULL,
+                                               is_pinned = 0, reaction = NULL, reaction_by = NULL
+                           WHERE id = ?")->execute([$messageId]);
+        } else {
+            $col = ((int) $msg['sender_id'] === $userId) ? 'deleted_for_sender' : 'deleted_for_receiver';
+            $pdo->prepare("UPDATE messages SET $col = 1 WHERE id = ?")->execute([$messageId]);
+        }
+        echo json_encode(['status' => 'success']);
+    }
+
+    // ── pin_message: toggle; one pinned message per conversation ──────────────
+    elseif ($action === 'pin_message') {
+        ensureMessageActionColumns($pdo);
+        $messageId = (int) ($_REQUEST['message_id'] ?? 0);
+        $msg = loadOwnMessage($pdo, $messageId, $userId);
+        if (!$msg) {
+            echo json_encode(['status' => 'error', 'message' => 'Message not found']);
+            exit;
+        }
+        $a = (int) $msg['sender_id'];
+        $b = (int) $msg['receiver_id'];
+        $pin = (int) $msg['is_pinned'] === 1 ? 0 : 1;
+        if ($pin === 1) {
+            $pdo->prepare("UPDATE messages SET is_pinned = 0
+                           WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)")
+                ->execute([$a, $b, $b, $a]);
+        }
+        $pdo->prepare("UPDATE messages SET is_pinned = ? WHERE id = ?")->execute([$pin, $messageId]);
+        echo json_encode(['status' => 'success', 'is_pinned' => $pin]);
+    }
+
+    // ── react_message: toggle one emoji per message ───────────────────────────
+    elseif ($action === 'react_message') {
+        ensureMessageActionColumns($pdo);
+        $messageId = (int) ($_REQUEST['message_id'] ?? 0);
+        $emoji = mb_substr(trim((string) ($_REQUEST['emoji'] ?? '')), 0, 8);
+        $msg = loadOwnMessage($pdo, $messageId, $userId);
+        if (!$msg) {
+            echo json_encode(['status' => 'error', 'message' => 'Message not found']);
+            exit;
+        }
+        $same = (string) $msg['reaction'] === $emoji && (int) $msg['reaction_by'] === $userId;
+        if ($emoji === '' || $same) {
+            $pdo->prepare("UPDATE messages SET reaction = NULL, reaction_by = NULL WHERE id = ?")->execute([$messageId]);
+        } else {
+            $pdo->prepare("UPDATE messages SET reaction = ?, reaction_by = ? WHERE id = ?")
+                ->execute([$emoji, $userId, $messageId]);
+        }
+        echo json_encode(['status' => 'success']);
+    }
+
+    // ── forward_message: copy a message into a chat with another user ─────────
+    elseif ($action === 'forward_message') {
+        ensureMessageActionColumns($pdo);
+        $messageId = (int) ($_REQUEST['message_id'] ?? 0);
+        $toUserId = (int) ($_REQUEST['to_user_id'] ?? 0);
+        $msg = loadOwnMessage($pdo, $messageId, $userId);
+        if (!$msg || $toUserId <= 0 || (int) $msg['is_deleted'] === 1) {
+            echo json_encode(['status' => 'error', 'message' => 'Message not found']);
+            exit;
+        }
+        $bSt = $pdo->prepare("SELECT 1 FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?) LIMIT 1");
+        $bSt->execute([$userId, $toUserId, $toUserId, $userId]);
+        if ($bSt->fetchColumn()) {
+            echo json_encode(['status' => 'error', 'message' => 'You cannot message this user']);
+            exit;
+        }
+        $pdo->prepare("INSERT INTO messages (sender_id, receiver_id, type, content, message, media_url, voice_duration, status, created_at, forwarded_from)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', NOW(), ?)")
+            ->execute([
+                $userId, $toUserId, $msg['type'], $msg['content'], $msg['message'],
+                $msg['media_url'], $msg['voice_duration'], (int) $msg['sender_id'],
+            ]);
+        echo json_encode(['status' => 'success', 'message_id' => (int) $pdo->lastInsertId()]);
+    }
+
     elseif ($action === 'accept_request') {
         $requesterId = (int)($_POST['requester_id'] ?? 0);
         if ($requesterId <= 0) {
