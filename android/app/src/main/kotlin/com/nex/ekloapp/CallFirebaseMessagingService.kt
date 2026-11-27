@@ -240,7 +240,7 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
         // activity from a receiver fired by a notification ("trampoline"), so
         // the old broadcast-based Accept silently did nothing.
         val acceptIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra("action",        "accept_call")
             putExtra("call_id",       callId)
             putExtra("call_uuid",     callUuid)
