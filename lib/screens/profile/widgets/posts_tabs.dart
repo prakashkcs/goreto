@@ -324,8 +324,9 @@ class _PostsTabsState extends State<PostsTabs>
     if (!widget.isOwnProfile) return card;
 
     return GestureDetector(
-      onLongPress: () =>
-          _showSellDialog(context, gift, name, emoji, thumb, coinPrice, qty),
+      // Pays the admin-set sell value (sell_price), not the full gift price.
+      onLongPress: () => _showSellDialog(context, gift, name, emoji, thumb,
+          int.tryParse(gift['sell_price']?.toString() ?? '0') ?? 0, qty),
       child: card,
     );
   }
@@ -450,6 +451,10 @@ class _PostsTabsState extends State<PostsTabs>
     int qty,
   ) {
     if (qty <= 0) return;
+    if (coinPrice <= 0) {
+      NeonToast.info(context, 'Gift selling is turned off right now');
+      return;
+    }
     int selectedQty = 1;
 
     showDialog(

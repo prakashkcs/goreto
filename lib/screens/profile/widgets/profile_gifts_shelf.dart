@@ -131,7 +131,7 @@ class _GiftCard extends StatelessWidget {
     final bgColor   = ProfileGiftsShelf._rarityBg(coinPrice);
 
     return GestureDetector(
-      onLongPress: isOwnProfile ? () => _showSellDialog(context, name, emoji, thumb, coinPrice, qty) : null,
+      onLongPress: isOwnProfile ? () => _showSellDialog(context, name, emoji, thumb, int.tryParse(gift['sell_price']?.toString() ?? '0') ?? 0, qty) : null,
       child: Container(
         width: 88,
         decoration: BoxDecoration(
@@ -263,6 +263,10 @@ class _GiftCard extends StatelessWidget {
   void _showSellDialog(BuildContext context, String name, String emoji,
       String thumb, int coinPrice, int qty) {
     if (qty <= 0) return;
+    if (coinPrice <= 0) {
+      NeonToast.info(context, 'Gift selling is turned off right now');
+      return;
+    }
     int selectedQty = 1;
 
     showDialog(

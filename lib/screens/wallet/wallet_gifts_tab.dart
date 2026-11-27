@@ -45,6 +45,11 @@ class _WalletGiftsTabState extends State<WalletGiftsTab> {
   }
 
   Future<void> _showSellDialog(WalletGiftItem gift) async {
+    // sell_price is 0 when the admin has gift selling switched off.
+    if (gift.sellPrice <= 0) {
+      NeonToast.info(context, 'Gift selling is turned off right now');
+      return;
+    }
     int selectedQty = 1;
 
     final result = await showDialog<bool>(

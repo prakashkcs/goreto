@@ -1,7 +1,7 @@
 <?php
 /**
  * gifts.php — Virtual gift catalog, send, and received API
- * Actions: list | send | received
+ * Actions: list | send | received | wallet | sell
  */
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
@@ -42,6 +42,28 @@ function abs_url(string $url): string {
     if ($url === '') return '';
     if (preg_match('#^https?://#i', $url)) return $url;
     return base() . ltrim($url, '/');
+}
+
+// Admin-controlled gift economics (admin/gifts.php → gift_settings):
+//   receiver_percent — share of the price the receiver gets when a gift arrives
+//   sell_percent     — share of the price paid when the receiver sells it back
+//                      (0 = selling switched off)
+function gift_setting(PDO $pdo, string $key, int $default): int {
+    static $cache = null;
+    if ($cache === null) {
+        $cache = [];
+        try {
+            foreach ($pdo->query("SELECT setting_key, setting_value FROM gift_settings") as $r) {
+                $cache[$r['setting_key']] = (int)$r['setting_value'];
+            }
+        } catch (\Throwable $_) { /* table not created yet: defaults */ }
+    }
+    $v = $cache[$key] ?? $default;
+    return max(0, min(100, $v));
+}
+
+function gift_sell_price(PDO $pdo, int $coinPrice): int {
+    return (int)floor($coinPrice * gift_setting($pdo, 'sell_percent', 0) / 100);
 }
 
 function get_coin_balance(PDO $pdo, int $userId): int {
@@ -178,8 +200,8 @@ if ($action === 'send') {
         out(['status' => false, 'message' => 'Not enough coins']);
     }
 
-    // Credit receiver (50% commission; creator gets 50%)
-    $receiverCredit = (int)floor($price * 0.5);
+    // Credit receiver (admin-set share, 50% by default)
+    $receiverCredit = (int)floor($price * gift_setting($pdo, 'receiver_percent', 50) / 100);
     if ($receiverCredit > 0) {
         credit_coins($pdo, $toUserId, $receiverCredit, "Received gift: {$gift['name']} from user $senderId");
     }
@@ -297,6 +319,7 @@ if ($action === 'received') {
             'qty'         => (int)$r['qty'],
             'coin_price'  => (int)$r['coin_price'],
             'total_value' => (int)$r['coin_price'] * (int)$r['qty'],
+            'sell_price'  => gift_sell_price($pdo, (int)$r['coin_price']),
             'gif_url'     => abs_url($r['gif_url'] ?? ''),
             'thumb_image' => abs_url($r['thumb_image'] ?? ''),
             'sender_name' => $r['sender_name'],
@@ -344,6 +367,7 @@ if ($action === 'wallet') {
             'qty'         => (int)$r['qty'],
             'coin_price'  => (int)$r['coin_price'],
             'total_value' => (int)$r['coin_price'] * (int)$r['qty'],
+            'sell_price'  => gift_sell_price($pdo, (int)$r['coin_price']),
             'gif_url'     => abs_url($r['gif_url'] ?? ''),
             'thumb_image' => abs_url($r['thumb_image'] ?? ''),
             'sender_name' => $r['sender_name'],
@@ -353,6 +377,70 @@ if ($action === 'wallet') {
         ];
     }
     out(['status' => true, 'gifts' => $rows]);
+}
+
+// ── action=sell ───────────────────────────────────────────────────────────────
+// Sell received gifts back for coins at the admin-set sell_percent of the
+// gift's price. The receiver already earned receiver_percent when the gift
+// arrived, so this is a separate, admin-controlled payout (0% = off).
+if ($action === 'sell') {
+    try { $user = requireUser($pdo); }
+    catch (\Exception $e) { out(['status' => false, 'message' => 'Unauthorized'], 401); }
+    $userId = (int)$user['id'];
+    $giftId = (int)($_POST['gift_id'] ?? $_GET['gift_id'] ?? 0);
+    $qty    = (int)($_POST['qty'] ?? $_GET['qty'] ?? 1);
+    if ($giftId <= 0 || $qty <= 0) out(['status' => false, 'message' => 'Missing gift_id or qty'], 400);
+
+    $pct = gift_setting($pdo, 'sell_percent', 0);
+    if ($pct <= 0) out(['status' => false, 'message' => 'Gift selling is turned off right now']);
+
+    $g = $pdo->prepare("SELECT name, coin_price FROM gifts WHERE id=? LIMIT 1");
+    $g->execute([$giftId]);
+    $gift = $g->fetch(PDO::FETCH_ASSOC);
+    if (!$gift) out(['status' => false, 'message' => 'Gift not found'], 404);
+    $unit = gift_sell_price($pdo, (int)$gift['coin_price']);
+    if ($unit <= 0) out(['status' => false, 'message' => 'This gift has no sell value']);
+
+    $pdo->beginTransaction();
+    try {
+        $rowsSt = $pdo->prepare("SELECT id, qty FROM gifts_received WHERE receiver_id=? AND gift_id=? AND qty>0 ORDER BY created_at ASC, id ASC FOR UPDATE");
+        $rowsSt->execute([$userId, $giftId]);
+        $rows = $rowsSt->fetchAll(PDO::FETCH_ASSOC);
+        $owned = array_sum(array_map(fn($r) => (int)$r['qty'], $rows));
+        if ($owned < $qty) {
+            $pdo->rollBack();
+            out(['status' => false, 'message' => "You only have $owned of this gift"]);
+        }
+        $left = $qty;
+        $del = $pdo->prepare("DELETE FROM gifts_received WHERE id=?");
+        $dec = $pdo->prepare("UPDATE gifts_received SET qty=qty-? WHERE id=?");
+        foreach ($rows as $r) {
+            if ($left <= 0) break;
+            $take = min($left, (int)$r['qty']);
+            if ($take === (int)$r['qty']) $del->execute([(int)$r['id']]);
+            else $dec->execute([$take, (int)$r['id']]);
+            $left -= $take;
+        }
+        $coins = $unit * $qty;
+        $pdo->prepare("INSERT INTO user_wallets (user_id, balance_coins) VALUES (?,?)
+                       ON DUPLICATE KEY UPDATE balance_coins = balance_coins + ?")
+            ->execute([$userId, $coins, $coins]);
+        $pdo->prepare("INSERT INTO wallet_transactions (user_id,type,direction,coins,status,reference,note)
+                       VALUES (?,?,?,?,?,?,?)")
+            ->execute([$userId, 'gift_sell', 'credit', $coins, 'completed', 'gift:' . $giftId,
+                       "Sold {$qty}x {$gift['name']}"]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        out(['status' => false, 'message' => 'Could not sell the gift right now'], 500);
+    }
+
+    out([
+        'status'      => 'success',
+        'message'     => "Sold {$qty}x {$gift['name']}",
+        'coins_added' => $coins,
+        'balance'     => get_coin_balance($pdo, $userId),
+    ]);
 }
 
 out(['status' => false, 'message' => 'Unknown action'], 400);
