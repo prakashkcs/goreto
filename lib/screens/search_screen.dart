@@ -286,7 +286,9 @@ class _SearchScreenState extends State<SearchScreen>
           if (focused || canPop)
             GestureDetector(
               onTap: () {
-                if (focused) {
+                // Only stay to clear typed text; an empty (just focused)
+                // search box should not swallow the first back tap.
+                if (_query.isNotEmpty || !canPop) {
                   _clearSearch();
                 } else {
                   Navigator.of(context).maybePop();

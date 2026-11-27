@@ -1,8 +1,8 @@
-﻿name: love_vibe_pro
+name: love_vibe_pro
 description: "Eklo - Nepali Social App"
 publish_to: 'none'
 
-version: 1.0.3+8
+version: 1.0.5+10
 
 environment:
   sdk: '>=3.6.0 <4.0.0'

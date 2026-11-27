@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -64,7 +65,9 @@ class GalacticTheme {
             TargetPlatform.android: ZoomPageTransitionsBuilder(
               allowEnterRouteSnapshotting: false,
             ),
-            TargetPlatform.iOS: FadeUpwardsPageTransitionsBuilder(),
+            // Cupertino gives iOS its edge swipe-back gesture; the fade builder
+            // had none, so screens without an on-screen back arrow were a dead end.
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
           },
         ),
       );

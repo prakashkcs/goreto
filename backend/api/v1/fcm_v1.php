@@ -112,11 +112,62 @@ class PushNotificationFCM
             'caller_avatar' => $callerAvatar,
             'call_type'     => $type,
         ];
-        // For calls, we want DATA-ONLY to ensure onBackgroundMessage is triggered reliably for custom tray
-        return $this->sendDataMessage($fcmToken, $projectId, $data, null, true);
+        // Android: data-only (the native service renders the call UI).
+        // iOS ignores data-only pushes while the app is in the background, so
+        // the call also carries an APNs alert with the Accept/Decline category.
+        // The collapse id lets the call_cancelled push replace this alert
+        // instead of leaving a dead Accept/Decline notification behind.
+        $apns = [
+            'headers' => [
+                'apns-priority'    => '10',
+                'apns-push-type'   => 'alert',
+                'apns-collapse-id' => 'call_' . $callId,
+            ],
+            'payload' => ['aps' => [
+                'alert'    => [
+                    'title' => (string)$callerName,
+                    'body'  => $type === 'audio' ? 'Incoming audio call' : 'Incoming video call',
+                ],
+                'sound'    => 'default',
+                'category' => 'goreto_call',
+            ]],
+        ];
+        return $this->sendDataMessage($fcmToken, $projectId, $data, null, true, $apns);
     }
 
-    public function sendDataMessage($fcmToken, $projectId, $dataPayload, $notificationPayload = null, $forceDataOnly = true)
+    /**
+     * Tell a phone a call is over. On iOS the alert reuses the ringing
+     * notification's collapse id, so "Missed call" replaces the Accept/Decline
+     * alert (only for the person who was being called).
+     */
+    public function sendCallCancelled($fcmToken, $projectId, $callId, $missedFrom = null)
+    {
+        $data = [
+            'type'    => 'call_cancelled',
+            'action'  => 'call_cancelled',
+            'call_id' => (string)$callId,
+        ];
+        $apns = null;
+        if ($missedFrom !== null) {
+            $apns = [
+                'headers' => [
+                    'apns-priority'    => '10',
+                    'apns-push-type'   => 'alert',
+                    'apns-collapse-id' => 'call_' . $callId,
+                ],
+                'payload' => ['aps' => [
+                    'alert' => [
+                        'title' => 'Missed call',
+                        'body'  => 'Missed call from ' . $missedFrom,
+                    ],
+                    'sound' => 'default',
+                ]],
+            ];
+        }
+        return $this->sendDataMessage($fcmToken, $projectId, $data, null, true, $apns);
+    }
+
+    public function sendDataMessage($fcmToken, $projectId, $dataPayload, $notificationPayload = null, $forceDataOnly = true, $apnsOverride = null)
     {
         $accessToken = $this->getAccessToken();
         if (!$accessToken) {
@@ -162,6 +213,11 @@ class PushNotificationFCM
                 ],
                 'sound' => 'default',
             ];
+        }
+
+        // Caller-supplied APNs block (iOS only; Android ignores it).
+        if (is_array($apnsOverride)) {
+            $message['message']['apns'] = $apnsOverride;
         }
 
         // Ensure all data values are strictly STRINGS (FCM requirement for data payloads)

@@ -1495,7 +1495,16 @@ class _ReelsScreenState extends State<ReelsScreen>
                 ],
               ),
         child: Text(
-          following ? 'Following' : 'Follow',
+          // Mutual follow reads "Friends", same as the home feed.
+          following
+              ? ((reel is Map &&
+                      (reel['follows_me'] == 1 || reel['follows_me'] == true))
+                  ? 'Friends'
+                  : 'Following')
+              : ((reel is Map &&
+                      (reel['follows_me'] == 1 || reel['follows_me'] == true))
+                  ? 'Follow back'
+                  : 'Follow'),
           style: TextStyle(
             color: following
                 ? Colors.white.withValues(alpha: 0.90)

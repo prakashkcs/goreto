@@ -118,6 +118,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final rawUserId = widget.userId;
     final isViewingOwnProfile =
         rawUserId == null || rawUserId.isEmpty || rawUserId == '0';
+    // Opened with someone's id: treat as another person's profile until the
+    // load confirms it is actually ours (it used to start as "own").
+    _isOwnProfileView = isViewingOwnProfile;
     if (isViewingOwnProfile) {
       _profileService.getCachedProfile().then((cached) {
         if (cached != null && mounted && _profile == null) {
@@ -835,14 +838,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }
 
-        // Auto-post the update
-        try {
-          await ApiService().uploadPost(
-            file,
-            '📷 Updated profile picture',
-            'image',
-          );
-        } catch (_) {}
+        // The server adds the photo to the Photos tab (upload_avatar/cover.php).
 
         if (mounted) NeonToast.success(context, 'Profile picture updated!');
       } else {
@@ -900,13 +896,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
         // Same as the profile picture: share it as a post so it appears in
         // the Photos tab for anyone visiting the profile.
-        try {
-          await ApiService().uploadPost(
-            File(croppedFile.path),
-            '🖼️ Updated cover photo',
-            'image',
-          );
-        } catch (_) {}
+        // The server adds the photo to the Photos tab (upload_avatar/cover.php).
         if (mounted) NeonToast.success(context, 'Cover updated!');
       } else {
         throw Exception('Upload failed');
@@ -1048,7 +1038,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     icon: const Icon(Icons.share_rounded, color: Colors.white),
                     onPressed: _shareProfile,
                   ),
-                if (_profile?.isOwnProfile == true)
+                if (_profile != null && _isOwnProfileView)
                   IconButton(
                     tooltip: 'Logout',
                     icon: const Icon(Icons.logout_rounded, color: Colors.white),
@@ -1307,7 +1297,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                 SliverToBoxAdapter(
                   child: ProfileHeader(
-                    profile: profile,
+                    // Own-vs-other comes from how this screen was opened, never
+                    // from the payload: UserProfile.fromJson defaults
+                    // is_own_profile to true, so any refresh that rebuilt the
+                    // profile showed Logout / Edit on someone else's page.
+                    profile: profile.isOwnProfile == _isOwnProfileView
+                        ? profile
+                        : profile.copyWith(isOwnProfile: _isOwnProfileView),
                     ratingReady: _liveRatingLoaded,
                     onEditCover: _handleUpdateCover,
                     onEditAvatar: _handleUpdateAvatar,
