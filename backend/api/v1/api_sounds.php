@@ -264,7 +264,9 @@ if ($method === 'POST') {
         if (!empty($dOut[0]))
             $duration = round(floatval($dOut[0]), 2);
 
-        $audioUrl = $baseUrl . '/uploads/sounds/' . $soundFile;
+        // Saved under api/v1/uploads/sounds (see $soundsDir), so the URL needs
+        // the api/v1 segment too; the old URL 404'd.
+        $audioUrl = $baseUrl . '/api/v1/uploads/sounds/' . $soundFile;
 
         if ($title === '' || strcasecmp($title, 'Original Audio') === 0) {
             $uname = trim((string) ($post['username'] ?? ''));
@@ -425,8 +427,20 @@ function url_to_local_path(string $url, string $baseUrl): ?string
     // Strip base URL prefix to get relative path
     $rel = str_replace($baseUrl, '', $url);
     $rel = ltrim($rel, '/');
+    // $baseUrl is the site root (.../ekloadmin) while this file lives in
+    // api/v1, so the relative path ("api/v1/uploads/x.mp4") must be joined
+    // to the site root. Joining it to __DIR__ produced api/v1/api/v1/... and
+    // every "Use this sound" failed with "Video file not found".
+    $siteRoot = dirname(__DIR__, 2); // /var/www/html/ekloadmin
+    $path0 = $siteRoot . '/' . $rel;
+    if (file_exists($path0))
+        return $path0;
+    // Uploads folder by file name, whatever prefix the URL carried.
+    $byName = __DIR__ . '/uploads/' . basename(parse_url($url, PHP_URL_PATH) ?: '');
+    if (basename($byName) !== '' && file_exists($byName))
+        return $byName;
     // Map to filesystem
-    $root = __DIR__; // /var/www/html/ekloadmin
+    $root = __DIR__;
     $path = $root . '/' . $rel;
     if (file_exists($path))
         return $path;

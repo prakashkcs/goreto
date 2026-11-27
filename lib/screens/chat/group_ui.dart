@@ -495,6 +495,9 @@ Future<T?> showGSheet<T>(
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: scrollControlled,
+    // Keep tall sheets (or ones lifted by the keyboard) below the status bar
+    // / notch; without it they slid under the top of the screen on iOS.
+    useSafeArea: true,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.6),
     builder: (ctx) => Padding(

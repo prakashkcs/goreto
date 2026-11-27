@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:love_vibe_pro/services/full_screen_alert_permission.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport, RenderBox;
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -184,6 +185,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _startIncomingCallPolling();
       _processOfflineGiftNotifications();
       _doStreakCheckin();
+    });
+
+    // Android 14+: ask once for full-screen alerts (calls + nearby page).
+    Future.delayed(const Duration(seconds: 6), () {
+      if (mounted) FullScreenAlertPermission.maybeAsk(context);
     });
 
     // â”€â”€ Global location update (nearby notifications on ALL tabs) â”€â”€

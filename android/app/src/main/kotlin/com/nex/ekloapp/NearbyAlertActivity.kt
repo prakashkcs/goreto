@@ -67,6 +67,17 @@ class NearbyAlertActivity : Activity() {
 
         setContentView(R.layout.activity_nearby_alert)
 
+        // Soft-blur the backdrop photo (Android 12+) and pulse the radar rings.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                findViewById<ImageView>(R.id.ivBackground).setRenderEffect(
+                    android.graphics.RenderEffect.createBlurEffect(
+                        40f, 40f, android.graphics.Shader.TileMode.CLAMP))
+            } catch (_: Exception) {}
+        }
+        startRadarPulse(findViewById(R.id.ringOuter), 0L)
+        startRadarPulse(findViewById(R.id.ringInner), 700L)
+
         val senderId     = intent.getStringExtra(EXTRA_SENDER_ID)     ?: ""
         val senderName   = intent.getStringExtra(EXTRA_SENDER_NAME)   ?: "Someone"
         val senderAvatar = intent.getStringExtra(EXTRA_SENDER_AVATAR) ?: ""
@@ -174,6 +185,28 @@ class NearbyAlertActivity : Activity() {
                 } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
+    }
+
+    /** Ring grows and fades out on a loop, like a radar ping. */
+    private fun startRadarPulse(view: android.view.View?, delayMs: Long) {
+        view ?: return
+        val anim = android.animation.AnimatorSet().apply {
+            playTogether(
+                android.animation.ObjectAnimator.ofFloat(view, "scaleX", 0.75f, 1.12f).apply {
+                    repeatCount = android.animation.ValueAnimator.INFINITE
+                },
+                android.animation.ObjectAnimator.ofFloat(view, "scaleY", 0.75f, 1.12f).apply {
+                    repeatCount = android.animation.ValueAnimator.INFINITE
+                },
+                android.animation.ObjectAnimator.ofFloat(view, "alpha", 0.95f, 0.15f).apply {
+                    repeatCount = android.animation.ValueAnimator.INFINITE
+                },
+            )
+            duration = 1600L
+            startDelay = delayMs
+            interpolator = android.view.animation.DecelerateInterpolator()
+        }
+        anim.start()
     }
 
     private fun stopVoice() {

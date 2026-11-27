@@ -19,6 +19,8 @@ import 'package:love_vibe_pro/widgets/gifter_badge.dart';
 
 import 'package:love_vibe_pro/widgets/share_bottom_sheet.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
+import 'package:love_vibe_pro/widgets/repost_people_sheet.dart';
+import 'package:love_vibe_pro/widgets/feed_caption_views.dart';
 import 'package:love_vibe_pro/screens/gifts/gifts_sheet.dart';
 import 'package:love_vibe_pro/widgets/gift_overlay_widget.dart';
 import 'package:love_vibe_pro/widgets/subscriber_lock_overlay.dart';
@@ -83,15 +85,6 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
     shape: BoxShape.circle,
   );
 
-  static const _kCaptionStyle = TextStyle(
-    color: Colors.white,
-    fontWeight: FontWeight.w700,
-    fontSize: 14,
-    shadows: [
-      Shadow(color: Colors.black, offset: Offset(0, 1), blurRadius: 6),
-      Shadow(color: Color(0xFFEC4899), blurRadius: 14),
-    ],
-  );
 
   static const _kActionLabelStyle = TextStyle(
     color: Colors.white,
@@ -1199,51 +1192,19 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                   // the Gift button) to open the full gifter leaderboard.
                   Positioned(
                     left: 12,
-                    bottom: 46,
+                    bottom: (!isTextPost && caption.isNotEmpty) ? 86 : 44,
                     child: _buildGiftOverlay(),
                   ),
 
-                  // 6. Caption
-                  if (!isTextPost && caption.isNotEmpty)
-                    Positioned(
-                      left: 15,
-                      bottom: 20,
-                      right: 80,
-                      child: Text(
-                        caption,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: _kCaptionStyle,
-                      ),
-                    ),
-
-                  // 7. Views count at bottom-left (matches reels style)
+                  // 6. Caption + views pill, one aligned block (they used to
+                  // sit at separate fixed heights and drift / overlap).
                   Positioned(
                     left: 12,
-                    bottom: 6,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.remove_red_eye_outlined,
-                            color: Colors.white70, size: 13),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${widget.post['views_unique'] ?? widget.post['views_total'] ?? widget.post['view_count'] ?? widget.post['views_count'] ?? widget.post['views'] ?? 0}',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            shadows: [Shadow(color: Colors.black, blurRadius: 4)],
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Text('views',
-                            style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 12,
-                              shadows: [Shadow(color: Colors.black, blurRadius: 4)],
-                            )),
-                      ],
+                    bottom: 10,
+                    right: 80,
+                    child: FeedCaptionViews(
+                      caption: isTextPost ? '' : caption,
+                      views: feedViewCount(widget.post),
                     ),
                   ),
                 ],
@@ -1311,6 +1272,24 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
     }
 
     final resharerId = _resolvePostAuthorId();
+    final originalPostId =
+        (widget.post['repost_of'] ?? originalPost?['id'])?.toString();
+
+    // Both people behind a repost, each with Visit profile + Follow.
+    void showRepostPeople() => RepostPeopleSheet.show(
+          context,
+          resharer: RepostPerson(
+              id: resharerId?.toString() ?? '',
+              name: username,
+              avatar: userAvatar,
+              role: 'Reposted this'),
+          original: RepostPerson(
+              id: originalUserId ?? '',
+              name: originalUsername,
+              avatar: originalAvatar,
+              role: 'Original creator'),
+          originalPostId: originalPostId,
+        );
 
     // Helper: builds the avatar circle
     Widget buildAvatar(String url, String name, double r, Color bg) {
@@ -1458,7 +1437,9 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                           ),
                           child: Row(
                             children: [
-                              SizedBox(
+                              GestureDetector(
+                                onTap: showRepostPeople,
+                                child: SizedBox(
                                 width: 44,
                                 height: 36,
                                 child: Stack(children: [
@@ -1485,6 +1466,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                                     ),
                                   ),
                                 ]),
+                              ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
@@ -1527,7 +1509,10 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                                   ],
                                 ),
                               ),
-                              Container(
+                              // Tap: open the post that was reposted.
+                              GestureDetector(
+                                onTap: () => RepostPeopleSheet.openOriginal(context, originalPostId),
+                                child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                                 decoration: BoxDecoration(
                                   gradient: const LinearGradient(colors: [Color(0xFFD946EF), Color(0xFF7C3AED)]),
@@ -1537,7 +1522,10 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                                   Icon(Icons.repeat_rounded, size: 11, color: Colors.white),
                                   SizedBox(width: 3),
                                   Text('Repost', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                                  SizedBox(width: 2),
+                                  Icon(Icons.chevron_right_rounded, size: 12, color: Colors.white),
                                 ]),
+                              ),
                               ),
                             ],
                           ),
@@ -1583,16 +1571,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
                       Positioned(
                         left: 12,
                         bottom: 14,
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.remove_red_eye_outlined, size: 15, color: Colors.white,
-                              shadows: [Shadow(color: Colors.black, blurRadius: 6)]),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${widget.post['views_unique'] ?? widget.post['views_total'] ?? widget.post['view_count'] ?? 0}',
-                            style: const TextStyle(color: Colors.white, fontSize: 12,
-                                shadows: [Shadow(color: Colors.black, blurRadius: 6)]),
-                          ),
-                        ]),
+                        child: FeedViewsPill(views: feedViewCount(widget.post)),
                       ),
                     ],
                   ),

@@ -218,6 +218,24 @@ class PushNotificationFCM
         // Caller-supplied APNs block (iOS only; Android ignores it).
         if (is_array($apnsOverride)) {
             $message['message']['apns'] = $apnsOverride;
+        } elseif (!isset($message['message']['apns']['payload'])) {
+            // iOS never displays a data-only push while the app is in the
+            // background, so every notification (chat, gift, nearby, follow…)
+            // was invisible on iPhones. Give it a visible alert from the same
+            // title/body the Android tray uses. Silent control messages
+            // (call_cancelled, etc.) carry no title and stay data-only.
+            $t = (string)($dataPayload['notif_title'] ?? $dataPayload['title'] ?? '');
+            $b = (string)($dataPayload['notif_body'] ?? $dataPayload['body'] ?? '');
+            $kind = (string)($dataPayload['type'] ?? $dataPayload['action'] ?? '');
+            if (($t !== '' || $b !== '') && !in_array($kind, ['incoming_call', 'call_cancelled', 'call_pickup'], true)) {
+                $message['message']['apns'] = [
+                    'headers' => ['apns-priority' => '10', 'apns-push-type' => 'alert'],
+                    'payload' => ['aps' => [
+                        'alert' => ['title' => $t !== '' ? $t : 'Goreto', 'body' => $b],
+                        'sound' => 'default',
+                    ]],
+                ];
+            }
         }
 
         // Ensure all data values are strictly STRINGS (FCM requirement for data payloads)

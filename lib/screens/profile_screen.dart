@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:love_vibe_pro/widgets/full_screen_photo_viewer.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -742,6 +743,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const SizedBox(height: 8),
             ListTile(
+              leading: const Icon(Icons.visibility_rounded, color: Colors.white70),
+              title: Text(cover ? 'View cover photo' : 'View profile photo',
+                  style: const TextStyle(color: Colors.white)),
+              onTap: () => Navigator.pop(ctx, 'view'),
+            ),
+            ListTile(
               leading: const Icon(Icons.photo_library_rounded, color: Color(0xFF00E5FF)),
               title: Text(cover ? 'Change cover photo' : 'Change profile photo',
                   style: const TextStyle(color: Colors.white)),
@@ -781,6 +788,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final choice = await _photoOptions(cover: false);
     if (choice == null || !mounted) return;
     if (choice == 'remove') return _removePhoto(cover: false);
+    if (choice == 'view') {
+      final url = _profile!.profilePicUrl.isNotEmpty ? _profile!.profilePicUrl : _profile!.avatar;
+      if (url.startsWith('http')) FullScreenPhotoViewer.open(context, url);
+      return;
+    }
 
     final pickedFile = await ImagePicker().pickImage(
       source: ImageSource.gallery,
@@ -857,6 +869,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final choice = await _photoOptions(cover: true);
     if (choice == null || !mounted) return;
     if (choice == 'remove') return _removePhoto(cover: true);
+    if (choice == 'view') {
+      final url = _profile!.cover.isNotEmpty ? _profile!.cover : _profile!.coverPicUrl;
+      if (url.startsWith('http')) FullScreenPhotoViewer.open(context, url);
+      return;
+    }
 
     final pickedFile = await ImagePicker().pickImage(
       source: ImageSource.gallery,

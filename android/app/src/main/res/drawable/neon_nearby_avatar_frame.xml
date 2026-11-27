@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pink -> purple -> cyan ring around the avatar (app's neon palette). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <gradient
+        android:type="sweep"
+        android:startColor="#FFFF007F"
+        android:centerColor="#FFD946EF"
+        android:endColor="#FF06B6D4" />
+</shape>

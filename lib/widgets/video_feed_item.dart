@@ -4,6 +4,8 @@ import 'package:video_player/video_player.dart';
 import 'package:love_vibe_pro/services/secure_screen_service.dart';
 import 'package:love_vibe_pro/services/thumbnail_cache.dart';
 import 'package:love_vibe_pro/services/user_prefs_cache.dart';
+import 'package:love_vibe_pro/widgets/repost_people_sheet.dart';
+import 'package:love_vibe_pro/widgets/feed_caption_views.dart';
 import 'package:love_vibe_pro/widgets/neon_subscribe_button.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
@@ -83,21 +85,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
     borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
   );
 
-  static const _kCaptionStyle = TextStyle(
-    color: Colors.white,
-    fontWeight: FontWeight.w700,
-    fontSize: 13,
-    shadows: [
-      Shadow(color: Colors.black, offset: Offset(0, 1), blurRadius: 6),
-      Shadow(color: Color(0xFFEC4899), blurRadius: 14),
-    ],
-  );
 
-  static const _kViewsCountStyle = TextStyle(
-    color: Colors.white70,
-    fontSize: 12,
-    fontWeight: FontWeight.w500,
-  );
 
   static const _kActionLabelStyle = TextStyle(
     color: Colors.white,
@@ -1140,8 +1128,24 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                       ),
                       child: Row(
                         children: [
-                          // Reposter avatar with original stacked behind
-                          SizedBox(
+                          // Reposter avatar with original stacked behind.
+                          // Tap: both people, each with Visit profile + Follow.
+                          GestureDetector(
+                            onTap: () => RepostPeopleSheet.show(
+                              context,
+                              resharer: RepostPerson(
+                                  id: _resolvePostAuthorId() ?? '',
+                                  name: username,
+                                  avatar: userAvatar,
+                                  role: 'Reposted this'),
+                              original: RepostPerson(
+                                  id: originalUserId,
+                                  name: originalUsername,
+                                  avatar: originalAvatar,
+                                  role: 'Original creator'),
+                              originalPostId: repostOf > 0 ? '$repostOf' : null,
+                            ),
+                            child: SizedBox(
                             width: 44,
                             height: 36,
                             child: Stack(
@@ -1176,6 +1180,7 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                                 ),
                               ],
                             ),
+                          ),
                           ),
                           const SizedBox(width: 10),
                           // Text column
@@ -1218,8 +1223,10 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                               ],
                             ),
                           ),
-                          // Repost pill
-                          Container(
+                          // Repost pill — tap opens the original post.
+                          GestureDetector(
+                            onTap: () => RepostPeopleSheet.openOriginal(context, '$repostOf'),
+                            child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(colors: [Color(0xFFD946EF), Color(0xFF7C3AED)]),
@@ -1229,7 +1236,10 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                               Icon(Icons.repeat_rounded, size: 11, color: Colors.white),
                               SizedBox(width: 3),
                               Text('Repost', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                              SizedBox(width: 2),
+                              Icon(Icons.chevron_right_rounded, size: 12, color: Colors.white),
                             ]),
+                          ),
                           ),
                         ],
                       ),
@@ -1419,40 +1429,14 @@ class _VideoFeedItemState extends State<VideoFeedItem>
                   right: 70,
                   child: _buildGiftOverlay(),
                 ),
-                // â”€â”€ Caption at bottom-left â”€â”€
+                // Caption with the views pill under it, one aligned block.
                 Positioned(
                   left: 12,
-                  bottom: 36,
+                  bottom: 12,
                   right: 70,
-                  child: Text(
-                    caption,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: _kCaptionStyle,
-                  ),
-                ),
-                // â”€â”€ Views count at bottom-left â”€â”€
-                Positioned(
-                  left: 12,
-                  bottom: 14,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.remove_red_eye_outlined,
-                          color: Colors.white70, size: 13),
-                      const SizedBox(width: 4),
-                      Text(
-                        _formatCount(int.tryParse(
-                              '${widget.post['views_unique'] ?? widget.post['views_total'] ?? widget.post['view_count'] ?? widget.post['views_count'] ?? widget.post['views'] ?? 0}',
-                            ) ??
-                            0),
-                        style: _kViewsCountStyle,
-                      ),
-                      const SizedBox(width: 4),
-                      const Text('views',
-                          style: TextStyle(
-                              color: Colors.white54, fontSize: 12)),
-                    ],
+                  child: FeedCaptionViews(
+                    caption: caption,
+                    views: feedViewCount(widget.post),
                   ),
                 ),
               ],
@@ -1569,11 +1553,6 @@ class _VideoFeedItemState extends State<VideoFeedItem>
     );
   }
 
-  String _formatCount(int n) {
-    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
-    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
-    return '$n';
-  }
 }
 
 String _cleanCommentValue(dynamic value) {

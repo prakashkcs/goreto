@@ -251,7 +251,10 @@ if ($action === 'send') {
             $senderId,
             'gift',
             "$senderName sent you a gift!",
-            "You received {$gift['name']} $emoji (+$receiverCredit coins)",
+            // "worth" is what the sender paid; the receiver's share of a
+            // 1-coin gift rounds to 0, which read as "0 coins" before.
+            "You received {$gift['name']} $emoji worth $price coin" . ($price == 1 ? '' : 's')
+                . ($receiverCredit > 0 ? " · +$receiverCredit coins for you" : ''),
             (int)$giftId
         );
     } catch (\Throwable $_) {}

@@ -86,6 +86,36 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                // Android 14+ only lets calling/alarm apps use full-screen
+                // intents by default. Without it the incoming-call screen and
+                // the "someone is nearby" page shrink to a banner.
+                "canUseFullScreenIntent" -> {
+                    val ok = if (android.os.Build.VERSION.SDK_INT >= 34) {
+                        (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager)
+                            .canUseFullScreenIntent()
+                    } else true
+                    result.success(ok)
+                }
+                "openFullScreenIntentSettings" -> {
+                    try {
+                        val i = if (android.os.Build.VERSION.SDK_INT >= 34) {
+                            Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                                android.net.Uri.parse("package:$packageName"))
+                        } else {
+                            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName)
+                        }
+                        startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        result.success(true)
+                    } catch (_: Exception) {
+                        try {
+                            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.parse("package:$packageName"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        } catch (_: Exception) {}
+                        result.success(false)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

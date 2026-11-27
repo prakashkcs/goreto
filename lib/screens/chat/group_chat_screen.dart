@@ -353,6 +353,8 @@ class _GroupChatScreenState extends State<GroupChatScreen>
       NeonToast.info(context, 'Only admins can share media in this group');
       return;
     }
+    // Close the keyboard first so the sheet isn't pushed up under the notch.
+    FocusScope.of(context).unfocus();
     showGSheet<void>(
       context,
       builder: (ctx) => Padding(

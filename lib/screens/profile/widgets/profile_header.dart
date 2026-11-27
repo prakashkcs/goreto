@@ -90,7 +90,12 @@ class ProfileHeader extends StatelessWidget {
                       borderRadius: const BorderRadius.vertical(
                         bottom: Radius.circular(24),
                       ),
-                      child: Container(
+                      // Tap the cover to see it full screen (own or others').
+                      child: GestureDetector(
+                        onTap: coverUrl.startsWith('http')
+                            ? () => FullScreenPhotoViewer.open(context, coverUrl)
+                            : null,
+                        child: Container(
                         width: double.infinity,
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
@@ -110,6 +115,7 @@ class ProfileHeader extends StatelessWidget {
                                   )
                                 : Image.file(File(coverUrl), fit: BoxFit.cover))
                             : _buildCoverPlaceholder(),
+                      ),
                       ),
                     ),
                   ),

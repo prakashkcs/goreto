@@ -705,10 +705,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return 'started following you.';
       case 'gift':
         {
-          // Server body: "You received Rose 🌹 (+10 coins)" — show which gift.
+          // New body: "You received Rose 🌹 worth 1 coin · +0 coins for you".
+          final w = RegExp(
+                  r'received\s+(.+?)\s+worth\s+(\d+)\s*coins?(?:\s*·\s*\+(\d+))?')
+              .firstMatch(n.message);
+          if (w != null) {
+            final worth = int.tryParse(w.group(2) ?? '') ?? 0;
+            final earned = int.tryParse(w.group(3) ?? '') ?? 0;
+            return 'sent you ${w.group(1)} · worth $worth coin${worth == 1 ? '' : 's'}'
+                '${earned > 0 ? ' (+$earned for you)' : ''}.';
+          }
+          // Old body: "You received Rose 🌹 (+10 coins)". A cheap gift's share
+          // rounds to 0, so don't print "+0 coins".
           final m = RegExp(r'received\s+(.+?)\s*\(\+?(\d+)\s*coins?\)')
               .firstMatch(n.message);
-          if (m != null) return 'sent you ${m.group(1)} (+${m.group(2)} coins).';
+          if (m != null) {
+            final earned = int.tryParse(m.group(2) ?? '') ?? 0;
+            return earned > 0
+                ? 'sent you ${m.group(1)} (+$earned coins).'
+                : 'sent you ${m.group(1)}.';
+          }
           final g = RegExp(r'received\s+(.+)$').firstMatch(n.message);
           return g != null ? 'sent you ${g.group(1)}.' : 'sent you a gift.';
         }
