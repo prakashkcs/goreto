@@ -11,6 +11,7 @@ import 'package:love_vibe_pro/services/sound_service.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/models/match_user.dart';
 import 'package:love_vibe_pro/widgets/match/match_card.dart';
+import 'package:love_vibe_pro/widgets/manage_user_sheet.dart';
 
 import 'package:love_vibe_pro/services/signaling_service.dart';
 import 'package:love_vibe_pro/models/call_session.dart';
@@ -214,7 +215,7 @@ class _MatchTabContentState extends State<_MatchTabContent>
         children: [
           ShaderMask(
             shaderCallback: (bounds) => const LinearGradient(
-              colors: [Color(0xFFFF2D55), Color(0xFFBF5AF2)],
+              colors: [Color(0xFFD946EF), Color(0xFF06B6D4)],
             ).createShader(bounds),
             child: const Text(
               'Goreto',
@@ -237,7 +238,7 @@ class _MatchTabContentState extends State<_MatchTabContent>
           // Filter
           PopupMenuButton<String>(
             padding: EdgeInsets.zero,
-            icon: _iconBtn(Icons.tune_rounded, Colors.white70),
+            icon: _iconBtn(Icons.tune_rounded, const Color(0xFF06B6D4)),
             color: const Color(0xFF1A1A2E),
             shape: const RoundedRectangleBorder(
                 borderRadius: BorderRadius.all(Radius.circular(16))),
@@ -271,14 +272,18 @@ class _MatchTabContentState extends State<_MatchTabContent>
 
   Widget _iconBtn(IconData icon, Color color) {
     return Container(
-      width: 36,
-      height: 36,
+      width: 38,
+      height: 38,
+      // Same neon ring as the home feed's header buttons.
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.07),
+        color: const Color(0xFF151515),
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        border: Border.all(color: color.withValues(alpha: 0.8), width: 1.5),
+        boxShadow: [
+          BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 8),
+        ],
       ),
-      child: Icon(icon, color: color, size: 17),
+      child: Icon(icon, color: color, size: 18),
     );
   }
 
@@ -728,7 +733,18 @@ class _MatchesViewState extends State<MatchesView>
                       key: ValueKey('current-${currentUser.id}'),
                       profile: currentUser,
                       swipeProgress: _swipeProgress,
-                      onReport: () {},
+                      onReport: () => ManageUserSheet.show(
+                        context,
+                        userId: currentUser.id,
+                        userName: currentUser.name,
+                        userAvatar: currentUser.photoUrl,
+                        showProposal: true,
+                        onSendProposal: () => _handleSwipe(true),
+                        // Blocked / reported: move past this card.
+                        onActionTaken: () {
+                          if (mounted) _handleSwipe(false);
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -835,35 +851,20 @@ class _MatchesViewState extends State<MatchesView>
                           ),
                         ),
                       ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white.withValues(alpha: 0.12),
-                              border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.25)),
-                            ),
-                            child: const Icon(Icons.person_rounded,
-                                color: Colors.white70, size: 19),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text('Profile',
-                              style: TextStyle(
-                                  color: Colors.white54,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600)),
-                        ],
+                      child: _buildActionButton(
+                        Icons.person_rounded,
+                        const Color(0xFF06B6D4),
+                        null,
+                        size: 46,
+                        label: 'Profile',
+                        forceEnabled: true,
                       ),
                     ),
                     _buildActionButton(
                       Icons.favorite_rounded,
-                      const Color(0xFFFF2D55),
+                      const Color(0xFFFF007F),
                       () => _handleSwipe(true),
-                      size: 50,
+                      size: 62,
                       label: 'Propose',
                     ),
                   ],
@@ -986,8 +987,9 @@ class _MatchesViewState extends State<MatchesView>
     VoidCallback? onTap, {
     double size = 56,
     String label = '',
+    bool forceEnabled = false, // tap handled by a wrapping GestureDetector
   }) {
-    final isDisabled = onTap == null;
+    final isDisabled = onTap == null && !forceEnabled;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedOpacity(

@@ -19,34 +19,45 @@ class MatchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    // Card is slightly inset so the stack depth is visible
-    final double cardWidth = size.width - (isBackground ? 32 : 0);
-    final double cardHeight = size.height - (isBackground ? 24 : 0);
-
-    return Container(
-      width: cardWidth,
-      height: cardHeight,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: isBackground
-            ? null
-            : [
-                BoxShadow(
-                  color: const Color(0xFFFF2D55).withValues(alpha: 0.25),
-                  blurRadius: 40,
-                  spreadRadius: 0,
-                  offset: const Offset(0, 12),
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  blurRadius: 24,
-                  spreadRadius: 2,
-                ),
-              ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
+    // Sized to the space the tab gives it (it used to take the full screen
+    // size and bleed edge to edge). The background card sits a little lower
+    // and narrower so the stack reads as a deck, like the home feed's cards.
+    return Padding(
+      padding: isBackground
+          ? const EdgeInsets.fromLTRB(28, 14, 28, 0)
+          : const EdgeInsets.fromLTRB(12, 2, 12, 0),
+      child: Container(
+        padding: const EdgeInsets.all(1.6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          // Neon pink -> cyan frame, same palette as the home feed cards.
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: isBackground
+                ? [
+                    const Color(0xFFD946EF).withValues(alpha: 0.25),
+                    const Color(0xFF06B6D4).withValues(alpha: 0.25),
+                  ]
+                : const [Color(0xFFFF007F), Color(0xFFD946EF), Color(0xFF06B6D4)],
+          ),
+          boxShadow: isBackground
+              ? null
+              : [
+                  BoxShadow(
+                    color: const Color(0xFFD946EF).withValues(alpha: 0.35),
+                    blurRadius: 28,
+                    spreadRadius: -2,
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    blurRadius: 24,
+                    spreadRadius: 2,
+                  ),
+                ],
+        ),
+        child: ClipRRect(
+        borderRadius: BorderRadius.circular(26.4),
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -111,15 +122,21 @@ class MatchCard extends StatelessWidget {
                 child: GestureDetector(
                   onTap: onReport,
                   child: Container(
-                    width: 36,
-                    height: 36,
+                    width: 38,
+                    height: 38,
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.45),
+                      color: const Color(0xFF151515).withValues(alpha: 0.75),
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.18),
-                        width: 1,
+                        color: const Color(0xFF06B6D4).withValues(alpha: 0.8),
+                        width: 1.4,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF06B6D4).withValues(alpha: 0.3),
+                          blurRadius: 8,
+                        ),
+                      ],
                     ),
                     child: const Icon(
                       Icons.more_vert_rounded,
@@ -142,6 +159,7 @@ class MatchCard extends StatelessWidget {
             if (swipeProgress.abs() > 0.05) _buildSwipeOverlay(),
           ],
         ),
+      ),
       ),
     );
   }
@@ -232,7 +250,9 @@ class MatchCard extends StatelessWidget {
               const SizedBox(width: 4),
               Flexible(
                 child: Text(
-                  '${profile.city}  ·  ${Formatters.formatDistance(profile.distanceKm)} away',
+                  profile.city.trim().isEmpty
+                      ? '${Formatters.formatDistance(profile.distanceKm)} away'
+                      : '${profile.city.trim()}  ·  ${Formatters.formatDistance(profile.distanceKm)} away',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.75),
                     fontSize: 13,
