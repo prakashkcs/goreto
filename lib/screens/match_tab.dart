@@ -706,10 +706,12 @@ class _MatchesViewState extends State<MatchesView>
       return _buildNoMatchesView(provider);
     }
 
-    return Stack(
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+    return Column(
       children: [
-        // Full Screen Cards
-        Positioned.fill(
+        const SizedBox(height: 6),
+        // Card deck
+        Expanded(
           child: GestureDetector(
             onPanStart: _onPanStart,
             onPanUpdate: _onPanUpdate,
@@ -717,14 +719,12 @@ class _MatchesViewState extends State<MatchesView>
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // Next Card (behind)
                 if (nextUser != null)
                   MatchCard(
                     key: ValueKey('next-${nextUser.id}'),
                     profile: nextUser,
                     isBackground: true,
                   ),
-                // Current Card
                 Transform.translate(
                   offset: _dragOffset,
                   child: Transform.rotate(
@@ -740,7 +740,7 @@ class _MatchesViewState extends State<MatchesView>
                         userAvatar: currentUser.photoUrl,
                         showProposal: true,
                         onSendProposal: () => _handleSwipe(true),
-                        // Blocked / reported: move past this card.
+                        // Blocked: move past this card.
                         onActionTaken: () {
                           if (mounted) _handleSwipe(false);
                         },
@@ -753,127 +753,121 @@ class _MatchesViewState extends State<MatchesView>
           ),
         ),
 
-        // Action Buttons bar — floating over bottom
-        Positioned(
-          bottom: 0,
-          left: 0,
-          right: 0,
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: 0.95),
-                ],
+        // Action buttons — below the card so they never cover the photo,
+        // and above the floating home nav bar (extendBody puts the bar's
+        // height in padding.bottom).
+        Padding(
+          padding: EdgeInsets.fromLTRB(20, 12, 20, 14 + bottomInset),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _matchBtn(
+                icon: Icons.replay_rounded,
+                color: const Color(0xFFFFC83D),
+                size: 44,
+                label: 'Undo',
+                onTap: provider.canUndo ? _handleUndo : null,
               ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    // Undo — amber filled for visibility
-                    GestureDetector(
-                      onTap: provider.canUndo ? _handleUndo : null,
-                      child: AnimatedOpacity(
-                        opacity: provider.canUndo ? 1.0 : 0.4,
-                        duration: const Duration(milliseconds: 200),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: provider.canUndo
-                                    ? Colors.amber.withValues(alpha: 0.25)
-                                    : Colors.white.withValues(alpha: 0.05),
-                                border: Border.all(
-                                  color: provider.canUndo
-                                      ? Colors.amber
-                                      : Colors.white24,
-                                  width: 2,
-                                ),
-                                boxShadow: provider.canUndo
-                                    ? [
-                                        BoxShadow(
-                                          color: Colors.amber
-                                              .withValues(alpha: 0.55),
-                                          blurRadius: 16,
-                                          spreadRadius: 2,
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                              child: Icon(
-                                Icons.undo_rounded,
-                                color: provider.canUndo
-                                    ? Colors.amber
-                                    : Colors.white38,
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Undo',
-                              style: TextStyle(
-                                color: provider.canUndo
-                                    ? Colors.amber
-                                    : Colors.white38,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+              _matchBtn(
+                icon: Icons.close_rounded,
+                color: const Color(0xFFFF4D6D),
+                size: 58,
+                label: 'Ignore',
+                onTap: () => _handleSwipe(false),
+              ),
+              _matchBtn(
+                icon: Icons.favorite_rounded,
+                color: const Color(0xFFFF007F),
+                size: 70,
+                label: 'Propose',
+                filled: true,
+                onTap: () => _handleSwipe(true),
+              ),
+              _matchBtn(
+                icon: Icons.person_rounded,
+                color: const Color(0xFF06B6D4),
+                size: 58,
+                label: 'Profile',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProfilePreviewScreen(
+                      user: currentUser,
+                      onProposal: () => _handleSwipe(true),
                     ),
-                    _buildActionButton(
-                      Icons.close_rounded,
-                      const Color(0xFF8E8E9A),
-                      () => _handleSwipe(false),
-                      size: 50,
-                      label: 'Ignore',
-                    ),
-                    GestureDetector(
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ProfilePreviewScreen(
-                            user: currentUser,
-                            onProposal: () => _handleSwipe(true),
-                          ),
-                        ),
-                      ),
-                      child: _buildActionButton(
-                        Icons.person_rounded,
-                        const Color(0xFF06B6D4),
-                        null,
-                        size: 46,
-                        label: 'Profile',
-                        forceEnabled: true,
-                      ),
-                    ),
-                    _buildActionButton(
-                      Icons.favorite_rounded,
-                      const Color(0xFFFF007F),
-                      () => _handleSwipe(true),
-                      size: 62,
-                      label: 'Propose',
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ],
+    );
+  }
+
+  /// Neon action button: dark fill + glowing coloured ring, or (filled) a
+  /// pink→purple gradient disc for the primary Propose action.
+  Widget _matchBtn({
+    required IconData icon,
+    required Color color,
+    required double size,
+    required String label,
+    VoidCallback? onTap,
+    bool filled = false,
+  }) {
+    final enabled = onTap != null;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedOpacity(
+        opacity: enabled ? 1 : 0.35,
+        duration: const Duration(milliseconds: 200),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: filled ? null : const Color(0xFF151515),
+                gradient: filled
+                    ? const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFFFF007F), Color(0xFFD946EF)],
+                      )
+                    : null,
+                border: filled
+                    ? null
+                    : Border.all(color: color.withValues(alpha: 0.85), width: 2),
+                boxShadow: enabled
+                    ? [
+                        BoxShadow(
+                          color: color.withValues(alpha: filled ? 0.55 : 0.35),
+                          blurRadius: filled ? 22 : 12,
+                          spreadRadius: filled ? 1 : 0,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Icon(icon,
+                  color: filled ? Colors.white : color, size: size * 0.46),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: filled ? Colors.white : color.withValues(alpha: 0.9),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -980,79 +974,8 @@ class _MatchesViewState extends State<MatchesView>
       ),
     );
   }
-
-  Widget _buildActionButton(
-    IconData icon,
-    Color color,
-    VoidCallback? onTap, {
-    double size = 56,
-    String label = '',
-    bool forceEnabled = false, // tap handled by a wrapping GestureDetector
-  }) {
-    final isDisabled = onTap == null && !forceEnabled;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedOpacity(
-        opacity: isDisabled ? 0.65 : 1.0,
-        duration: const Duration(milliseconds: 200),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: size,
-              height: size,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    color.withValues(alpha: isDisabled ? 0.20 : 0.35),
-                    color.withValues(alpha: isDisabled ? 0.08 : 0.18),
-                  ],
-                ),
-                border: Border.all(
-                  color: color.withValues(alpha: isDisabled ? 0.4 : 0.85),
-                  width: 1.8,
-                ),
-                boxShadow: isDisabled
-                    ? null
-                    : [
-                        BoxShadow(
-                          color: color.withValues(alpha: 0.45),
-                          blurRadius: 20,
-                          spreadRadius: 1,
-                        ),
-                        BoxShadow(
-                          color: color.withValues(alpha: 0.20),
-                          blurRadius: 32,
-                          spreadRadius: 4,
-                        ),
-                      ],
-              ),
-              child: Icon(
-                icon,
-                color: color.withValues(alpha: isDisabled ? 0.5 : 1.0),
-                size: size * 0.46,
-              ),
-            ),
-            if (label.isNotEmpty) ...[
-              const SizedBox(height: 5),
-              Text(
-                label,
-                style: TextStyle(
-                  color: color.withValues(alpha: isDisabled ? 0.3 : 0.8),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
 }
+
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  NEARBY VIEW

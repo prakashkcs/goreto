@@ -1,8 +1,16 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:love_vibe_pro/utils/formatters.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/models/match_user.dart';
 
+/// Swipe card for the Matches tab.
+///
+/// The photo is shown whole (BoxFit.contain) over a blurred, zoomed copy of
+/// itself, so portrait, square and landscape photos all keep their real ratio
+/// instead of being cropped to the card. The action buttons live below the
+/// card (in MatchesView), so only the compact info panel overlays the photo.
 class MatchCard extends StatelessWidget {
   final MatchUser profile;
   final bool isBackground;
@@ -17,296 +25,312 @@ class MatchCard extends StatelessWidget {
     this.onReport,
   });
 
+  static const _pink = Color(0xFFFF007F);
+  static const _purple = Color(0xFFD946EF);
+  static const _cyan = Color(0xFF06B6D4);
+
   @override
   Widget build(BuildContext context) {
-    // Sized to the space the tab gives it (it used to take the full screen
-    // size and bleed edge to edge). The background card sits a little lower
-    // and narrower so the stack reads as a deck, like the home feed's cards.
     return Padding(
       padding: isBackground
-          ? const EdgeInsets.fromLTRB(28, 14, 28, 0)
-          : const EdgeInsets.fromLTRB(12, 2, 12, 0),
+          ? const EdgeInsets.fromLTRB(30, 12, 30, 0)
+          : const EdgeInsets.fromLTRB(14, 0, 14, 0),
       child: Container(
         padding: const EdgeInsets.all(1.6),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(28),
-          // Neon pink -> cyan frame, same palette as the home feed cards.
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: isBackground
                 ? [
-                    const Color(0xFFD946EF).withValues(alpha: 0.25),
-                    const Color(0xFF06B6D4).withValues(alpha: 0.25),
+                    _purple.withValues(alpha: 0.25),
+                    _cyan.withValues(alpha: 0.25),
                   ]
-                : const [Color(0xFFFF007F), Color(0xFFD946EF), Color(0xFF06B6D4)],
+                : const [_pink, _purple, _cyan],
           ),
           boxShadow: isBackground
               ? null
               : [
                   BoxShadow(
-                    color: const Color(0xFFD946EF).withValues(alpha: 0.35),
-                    blurRadius: 28,
-                    spreadRadius: -2,
-                  ),
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.55),
+                    color: _purple.withValues(alpha: 0.30),
                     blurRadius: 24,
-                    spreadRadius: 2,
+                    spreadRadius: -4,
                   ),
                 ],
         ),
         child: ClipRRect(
-        borderRadius: BorderRadius.circular(26.4),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // ── Photo ──────────────────────────────────────────────────
-            CachedNetworkImage(
-              imageUrl: profile.photoUrl,
-              fit: BoxFit.cover,
-              placeholder: (_, __) => Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF1A0A2E), Color(0xFF0D0818)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-                child: const Center(
-                  child: CircularProgressIndicator(
-                    color: Color(0xFFFF2D55),
-                    strokeWidth: 2,
-                  ),
-                ),
-              ),
-              errorWidget: (_, __, ___) => Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF2D1B4E), Color(0xFF0D0818)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-                child: Icon(
-                  Icons.person_rounded,
-                  size: 120,
-                  color: Colors.white.withValues(alpha: 0.12),
-                ),
-              ),
-            ),
+          borderRadius: BorderRadius.circular(26.4),
+          child: ColoredBox(
+            color: const Color(0xFF0D0818),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _buildPhoto(),
 
-            // ── Gradient overlay ───────────────────────────────────────
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: [0.0, 0.18, 0.50, 0.72, 1.0],
-                  colors: [
-                    Color(0x99000000),
-                    Color(0x11000000),
-                    Color(0x00000000),
-                    Color(0xCC000000),
-                    Color(0xF8000000),
-                  ],
-                ),
-              ),
-            ),
-
-            // ── Top-right: report button ───────────────────────────────
-            if (onReport != null && !isBackground)
-              Positioned(
-                top: 16,
-                right: 16,
-                child: GestureDetector(
-                  onTap: onReport,
-                  child: Container(
-                    width: 38,
-                    height: 38,
+                // Soft shade at the top (for the ⋮ button) and a stronger
+                // one at the bottom where the info panel sits.
+                const IgnorePointer(
+                  child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF151515).withValues(alpha: 0.75),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: const Color(0xFF06B6D4).withValues(alpha: 0.8),
-                        width: 1.4,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        stops: [0.0, 0.14, 0.58, 1.0],
+                        colors: [
+                          Color(0x66000000),
+                          Color(0x00000000),
+                          Color(0x00000000),
+                          Color(0xE6000000),
+                        ],
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF06B6D4).withValues(alpha: 0.3),
-                          blurRadius: 8,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.more_vert_rounded,
-                      color: Colors.white70,
-                      size: 18,
                     ),
                   ),
                 ),
-              ),
 
-            // ── Bottom info panel ──────────────────────────────────────
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _buildInfoPanel(),
+                if (!isBackground && profile.matchPercent > 0)
+                  Positioned(
+                    top: 14,
+                    left: 14,
+                    child: _glassPill(
+                      icon: Icons.favorite_rounded,
+                      iconColor: _pink,
+                      text: '${profile.matchPercent}% match',
+                    ),
+                  ),
+
+                if (onReport != null && !isBackground)
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: GestureDetector(
+                      onTap: onReport,
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: const Icon(Icons.more_horiz_rounded,
+                            color: Colors.white, size: 20),
+                      ),
+                    ),
+                  ),
+
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _buildInfoPanel(),
+                ),
+
+                if (swipeProgress.abs() > 0.05) _buildSwipeOverlay(),
+              ],
             ),
-
-            // ── Swipe overlay ──────────────────────────────────────────
-            if (swipeProgress.abs() > 0.05) _buildSwipeOverlay(),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPhoto() {
+    if (profile.photoUrl.isEmpty) return _photoFallback();
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Blurred backdrop fills whatever the real photo doesn't cover.
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+          child: Transform.scale(
+            scale: 1.25,
+            child: CachedNetworkImage(
+              imageUrl: profile.photoUrl,
+              fit: BoxFit.cover,
+              memCacheWidth: 200,
+              placeholder: (_, __) => const SizedBox.shrink(),
+              errorWidget: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+        ColoredBox(color: Colors.black.withValues(alpha: 0.25)),
+        // The real photo, uncropped.
+        CachedNetworkImage(
+          imageUrl: profile.photoUrl,
+          fit: BoxFit.contain,
+          placeholder: (_, __) => const Center(
+            child: CircularProgressIndicator(color: _pink, strokeWidth: 2),
+          ),
+          errorWidget: (_, __, ___) => _photoFallback(),
+        ),
+      ],
+    );
+  }
+
+  Widget _photoFallback() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF2D1B4E), Color(0xFF0D0818)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          profile.name.isNotEmpty ? profile.name[0].toUpperCase() : '?',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.25),
+            fontSize: 120,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildInfoPanel() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 200),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.transparent,
-            Colors.black.withValues(alpha: 0.82),
-            Colors.black.withValues(alpha: 0.96),
-          ],
-        ),
-      ),
+    final city = profile.city.trim();
+    final distance = profile.distanceKm == null
+        ? ''
+        : Formatters.formatDistance(profile.distanceKm);
+    final tags = <Widget>[
+      if (profile.interests.isNotEmpty)
+        _tag(profile.interests.first, _pink, Icons.favorite_rounded),
+      if (profile.lookingFor.isNotEmpty)
+        _tag(profile.lookingFor.first, _cyan, Icons.search_rounded),
+      if (profile.qualities.isNotEmpty)
+        _tag(profile.qualities.first, _purple, Icons.auto_awesome_rounded),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Name row
+          // Name, age, online
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Flexible(
-                child: Text(
-                  profile.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.5,
-                    height: 1.1,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              // Age badge
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.25),
-                    width: 1,
-                  ),
-                ),
-                child: Text(
-                  '${profile.age}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              // Online dot
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF00E676),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF00E676).withValues(alpha: 0.6),
-                      blurRadius: 6,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // Location + distance row
-          Row(
-            children: [
-              const Icon(Icons.location_on_rounded,
-                  color: Color(0xFFFF2D55), size: 15),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  profile.city.trim().isEmpty
-                      ? '${Formatters.formatDistance(profile.distanceKm)} away'
-                      : '${profile.city.trim()}  ·  ${Formatters.formatDistance(profile.distanceKm)} away',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.75),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const Spacer(),
-              // Rating pill
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF2D55), Color(0xFFBF5AF2)],
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.star_rounded,
-                        color: Colors.white, size: 12),
-                    const SizedBox(width: 3),
-                    Text(
-                      profile.rating.toStringAsFixed(1),
+                child: Text.rich(
+                  TextSpan(children: [
+                    TextSpan(
+                      text: profile.name,
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                      ),
+                          fontSize: 28, fontWeight: FontWeight.w900),
                     ),
-                  ],
+                    if (profile.age > 0)
+                      TextSpan(
+                        text: '  ${profile.age}',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white.withValues(alpha: 0.85),
+                        ),
+                      ),
+                  ]),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    height: 1.1,
+                    letterSpacing: -0.4,
+                    shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (profile.isOnline) ...[
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00E676),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.black, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF00E676).withValues(alpha: 0.6),
+                          blurRadius: 6,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
 
-          // Tags
+          // Location · distance · rating
           Wrap(
-            spacing: 8,
-            runSpacing: 7,
+            spacing: 6,
+            runSpacing: 6,
             children: [
-              if (profile.interests.isNotEmpty)
-                _tag(profile.interests.first, const Color(0xFFFF2D55),
-                    Icons.favorite_rounded),
-              if (profile.lookingFor.isNotEmpty)
-                _tag(profile.lookingFor.first, const Color(0xFF00E5FF),
-                    Icons.search_rounded),
-              if (profile.qualities.isNotEmpty)
-                _tag(profile.qualities.first, const Color(0xFFBF5AF2),
-                    Icons.auto_awesome_rounded),
+              if (city.isNotEmpty)
+                _glassPill(
+                    icon: Icons.location_on_rounded,
+                    iconColor: _pink,
+                    text: city),
+              if (distance.isNotEmpty)
+                _glassPill(
+                    icon: Icons.near_me_rounded,
+                    iconColor: _cyan,
+                    text: '$distance away'),
+              if (profile.rating > 0)
+                _glassPill(
+                    icon: Icons.star_rounded,
+                    iconColor: const Color(0xFFFFC83D),
+                    text: profile.rating.toStringAsFixed(1)),
             ],
+          ),
+
+          if (tags.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(spacing: 6, runSpacing: 6, children: tags),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _glassPill({
+    required IconData icon,
+    required Color iconColor,
+    required String text,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.40),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: iconColor, size: 13),
+          const SizedBox(width: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
@@ -315,23 +339,28 @@ class MatchCard extends StatelessWidget {
 
   Widget _tag(String text, Color color, IconData icon) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: color.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.4), width: 1),
+        border: Border.all(color: color.withValues(alpha: 0.55)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 11),
-          const SizedBox(width: 5),
-          Text(
-            text,
-            style: TextStyle(
-              color: color,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+          Icon(icon, color: color, size: 12),
+          const SizedBox(width: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 170),
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -342,35 +371,35 @@ class MatchCard extends StatelessWidget {
   Widget _buildSwipeOverlay() {
     final isRight = swipeProgress > 0;
     final opacity = (swipeProgress.abs() * 1.4).clamp(0.0, 1.0);
-    final color = isRight ? const Color(0xFF00E5FF) : const Color(0xFFFF3366);
+    final color = isRight ? _pink : const Color(0xFF8E8E9A);
 
     return Positioned.fill(
       child: IgnorePointer(
         child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
-            color: color.withValues(alpha: opacity * 0.28),
-          ),
+          color: color.withValues(alpha: opacity * 0.22),
           child: Align(
             alignment: isRight ? Alignment.topLeft : Alignment.topRight,
             child: Padding(
-              padding: const EdgeInsets.all(28),
+              padding: const EdgeInsets.fromLTRB(24, 64, 24, 24),
               child: Transform.rotate(
-                angle: isRight ? 0.35 : -0.35,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: color, width: 3),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    isRight ? 'LIKE' : 'NOPE',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 32,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 3,
+                angle: isRight ? -0.3 : 0.3,
+                child: Opacity(
+                  opacity: opacity,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: color, width: 3),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      isRight ? 'PROPOSE' : 'IGNORE',
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2,
+                      ),
                     ),
                   ),
                 ),
