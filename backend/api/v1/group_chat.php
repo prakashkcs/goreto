@@ -1238,15 +1238,9 @@ try {
         $st = $pdo->prepare("SELECT COUNT(*) FROM chat_group_messages WHERE group_id = ? AND sender_id != ?");
         $st->execute([$groupId, $userId]);
         out_json(200, ['status' => 'success', 'unread_count' => (int) $st->fetchColumn()]);
-    } elseif ($action === 'delete_all_groups') {
-        // NOTE: kept for compatibility, but any logged-in user can call this.
-        // It should be moved to the admin panel or removed.
-        $pdo->exec("DELETE FROM chat_group_messages");
-        $pdo->exec("DELETE FROM chat_group_views");
-        $pdo->exec("DELETE FROM chat_group_members");
-        $pdo->exec("DELETE FROM chat_group_bans");
-        $pdo->exec("DELETE FROM chat_groups");
-        out_json(200, ['status' => 'success', 'message' => 'All groups deleted']);
+    // delete_all_groups removed (integrity audit F1): any logged-in user could
+    // wipe every group, member and message. It now falls through to
+    // 'Unknown action'.
     } else {
         out_json(400, ['status' => 'error', 'message' => 'Unknown action']);
     }

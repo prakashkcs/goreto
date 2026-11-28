@@ -19,10 +19,28 @@ $msg = ''; $err = '';
 // Legend tabs, and `emoji`, which is what shows when a gift has no image yet.
 $GIFT_CATEGORIES = ['love', 'vibe', 'luxury', 'cute', 'funny', 'legend'];
 
+// Gift economics, read by api/v1/gifts.php (gift_setting()).
+//   receiver_percent: what the receiver earns when a gift arrives
+//   sell_percent:     what selling a received gift back pays (0 = selling off)
+$pdo->exec("CREATE TABLE IF NOT EXISTS gift_settings (
+  setting_key VARCHAR(80) NOT NULL PRIMARY KEY,
+  setting_value VARCHAR(50) NOT NULL DEFAULT '',
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+$GIFT_DEFAULTS = ['receiver_percent' => 50, 'sell_percent' => 0];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     try {
-        if ($action === 'add') {
+        if ($action === 'save_settings') {
+            $ins = $pdo->prepare("INSERT INTO gift_settings (setting_key, setting_value) VALUES (?,?)
+                                  ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)");
+            foreach (array_keys($GIFT_DEFAULTS) as $k) {
+                $v = max(0, min(100, (int)($_POST[$k] ?? $GIFT_DEFAULTS[$k])));
+                $ins->execute([$k, (string)$v]);
+            }
+            $msg = 'Gift settings saved.';
+        } elseif ($action === 'add') {
             $category = trim($_POST['category'] ?? 'love');
             if (!in_array($category, $GIFT_CATEGORIES, true)) {
                 $category = 'love';
@@ -64,6 +82,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } catch (Throwable $e) { $err = $e->getMessage(); }
 }
+
+$giftSettings = $GIFT_DEFAULTS;
+try {
+    foreach ($pdo->query("SELECT setting_key, setting_value FROM gift_settings") as $r) {
+        if (array_key_exists($r['setting_key'], $giftSettings)) $giftSettings[$r['setting_key']] = (int)$r['setting_value'];
+    }
+} catch (Throwable $_) {}
 
 // Gift stats
 $totalGifts = 0; $totalCoins = 0;
@@ -120,13 +145,39 @@ require __DIR__ . '/_layout_header.php';
     </div>
 
     <div class="gift-form">
+      <h3 style="margin-bottom:6px">Gift Selling &amp; Earnings</h3>
+      <div style="font-size:12px;opacity:.7;margin-bottom:14px">
+        Percentages of the gift's coin price. Example: a 100-coin gift with receiver 50% and sell 20%
+        gives the receiver 50 coins when it arrives, and 20 more if they sell it back
+        (the gift then leaves their collection). Set sell to 0 to switch selling off.
+      </div>
+      <form method="post">
+        <input type="hidden" name="action" value="save_settings">
+        <div class="g2">
+          <div class="gf"><label>Receiver earns when a gift arrives (%)</label>
+            <input name="receiver_percent" type="number" min="0" max="100" value="<?= (int)$giftSettings['receiver_percent'] ?>"></div>
+          <div class="gf"><label>Sell-back value (%) &mdash; 0 = selling off</label>
+            <input name="sell_percent" type="number" min="0" max="100" value="<?= (int)$giftSettings['sell_percent'] ?>"></div>
+        </div>
+        <div style="font-size:12px;opacity:.75;margin-bottom:12px">
+          Now: receiver gets <b><?= (int)$giftSettings['receiver_percent'] ?>%</b>,
+          selling pays <b><?= (int)$giftSettings['sell_percent'] ?>%</b><?= (int)$giftSettings['sell_percent'] === 0 ? ' (selling is off)' : '' ?>.
+          <?php if ($giftSettings['receiver_percent'] + $giftSettings['sell_percent'] > 100): ?>
+            <span style="color:#f87171">Together these pay out more than the sender spent &mdash; coins are being created.</span>
+          <?php endif; ?>
+        </div>
+        <button type="submit" style="padding:9px 24px;background:linear-gradient(135deg,#FF007F,#D946EF);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">Save Settings</button>
+      </form>
+    </div>
+
+    <div class="gift-form">
       <h3 style="margin-bottom:16px">Add Gift Item</h3>
       <form method="post">
         <input type="hidden" name="action" value="add">
         <div class="g2">
           <div class="gf"><label>Name</label><input name="name" required placeholder="e.g. Red Rose"></div>
           <div class="gf"><label>Coins Cost</label><input name="coins_cost" type="number" value="10" min="1"></div>
-          <div class="gf"><label>Emoji</label><input name="emoji" maxlength="8" placeholder="ð¹ â shown when there is no image"></div>
+          <div class="gf"><label>Emoji</label><input name="emoji" maxlength="8" placeholder="🌹 — shown when there is no image"></div>
           <div class="gf"><label>Category</label>
             <select name="category">
               <?php foreach ($GIFT_CATEGORIES as $c): ?>

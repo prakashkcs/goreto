@@ -55,11 +55,11 @@ function cascade_user_children(): array
         'app_notifications'      => ['user_id'],
         'calls'                  => ['caller_id', 'receiver_id'],
         'call_signals'           => ['sender_id'],
-        'chat_groups'            => ['creator_id'],
         'chat_group_bans'        => ['user_id'],
         'chat_group_members'     => ['user_id'],
         'chat_group_messages'    => ['sender_id'],
         'chat_group_views'       => ['user_id'],
+        'chat_ppm_overrides'     => ['owner_id', 'target_id'],
         'chat_time_packages'     => ['creator_id'],
         'chat_time_sessions'     => ['buyer_id', 'seller_id'],
         'collections'            => ['user_id'],
@@ -76,9 +76,10 @@ function cascade_user_children(): array
         'live_streams'           => ['user_id'],
         'match_profiles'         => ['user_id'],
         'messages'               => ['sender_id', 'receiver_id'],
+        'message_requests'       => ['requester_id', 'receiver_id'],
         'moderation_log'         => ['user_id'],
         'mutes'                  => ['muter_id', 'muted_id'],
-        'nearby_alert_log'       => ['user_id'],
+        'nearby_alert_log'       => ['user_id', 'other_id'],
         'notifications'          => ['user_id', 'sender_id'],
         'nsfw_violations'        => ['user_id'],
         'password_resets'        => ['user_id'],
@@ -194,6 +195,64 @@ function cascade_preview(PDO $pdo, string $kind, int $id): array
 }
 
 /**
+ * Groups owned by a user who is being deleted (integrity audit F2).
+ *
+ * The owner lives in chat_groups.created_by (creator_id is a legacy column
+ * that is always NULL). Each group is handed to another admin of that group
+ * when one exists; otherwise the group and all of its rows are removed, so no
+ * member/message/view/ban row is left pointing at a deleted group.
+ *
+ * @return array<string,int>
+ */
+function cascade_user_groups(PDO $pdo, int $userId, array $present): array
+{
+    $out = [];
+    if (!isset($present['chat_groups'])) {
+        return $out;
+    }
+    $cols = $pdo->query("SHOW COLUMNS FROM chat_groups")->fetchAll(PDO::FETCH_COLUMN);
+    $ownerCols = array_values(array_intersect(['created_by', 'creator_id'], $cols));
+    if (!$ownerCols) {
+        return $out;
+    }
+    $where = implode(' OR ', array_map(fn($c) => "`$c` = ?", $ownerCols));
+    $st = $pdo->prepare("SELECT id FROM chat_groups WHERE $where");
+    $st->execute(array_fill(0, count($ownerCols), $userId));
+    $groupIds = $st->fetchAll(PDO::FETCH_COLUMN);
+
+    $children = ['chat_group_messages', 'chat_group_members', 'chat_group_views', 'chat_group_bans'];
+    foreach ($groupIds as $gid) {
+        $gid = (int) $gid;
+        $heir = false;
+        if (isset($present['chat_group_members'])) {
+            $h = $pdo->prepare("SELECT user_id FROM chat_group_members
+                                 WHERE group_id = ? AND user_id <> ? AND role = 'admin'
+                                 ORDER BY user_id LIMIT 1");
+            $h->execute([$gid, $userId]);
+            $heir = $h->fetchColumn();
+        }
+        if ($heir !== false) {
+            $sets = implode(', ', array_map(fn($c) => "`$c` = ?", $ownerCols));
+            $pdo->prepare("UPDATE chat_groups SET $sets WHERE id = ?")
+                ->execute(array_merge(array_fill(0, count($ownerCols), (int) $heir), [$gid]));
+            $out['chat_groups (owner transferred)'] = ($out['chat_groups (owner transferred)'] ?? 0) + 1;
+            continue;
+        }
+        foreach ($children as $t) {
+            if (!isset($present[$t])) continue;
+            $d = $pdo->prepare("DELETE FROM `$t` WHERE group_id = ?");
+            $d->execute([$gid]);
+            if ($d->rowCount() > 0) {
+                $out["$t.group_id"] = ($out["$t.group_id"] ?? 0) + $d->rowCount();
+            }
+        }
+        $pdo->prepare("DELETE FROM chat_groups WHERE id = ?")->execute([$gid]);
+        $out['chat_groups.id'] = ($out['chat_groups.id'] ?? 0) + 1;
+    }
+    return $out;
+}
+
+/**
  * Deletes a user and everything that depends on them, in one transaction.
  *
  * Financial history is kept, and the id is recorded in deleted_users so the
@@ -218,7 +277,18 @@ function cascade_delete_user(PDO $pdo, int $id, string $reason = 'admin'): array
     }
 
     try {
-        $deleted = [];
+        $deleted = cascade_user_groups($pdo, $id, $present);
+
+        // A reaction left by this user on someone else's message: keep the
+        // message, drop the dangling "reacted by" (audit F3).
+        if (isset($present['messages'])) {
+            $r = $pdo->prepare('UPDATE messages SET reaction = NULL, reaction_by = NULL WHERE reaction_by = ?');
+            $r->execute([$id]);
+            if ($r->rowCount() > 0) {
+                $deleted['messages.reaction_by (cleared)'] = $r->rowCount();
+            }
+        }
+
         foreach ($children as $table => $columns) {
             if (!isset($present[$table]) || isset($keep[$table])) {
                 continue;
@@ -285,6 +355,30 @@ function cascade_delete_post(PDO $pdo, int $id): array
                 if ($st->rowCount() > 0) {
                     $deleted["$table.$column"] = $st->rowCount();
                 }
+            }
+        }
+
+        // Reposts of this post (audit F4): removed with it, through this same
+        // function so their own likes/views/etc. go too. A post taken down
+        // (often for moderation) must not live on as copies.
+        $rp = $pdo->prepare('SELECT id FROM posts WHERE repost_of = ?');
+        $rp->execute([$id]);
+        foreach ($rp->fetchAll(PDO::FETCH_COLUMN) as $repostId) {
+            if ((int) $repostId === $id) continue;
+            foreach (cascade_delete_post($pdo, (int) $repostId) as $k => $n) {
+                $deleted["repost: $k"] = ($deleted["repost: $k"] ?? 0) + $n;
+            }
+        }
+
+        // Notifications that point at this post (like / comment / repost /
+        // mention). notifications.reference_id is polymorphic, so only the
+        // post-type rows are touched.
+        if (isset($present['notifications'])) {
+            $nt = $pdo->prepare("DELETE FROM notifications WHERE reference_id = ?
+                                   AND type IN ('like','comment','repost','mention','post_like','post_comment')");
+            $nt->execute([$id]);
+            if ($nt->rowCount() > 0) {
+                $deleted['notifications.reference_id'] = $nt->rowCount();
             }
         }
 

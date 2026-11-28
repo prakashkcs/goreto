@@ -10,25 +10,44 @@ $msg = '';
 $action  = $_GET['action']   ?? 'list';
 $groupId = (int)($_GET['group_id'] ?? 0);
 
+// Deletes one group and all its rows in a single transaction (audit F6).
+// Throws on failure after rolling back, so nothing is left half-deleted.
+function admin_delete_group(PDO $pdo, int $gid): void
+{
+    $pdo->beginTransaction();
+    try {
+        foreach (['chat_group_messages', 'chat_group_members', 'chat_group_views', 'chat_group_bans'] as $t) {
+            $pdo->prepare("DELETE FROM $t WHERE group_id = ?")->execute([$gid]);
+        }
+        $pdo->prepare("DELETE FROM chat_groups WHERE id = ?")->execute([$gid]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $postAction = $_POST['action'] ?? '';
     $groupId    = (int)($_POST['group_id'] ?? 0);
 
     if ($postAction === 'bulk_delete' && !empty($_POST['group_ids'])) {
+        $done = 0; $failed = 0;
         foreach (array_map('intval', $_POST['group_ids']) as $gid) {
             if (!$gid) continue;
-            foreach (['chat_group_messages','chat_group_members','chat_group_views','chat_group_bans'] as $t)
-                try { $pdo->prepare("DELETE FROM $t WHERE group_id=?")->execute([$gid]); } catch (Throwable $_) {}
-            try { $pdo->prepare("DELETE FROM chat_groups WHERE id=?")->execute([$gid]); } catch (Throwable $_) {}
+            try { admin_delete_group($pdo, $gid); $done++; } catch (Throwable $_) { $failed++; }
         }
-        $msg = count($_POST['group_ids']).' group(s) deleted';
+        $msg = $done.' group(s) deleted'.($failed ? ", $failed failed" : '');
         $action = 'list';
     } elseif ($groupId > 0) {
         if ($postAction === 'delete_group') {
-            foreach (['chat_group_messages','chat_group_members','chat_group_views','chat_group_bans'] as $t)
-                try { $pdo->prepare("DELETE FROM $t WHERE group_id=?")->execute([$groupId]); } catch (Throwable $_) {}
-            try { $pdo->prepare("DELETE FROM chat_groups WHERE id=?")->execute([$groupId]); } catch (Throwable $_) {}
-            header("Location: groups.php?msg=".urlencode('Group deleted')); exit;
+            try {
+                admin_delete_group($pdo, $groupId);
+                $doneMsg = 'Group deleted';
+            } catch (Throwable $e) {
+                $doneMsg = 'Could not delete group: ' . $e->getMessage();
+            }
+            header("Location: groups.php?msg=".urlencode($doneMsg)); exit;
         } elseif ($postAction === 'ban_user' && ($uid = (int)($_POST['user_id']??0)) > 0) {
             try { $pdo->prepare("INSERT IGNORE INTO chat_group_bans (group_id,user_id,banned_by,created_at) VALUES (?,?,?,NOW())")->execute([$groupId,$uid,$_SESSION['admin_id']??0]); } catch (Throwable $_) {}
             try { $pdo->prepare("DELETE FROM chat_group_members WHERE group_id=? AND user_id=?")->execute([$groupId,$uid]); } catch (Throwable $_) {}

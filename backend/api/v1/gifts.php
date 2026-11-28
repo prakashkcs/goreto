@@ -181,6 +181,20 @@ if ($action === 'send') {
         out(['status' => false, 'message' => 'Cannot send gift to yourself'], 400);
     }
 
+    // The recipient must exist (and not be banned) BEFORE anyone is charged.
+    // gifts_received / gift_transactions have no foreign key, so a gift to a
+    // missing id used to charge the sender, credit nobody, and leave orphan
+    // rows (integrity audit F5).
+    $rcpt = $pdo->prepare("SELECT COALESCE(is_banned, 0) FROM users WHERE id = ? LIMIT 1");
+    $rcpt->execute([$toUserId]);
+    $rcptBanned = $rcpt->fetchColumn();
+    if ($rcptBanned === false) {
+        out(['status' => false, 'message' => 'This user is no longer available'], 404);
+    }
+    if ((int)$rcptBanned === 1) {
+        out(['status' => false, 'message' => 'This user can\'t receive gifts right now'], 403);
+    }
+
     // Fetch gift
     $gStmt = $pdo->prepare("SELECT * FROM gifts WHERE id=? AND is_active=1 LIMIT 1");
     $gStmt->execute([$giftId]);
