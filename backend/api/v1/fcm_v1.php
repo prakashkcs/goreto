@@ -128,7 +128,8 @@ class PushNotificationFCM
                     'title' => (string)$callerName,
                     'body'  => $type === 'audio' ? 'Incoming audio call' : 'Incoming video call',
                 ],
-                'sound'    => 'default',
+                // Bundled in the iOS app (iOS cannot play the .mp3 version).
+                'sound'    => 'ringtone.caf',
                 'category' => 'goreto_call',
             ]],
         ];

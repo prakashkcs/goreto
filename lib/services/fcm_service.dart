@@ -802,7 +802,9 @@ class FCMService {
             presentAlert: true,
             presentBadge: true,
             presentSound: true,
-            sound: isCall ? 'ringtone.mp3' : null,
+            // iOS plays only .caf/.wav/.aiff (<=30 s); the .mp3 fell back to
+            // the default chime, so calls never used the ringtone.
+            sound: isCall ? 'ringtone.caf' : null,
             categoryIdentifier: isCall ? _iosCallCategory : null,
           ),
         ),
