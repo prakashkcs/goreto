@@ -1692,7 +1692,8 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   bool _posting = false;
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
-  _VideoCommentModel? _replyTarget;
+  _VideoCommentModel? _replyTarget; // top-level comment the reply is filed under
+  String? _replyToName; // person actually being answered
   String? _currentUserId;
 
   @override
@@ -1727,12 +1728,22 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
 
     for (final comment in allComments.values) {
-      if (comment.parentId != null &&
-          allComments.containsKey(comment.parentId)) {
-        allComments[comment.parentId]!.replies.add(comment);
-      } else {
-        parentComments.add(comment);
+      // Walk up to the top-level comment of this thread.
+      var root = comment;
+      final seen = <String>{};
+      while (root.parentId != null &&
+          allComments.containsKey(root.parentId) &&
+          seen.add(root.id)) {
+        root = allComments[root.parentId]!;
       }
+      if (identical(root, comment)) {
+        parentComments.add(comment);
+      } else {
+        root.replies.add(comment);
+      }
+    }
+    for (final c in parentComments) {
+      c.replies.sort((a, b) => a.createdAt.compareTo(b.createdAt));
     }
 
     if (mounted) {
@@ -1772,8 +1783,10 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
     _ctrl.clear();
     _replyTarget = null;
+    _replyToName = null;
 
-    final newComment = await widget.api.postComment(widget.postId, text);
+    final newComment = await widget.api
+        .postComment(widget.postId, text, parentId: tempComment.parentId);
 
     if (mounted) {
       if (newComment != null) {
@@ -1804,12 +1817,30 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   }
 
   void _setReplyTarget(_VideoCommentModel comment) {
-    setState(() => _replyTarget = comment);
+    // Replying to a reply: keep it in the same thread and prefill @name.
+    final root = _comments.firstWhere(
+      (c) => c.id == comment.id || c.replies.any((r) => r.id == comment.id),
+      orElse: () => comment,
+    );
+    setState(() {
+      _replyTarget = root;
+      _replyToName = comment.username;
+    });
+    if (!identical(root, comment)) {
+      final tag = '@${comment.username} ';
+      if (!_ctrl.text.startsWith(tag)) {
+        _ctrl.text = tag + _ctrl.text;
+        _ctrl.selection = TextSelection.collapsed(offset: _ctrl.text.length);
+      }
+    }
     _focusNode.requestFocus();
   }
 
   void _cancelReply() {
-    setState(() => _replyTarget = null);
+    setState(() {
+      _replyTarget = null;
+      _replyToName = null;
+    });
   }
 
   void _editComment(
@@ -2023,7 +2054,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Replying to ${_replyTarget!.username}',
+                        'Replying to ${_replyToName ?? _replyTarget!.username}',
                         style: const TextStyle(color: _kPink, fontSize: 13),
                       ),
                     ),
@@ -2087,7 +2118,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
                           hintText: _replyTarget != null
-                              ? 'Reply to ${_replyTarget!.username}...'
+                              ? 'Reply to ${_replyToName ?? _replyTarget!.username}...'
                               : 'Write a comment...',
                           hintStyle: TextStyle(
                             color: Colors.white.withValues(alpha: 0.4),
@@ -2420,6 +2451,20 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                                           style: const TextStyle(
                                             color: Colors.white70,
                                             fontSize: 12,
+                                          ),
+                                        ),
+                                        GestureDetector(
+                                          onTap: () => _setReplyTarget(reply),
+                                          child: const Padding(
+                                            padding: EdgeInsets.only(top: 4),
+                                            child: Text(
+                                              'Reply',
+                                              style: TextStyle(
+                                                color: _kPurple,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                       ],

@@ -5,6 +5,7 @@ import 'package:love_vibe_pro/models/call_session.dart';
 import 'package:love_vibe_pro/screens/chat/call/webrtc_call_screen.dart';
 import 'package:love_vibe_pro/screens/match/nearby_alert_screen.dart';
 import 'package:love_vibe_pro/services/signaling_service.dart';
+import 'package:love_vibe_pro/services/fcm_service.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 
 /// Listens on the native MethodChannel for accept/decline actions
@@ -39,6 +40,20 @@ class CallChannelService {
 
   static void _handleCallAction(Map<String, dynamic> data) {
     final action = data['action']?.toString();
+
+    // Tapped tray notification while the app was in the background / closed:
+    // route it like an in-app tap (comment/like -> the post, follow -> the
+    // profile, chat -> chats, ...). It used to just open the app on Home.
+    if (action == 'open_notification') {
+      final routed = <String, dynamic>{};
+      data.forEach((k, v) {
+        if (k.startsWith('n_')) routed[k.substring(2)] = v;
+      });
+      Future.delayed(const Duration(milliseconds: 600), () {
+        handleNotificationData(routed, isFromTap: true);
+      });
+      return;
+    }
 
     // Nearby alert: open NearbyAlertScreen
     if (action == 'open_nearby_alert') {

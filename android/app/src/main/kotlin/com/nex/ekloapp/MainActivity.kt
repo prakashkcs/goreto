@@ -63,7 +63,10 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "getPendingCallIntent" -> {
                     val pending = pendingCallIntent
-                    if (pending != null) {
+                    if (pending != null && pending.getStringExtra("action") == "open_notification") {
+                        pendingCallIntent = null
+                        result.success(notificationTapData(pending))
+                    } else if (pending != null) {
                         val action = pending.getStringExtra("action")
                         if (action != null) {
                             val data = mapOf(
@@ -273,6 +276,14 @@ class MainActivity : FlutterActivity() {
                     pendingCallIntent = intent
                 }
             }
+            "open_notification" -> {
+                val data = notificationTapData(intent)
+                if (flutterReady && callChannel != null) {
+                    callChannel?.invokeMethod("onCallAction", data)
+                } else {
+                    pendingCallIntent = intent
+                }
+            }
             "open_nearby_alert" -> {
                 val data = mapOf(
                     "action"         to action,
@@ -291,6 +302,19 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+    }
+
+    /** Routing data from a tapped tray notification (see CallFirebaseMessagingService). */
+    private fun notificationTapData(intent: Intent): Map<String, String> {
+        val out = mutableMapOf("action" to "open_notification")
+        for (key in listOf("type", "reference_id", "post_id", "sender_id", "sender_name",
+                           "sender_avatar", "comment_id", "action_type", "action")) {
+            intent.getStringExtra("n_$key")?.let { out["n_$key"] = it }
+        }
+        if (!out.containsKey("n_type")) {
+            intent.getStringExtra("notification_type")?.let { out["n_type"] = it }
+        }
+        return out
     }
 
     /**

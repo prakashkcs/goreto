@@ -1819,8 +1819,9 @@ class ApiService {
   /// Uses Authorization: Bearer <app_token>
   Future<Map<String, dynamic>?> addComment(
     dynamic postId,
-    String commentText,
-  ) async {
+    String commentText, {
+    String? parentId,
+  }) async {
     const String endpoint = 'comments.php?action=add';
     final dio = await _ensureInitializedDio();
     final String fullUrl = '${dio.options.baseUrl}$endpoint';
@@ -1833,7 +1834,16 @@ class ApiService {
 
       final response = await dio.post(
         endpoint,
-        data: {'post_id': postId, 'comment': commentText},
+        data: {
+          'post_id': postId,
+          'comment': commentText,
+          // Replies were sent without their parent, so the server stored
+          // every reply as a new top-level comment.
+          if (parentId != null &&
+              parentId.isNotEmpty &&
+              !parentId.startsWith('temp_'))
+            'parent_id': parentId,
+        },
         options: Options(
           responseType: ResponseType.plain,
           headers: {if (appToken != null) 'Authorization': 'Bearer $appToken'},
@@ -2399,8 +2409,9 @@ class ApiService {
     return listComments(postId);
   }
 
-  Future<Map<String, dynamic>?> postComment(dynamic postId, String text) async {
-    return addComment(postId, text);
+  Future<Map<String, dynamic>?> postComment(dynamic postId, String text,
+      {String? parentId}) async {
+    return addComment(postId, text, parentId: parentId);
   }
 
   /// Search users: GET /search.php?action=users&q=<text>

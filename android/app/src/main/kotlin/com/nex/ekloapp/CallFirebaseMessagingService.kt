@@ -353,15 +353,26 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
 
-        // Non-nearby: standard tray notification
-        val tapIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        // Non-nearby: standard tray notification. The tap must carry where the
+        // notification points (post / profile / chat) — it used to carry only
+        // the type, so tapping "X commented" just opened the app on Home.
+        val tapIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("action", "open_notification")
             putExtra("notification_type", type)
-        } ?: Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            for (key in listOf("type", "reference_id", "post_id", "sender_id",
+                               "sender_name", "sender_avatar", "comment_id", "action_type")) {
+                data[key]?.let { putExtra("n_$key", it) }
+            }
+            data["action"]?.let { putExtra("n_action", it) }
         }
 
-        val tapPi = PendingIntent.getActivity(this, notifId, tapIntent, pendingIntentFlags())
+        // Unique request code per target so two notifications don't share one
+        // PendingIntent (FLAG_UPDATE_CURRENT would overwrite the first's extras).
+        val reqCode = (type + (data["reference_id"] ?: "") + (data["sender_id"] ?: "")).hashCode()
+        val tapPi = PendingIntent.getActivity(this, reqCode, tapIntent, pendingIntentFlags())
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_stat_goreto)
