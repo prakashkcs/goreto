@@ -1554,6 +1554,8 @@ class ApiService {
     String? hashtags,
     bool subscriberOnly = false,
     String bgStyle = '0',
+    int? soundId,
+    String? soundName,
   }) async {
     final dio = await _ensureInitializedDio();
     try {
@@ -1566,6 +1568,10 @@ class ApiService {
           if (hashtags != null && hashtags.isNotEmpty) 'hashtags': hashtags,
           'subscriber_only': subscriberOnly ? 1 : 0,
           'bg_style': bgStyle,
+          // Audio chosen for a text post (it was never sent, so text posts
+          // never played their sound).
+          if (soundId != null && soundId > 0) 'sound_id': soundId,
+          if (soundName != null && soundName.isNotEmpty) 'sound_name': soundName,
         },
         options: Options(responseType: ResponseType.plain),
       );
@@ -4269,12 +4275,16 @@ class ApiService {
     File file, {
     String title = '',
     String category = 'original',
+    double? start, // seconds into the file where the clip begins
+    double? duration, // clip length in seconds (server caps at 60)
   }) async {
     final dio = await _ensureInitializedDio();
     try {
       final form = FormData.fromMap({
         'title': title,
         'category': category,
+        if (start != null) 'start': start.toStringAsFixed(2),
+        if (duration != null) 'duration': duration.toStringAsFixed(2),
         'audio': await MultipartFile.fromFile(
           file.path,
           filename: file.path.split(Platform.pathSeparator).last,

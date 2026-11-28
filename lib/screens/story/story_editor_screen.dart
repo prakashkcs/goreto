@@ -11,6 +11,7 @@ import 'package:love_vibe_pro/screens/audio/audio_picker_sheet.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:video_player/video_player.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:love_vibe_pro/services/fast_audio_source.dart';
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
 enum _Tool { none, text, draw, sticker, music, filter }
@@ -120,7 +121,7 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
         await _musicPreviewPlayer?.stop();
         _musicPreviewPlayer?.dispose();
         _musicPreviewPlayer = AudioPlayer();
-        await _musicPreviewPlayer!.play(UrlSource(_musicUrl));
+        await _musicPreviewPlayer!.play(await FastAudio.source(_musicUrl));
         if (mounted) setState(() => _musicPlaying = true);
         _musicPreviewPlayer!.onPlayerStateChanged.listen((s) {
           if (s == PlayerState.completed && mounted) {
@@ -250,7 +251,7 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
         if (results.isNotEmpty) {
           final previewUrl = results[0]['previewUrl'] as String?;
           if (previewUrl != null && previewUrl.isNotEmpty) {
-            await _musicPreviewPlayer!.play(UrlSource(previewUrl));
+            await _musicPreviewPlayer!.play(await FastAudio.source(previewUrl));
             if (mounted) setState(() => _musicPlaying = true);
             _musicPreviewPlayer!.onPlayerStateChanged.listen((s) {
               if (s == PlayerState.completed && mounted) {

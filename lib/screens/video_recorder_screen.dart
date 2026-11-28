@@ -9,6 +9,7 @@ import 'package:love_vibe_pro/screens/publish_post_screen.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:love_vibe_pro/services/fast_audio_source.dart';
 
 /// TikTok-style camera recorder with filters and sound selection.
 class VideoRecorderScreen extends StatefulWidget {
@@ -993,7 +994,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
       if (url != null && url.startsWith('http')) {
         try {
           await _bgSoundPlayer.setReleaseMode(ReleaseMode.loop);
-          await _bgSoundPlayer.play(UrlSource(url));
+          await _bgSoundPlayer.play(await FastAudio.source(url));
         } catch (_) {}
       }
     } catch (_) {}
@@ -1601,7 +1602,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
     await _previewPlayer.stop();
     if (mounted) setState(() => _previewingName = name);
     try {
-      await _previewPlayer.play(UrlSource(url));
+      await _previewPlayer.play(await FastAudio.source(url));
       // Auto-stop preview after 15 s so it doesn't keep playing
       Future.delayed(const Duration(seconds: 15), () async {
         if (mounted && _previewingName == name) {

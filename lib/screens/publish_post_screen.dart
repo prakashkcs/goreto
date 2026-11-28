@@ -362,12 +362,18 @@ class _PublishPostScreenState extends State<PublishPostScreen>
       if (widget.mediaType == 'text' ||
           widget.mediaPath == null ||
           widget.mediaPath!.isEmpty) {
+        final textSoundId =
+            (_selectedSound?['id'] as num?)?.toInt() ?? widget.soundId ?? 0;
+        final textSoundTitle =
+            (_selectedSound?['title'] ?? widget.soundName ?? '').toString();
         uploadResult = await ApiService().uploadTextPost(
           _captionController.text,
           backendType,
           hashtags: hashtags,
           subscriberOnly: _subscriberOnly,
           bgStyle: _bgStyleIndex.toString(),
+          soundId: textSoundId > 0 ? textSoundId : null,
+          soundName: textSoundTitle.isNotEmpty ? textSoundTitle : null,
         );
       } else {
         // Ensure thumbnail is always uploaded for videos.

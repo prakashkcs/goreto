@@ -23,6 +23,7 @@ import 'package:love_vibe_pro/services/analytics_service.dart';
 import 'package:love_vibe_pro/services/connectivity_service.dart';
 import 'package:love_vibe_pro/widgets/network_gate.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
+import 'package:love_vibe_pro/services/fast_audio_source.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -57,6 +58,9 @@ void main() {
       );
 
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
+      // One iOS audio session that mixes with video (no stutter / lag).
+      FastAudio.configureSession();
 
       PaintingBinding.instance.imageCache.maximumSize = 80;
       PaintingBinding.instance.imageCache.maximumSizeBytes = 25 << 20;

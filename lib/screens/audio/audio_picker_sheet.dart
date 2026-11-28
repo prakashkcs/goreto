@@ -5,6 +5,8 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
+import 'package:love_vibe_pro/services/fast_audio_source.dart';
+import 'package:love_vibe_pro/screens/audio/audio_trim_sheet.dart';
 
 /// Trending-first audio picker. Lists user-uploaded sounds ranked by the
 /// server's virality score, lets the user search or upload their own clip
@@ -84,7 +86,7 @@ class _AudioPickerSheetState extends State<AudioPickerSheet> {
     }
     await _player.stop();
     try {
-      await _player.play(UrlSource(url));
+      await _player.play(await FastAudio.source(url));
       if (mounted) setState(() => _playingId = id);
     } catch (_) {
       if (mounted) setState(() => _playingId = null);
@@ -105,16 +107,24 @@ class _AudioPickerSheetState extends State<AudioPickerSheet> {
       final path = result?.files.single.path;
       if (path == null) return;
       if (!mounted) return;
-      setState(() => _uploading = true);
       final name = path.split(Platform.pathSeparator).last;
       final title = name.contains('.')
           ? name.substring(0, name.lastIndexOf('.'))
           : name;
-      final sound = await _api.uploadCustomSound(File(path), title: title);
+      // Let the user choose which part to use (up to 60 s) before uploading.
+      await _player.stop();
+      if (mounted) setState(() => _playingId = null);
+      if (!mounted) return;
+      final trim = await AudioTrimSheet.show(context, path: path, title: title);
+      if (trim == null || !mounted) return;
+      setState(() => _uploading = true);
+      final sound = await _api.uploadCustomSound(File(path),
+          title: title, start: trim.start, duration: trim.duration);
       if (!mounted) return;
       setState(() => _uploading = false);
       if (sound != null) {
-        NeonToast.success(context, 'Uploaded · trimmed to 60s');
+        NeonToast.success(
+            context, 'Uploaded · ${trim.duration.round()} s clip');
         // Select it immediately.
         Navigator.of(context).pop(sound);
       }

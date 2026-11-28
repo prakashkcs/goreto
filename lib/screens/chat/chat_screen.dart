@@ -34,6 +34,7 @@ import 'package:gal/gal.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
+import 'package:love_vibe_pro/services/fast_audio_source.dart';
 
 class ChatScreen extends StatefulWidget {
   final String userId;
@@ -752,7 +753,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _completionSub = _audioPlayer.onPlayerComplete.listen((_) {
           if (mounted) setState(() { _playingMessageId = null; _playPosition = Duration.zero; });
         });
-        await _audioPlayer.play(UrlSource(url));
+        await _audioPlayer.play(await FastAudio.source(url));
       }
     } catch (e) {
       _positionSub?.cancel();

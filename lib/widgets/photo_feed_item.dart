@@ -28,6 +28,7 @@ import 'package:love_vibe_pro/widgets/secure_content_area.dart';
 import 'package:love_vibe_pro/services/analytics_service.dart';
 import 'package:love_vibe_pro/widgets/login_required_sheet.dart';
 import 'package:love_vibe_pro/widgets/coin_icon.dart';
+import 'package:love_vibe_pro/services/fast_audio_source.dart';
 
 class PhotoFeedItem extends StatefulWidget {
   final Map<String, dynamic> post;
@@ -153,7 +154,7 @@ class _PhotoFeedItemState extends State<PhotoFeedItem>
       try {
         _soundPlayer ??= AudioPlayer();
         await _soundPlayer!.setReleaseMode(ReleaseMode.loop);
-        await _soundPlayer!.play(UrlSource(url));
+        await _soundPlayer!.play(await FastAudio.source(url));
       } catch (_) {}
     } else {
       try {

@@ -25,6 +25,7 @@ import 'package:love_vibe_pro/screens/chat/group_ui.dart';
 import 'package:love_vibe_pro/services/group_chat_service.dart';
 import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/widgets/user_preview_sheet.dart';
+import 'package:love_vibe_pro/services/fast_audio_source.dart';
 
 class GroupChatScreen extends StatefulWidget {
   final ChatGroup group;
@@ -704,7 +705,7 @@ class _GroupChatScreenState extends State<GroupChatScreen>
           });
         }
       });
-      await _audioPlayer.play(UrlSource(url));
+      await _audioPlayer.play(await FastAudio.source(url));
     } catch (_) {
       _positionSub?.cancel();
       _completionSub?.cancel();

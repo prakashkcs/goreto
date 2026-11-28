@@ -8,6 +8,7 @@ import 'package:love_vibe_pro/services/sound_service.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:love_vibe_pro/services/fast_audio_source.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  StoryViewScreen  –  Multi-story viewer with neon cyberpunk UI
@@ -383,7 +384,7 @@ class _StoryViewScreenState extends State<StoryViewScreen>
       }
       _musicPlayer = player;
       await player.setReleaseMode(ReleaseMode.loop);
-      await player.play(UrlSource(url));
+      await player.play(await FastAudio.source(url));
     } catch (_) {
       if (gen == _musicGen && mounted) setState(() => _currentMusicTitle = '');
     }

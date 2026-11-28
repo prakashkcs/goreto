@@ -350,11 +350,19 @@ if ($method === 'POST') {
         }
 
         // Re-encode to a clean AAC m4a clip capped at 60s (server has ffmpeg).
+        // start / duration = the part the user picked in the app's trim
+        // editor (defaults: from the beginning, 60 s).
         $maxSec = 60;
+        $startSec = max(0.0, (float) ($_POST['start'] ?? 0));
+        $lenSec = (float) ($_POST['duration'] ?? $maxSec);
+        if ($lenSec <= 0 || $lenSec > $maxSec) $lenSec = $maxSec;
         $finalFile = $soundsDir . 'snd_' . uniqid('', true) . '.m4a';
         $cmd = sprintf(
-            'ffmpeg -y -i %s -t %d -vn -acodec aac -b:a 128k -movflags +faststart %s 2>&1',
-            escapeshellarg($rawFile), $maxSec, escapeshellarg($finalFile)
+            'ffmpeg -y -ss %s -i %s -t %s -vn -acodec aac -b:a 128k -movflags +faststart %s 2>&1',
+            escapeshellarg(number_format($startSec, 2, '.', '')),
+            escapeshellarg($rawFile),
+            escapeshellarg(number_format($lenSec, 2, '.', '')),
+            escapeshellarg($finalFile)
         );
         @exec($cmd, $ffOut, $ffRet);
         @unlink($rawFile);
