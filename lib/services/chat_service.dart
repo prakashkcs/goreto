@@ -311,6 +311,7 @@ class ChatService {
           bool truthy(dynamic v) => v == 1 || v == '1' || v == true;
           for (final item in meta) {
             final id = item['id'].toString();
+            if (_isHeld(id)) continue; // local change not saved server-side yet
             final index = mList.indexWhere((m) => m.id == id);
             if (index == -1) continue;
             final cur = mList[index];
@@ -886,6 +887,41 @@ class ChatService {
   /// Get cached messages for UI sync
   List<Message> getCachedMessages(String conversationId) {
     return _messages[conversationId] ?? [];
+  }
+
+  // ── Local actions (edit / pin / react / unsend) ───────────────────────────
+  // The chat screen updates its own list instantly, but it rebuilds from this
+  // cache on every poll. If the cache still held the old version, the change
+  // flickered back and forth. Mirror local changes here, and for a few
+  // seconds ignore server "meta" for that message (a poll that left before
+  // the server saved the change would otherwise undo it again).
+  final Map<String, DateTime> _metaHold = {};
+
+  void holdMessage(String messageId) {
+    _metaHold[messageId] = DateTime.now().add(const Duration(seconds: 8));
+  }
+
+  bool _isHeld(String messageId) {
+    final until = _metaHold[messageId];
+    if (until == null) return false;
+    if (DateTime.now().isAfter(until)) {
+      _metaHold.remove(messageId);
+      return false;
+    }
+    return true;
+  }
+
+  void upsertCachedMessage(String conversationId, Message message) {
+    final list = _messages[conversationId];
+    if (list == null) return;
+    final i = list.indexWhere((m) => m.id == message.id);
+    if (i != -1) list[i] = message;
+    holdMessage(message.id);
+  }
+
+  void removeCachedMessage(String conversationId, String messageId) {
+    _messages[conversationId]?.removeWhere((m) => m.id == messageId);
+    holdMessage(messageId);
   }
 
   /// Delete a conversation (removes all messages between two users)

@@ -465,7 +465,18 @@ try {
             }
         }
         if (!$videoUrl) {
-            echo json_encode(['status' => 'error', 'message' => 'Video file required']);
+            // Tell the user what actually went wrong. An upload over PHP's
+            // limits arrives with no files at all, which used to read as
+            // "Video file required" even though a video had been recorded.
+            $errCode = $_FILES['liveness_video']['error'] ?? null;
+            $tooBig = in_array($errCode, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)
+                || (empty($_FILES) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0);
+            $msg = $tooBig
+                ? 'Your video is too large. Please record a short selfie video (8 seconds max) and try again.'
+                : (($errCode !== null && $errCode !== UPLOAD_ERR_OK)
+                    ? 'The video did not upload completely. Please check your connection and try again.'
+                    : 'Please record your selfie video before submitting.');
+            echo json_encode(['status' => 'error', 'message' => $msg]);
             exit;
         }
 

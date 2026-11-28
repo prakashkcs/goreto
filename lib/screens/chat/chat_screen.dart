@@ -2063,6 +2063,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (idx != -1) {
       setState(() => _messages[idx] =
           _messages[idx].copyWith(content: newText, isEdited: true));
+      _commitLocal([message.id]);
     }
     _socket.sendMessageAction({
       'receiver_id': widget.userId,
@@ -2101,6 +2102,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 // Instant: remove locally, then sync.
                 final idx = _messages.indexWhere((m) => m.id == message.id);
                 if (idx != -1) setState(() => _messages.removeAt(idx));
+                _dropLocal(message.id);
                 _chatService.unsendMessage(message.id, scope: 'me');
               }),
               if (isMine)
@@ -2111,6 +2113,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   if (idx != -1) {
                     setState(() => _messages[idx] = _messages[idx]
                         .copyWith(isDeleted: true, content: ''));
+                    _commitLocal([message.id]);
                   }
                   _chatService.unsendMessage(message.id, scope: 'everyone');
                   _socket.sendMessageAction({
@@ -2198,6 +2201,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           break;
       }
     });
+    _commitLocal(action == 'pin'
+        ? _messages.map((m) => m.id).where((id) => id.isNotEmpty).toList()
+        : [messageId]);
+  }
+
+  /// Mirror the screen's current version of these messages into the chat
+  /// cache. The poll rebuilds the list from that cache; without this an edit /
+  /// pin / reaction flickered back to the old value until the server caught up.
+  void _commitLocal(Iterable<String> ids) {
+    final convId = _getConversationId();
+    for (final id in ids) {
+      final m = _messages.firstWhere((x) => x.id == id,
+          orElse: () => Message(
+              id: '',
+              senderId: '',
+              receiverId: '',
+              type: MessageType.text,
+              createdAt: DateTime.now()));
+      if (m.id.isNotEmpty) _chatService.upsertCachedMessage(convId, m);
+    }
+  }
+
+  /// "Delete for me": gone from the screen AND the cache, so the next poll
+  /// can't bring it back.
+  void _dropLocal(String id) {
+    _chatService.removeCachedMessage(_getConversationId(), id);
   }
 
   /// Optimistically toggle a reaction locally so it shows instantly, then sync.
@@ -2212,10 +2241,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ? cur.copyWith(clearReaction: true)
           : cur.copyWith(reaction: emoji, reactionBy: myId);
     });
+    _commitLocal([m.id]);
   }
 
   Future<void> _togglePin(Message message) async {
     final newVal = !message.isPinned;
+    final pinTouched = <String>{
+      message.id,
+      ..._messages.where((m) => m.isPinned).map((m) => m.id),
+    };
     // Instant: only one pinned message per chat, so clear others, set this.
     setState(() {
       for (int i = 0; i < _messages.length; i++) {
@@ -2228,6 +2262,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _messages[idx] = _messages[idx].copyWith(isPinned: newVal);
       }
     });
+    _commitLocal(pinTouched);
     _socket.sendMessageAction({
       'receiver_id': widget.userId,
       'action': 'pin',

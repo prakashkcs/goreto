@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 import 'package:gradient_borders/gradient_borders.dart';
 import 'package:love_vibe_pro/core/theme.dart';
 import 'package:love_vibe_pro/services/settings_store.dart';
@@ -45,8 +46,19 @@ class _KycScreenState extends State<KycScreen> {
 
   Future<void> _loadSettings() async {
     _settingsStore = await SettingsStore.getInstance();
-    
-    // Always fetch fresh status from server first
+
+    // Show the saved status straight away (the page used to sit behind a
+    // full-screen spinner until the server answered), then refresh it.
+    try {
+      final cached = await _settingsStore!.getKycStatus();
+      if (mounted) {
+        setState(() {
+          _kycStatus = cached;
+          _isLoading = false;
+        });
+      }
+    } catch (_) {}
+
     try {
       final remoteKyc = await ApiService().getKycStatusRemote();
       final freshStatus = remoteKyc.basicStatus;
@@ -174,8 +186,27 @@ class _KycScreenState extends State<KycScreen> {
     );
 
     if (video != null) {
+      // Many Android camera apps (Samsung included) ignore maxDuration, and
+      // a long clip pushed the upload past the server limit, so the server
+      // saw no video ("Video file required"). Check the real length.
+      final file = File(video.path);
+      Duration length = Duration.zero;
+      final probe = VideoPlayerController.file(file);
+      try {
+        await probe.initialize();
+        length = probe.value.duration;
+      } catch (_) {
+      } finally {
+        await probe.dispose();
+      }
+      if (!mounted) return;
+      if (length > const Duration(milliseconds: 8600)) {
+        _showError(
+            'Video is ${length.inSeconds}s long. Please record 8 seconds or less.');
+        return;
+      }
       HapticFeedback.mediumImpact();
-      setState(() => _livenessVideo = File(video.path));
+      setState(() => _livenessVideo = file);
     }
   }
 
@@ -823,6 +854,9 @@ class _KycScreenState extends State<KycScreen> {
                   width: 80,
                   height: 60,
                   fit: BoxFit.cover,
+                  // Decode at preview size, not the full 1600 px photo.
+                  cacheWidth: 240,
+                  gaplessPlayback: true,
                 ),
               ),
               const SizedBox(height: 8),
