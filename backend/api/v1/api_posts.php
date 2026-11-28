@@ -539,12 +539,60 @@ try {
       }
     }
 
+    // ── Video: make it start fast ────────────────────────────────────────────
+    // Phone recordings put the MP4 index (moov) at the END and run ~9 Mbps, so
+    // the app had to download the whole file before playback began. Step 1
+    // (instant, no re-encode): move the index to the front. Step 2 (background,
+    // low priority): re-encode to <=720p H.264 ~2.5 Mbps and swap it in
+    // atomically, only if smaller.
+    if ($savedFilePath !== '' && file_exists($savedFilePath)
+        && in_array(strtolower($ext ?? ''), ['mp4', 'mov', 'm4v'], true)) {
+      $fsTmp = $savedFilePath . '.fs.mp4';
+      $fsOut = [];
+      exec('ffmpeg -y -v error -i ' . escapeshellarg($savedFilePath)
+         . ' -map 0 -c copy -movflags +faststart ' . escapeshellarg($fsTmp) . ' 2>&1', $fsOut, $fsRc);
+      if ($fsRc === 0 && file_exists($fsTmp) && filesize($fsTmp) > 1000) {
+        @rename($fsTmp, $savedFilePath);
+      } else {
+        @unlink($fsTmp);
+      }
+      $in  = escapeshellarg($savedFilePath);
+      $tmp = escapeshellarg($savedFilePath . '.opt.mp4');
+      $scale = "scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'";
+      $job = "nice -n 10 ffmpeg -y -v error -i $in -c:v libx264 -preset veryfast -crf 26"
+           . " -maxrate 2500k -bufsize 5000k -vf \"$scale\" -pix_fmt yuv420p"
+           . " -c:a aac -b:a 128k -movflags +faststart $tmp"
+           . " && [ \$(stat -c%s $tmp) -lt \$(stat -c%s $in) ] && mv -f $tmp $in; rm -f $tmp";
+      exec('nohup sh -c ' . escapeshellarg($job) . ' >/dev/null 2>&1 &');
+    }
+
     $subscriberOnly = intval($_POST['subscriber_only'] ?? $reqPayload['subscriber_only'] ?? 0);
 
     $sql = "INSERT INTO $postsTbl ($pUserId, $pType, $pMedia, $pCaption, subscriber_only" . ($pCreated ? ", $pCreated" : "") . ")
                 VALUES (?, ?, ?, ?, ?" . ($pCreated ? ", NOW()" : "") . ")";
     $pdo->prepare($sql)->execute([$userId, $type, $fileUrl, $caption, $subscriberOnly]);
     $newId = $pdo->lastInsertId();
+
+    // Video thumbnail made here (one frame, ~0.2 s). Without it the app
+    // downloaded part of every video just to draw its preview.
+    if ($savedFilePath !== '' && file_exists($savedFilePath)
+        && in_array(strtolower($ext ?? ''), ['mp4', 'mov', 'm4v', 'webm'], true)) {
+      $thumbName = pathinfo($savedFilePath, PATHINFO_FILENAME) . '_thumb.jpg';
+      $thumbPath = dirname($savedFilePath) . '/' . $thumbName;
+      exec('ffmpeg -y -v error -ss 0.5 -i ' . escapeshellarg($savedFilePath)
+         . ' -frames:v 1 -vf "scale=\'min(540,iw)\':-2" -q:v 4 ' . escapeshellarg($thumbPath) . ' 2>&1', $thOut, $thRc);
+      if ($thRc !== 0 || !file_exists($thumbPath)) {
+        // Very short clips: take the first frame instead.
+        exec('ffmpeg -y -v error -i ' . escapeshellarg($savedFilePath)
+           . ' -frames:v 1 -vf "scale=\'min(540,iw)\':-2" -q:v 4 ' . escapeshellarg($thumbPath) . ' 2>&1', $thOut, $thRc);
+      }
+      if (file_exists($thumbPath) && filesize($thumbPath) > 500) {
+        $thumbUrl = rtrim(($config['base_url'] ?? 'https://goreto.org/ekloadmin'), '/') . '/api/v1/uploads/' . $thumbName;
+        try {
+          $pdo->prepare("UPDATE $postsTbl SET thumbnail_url = ? WHERE id = ?")->execute([$thumbUrl, $newId]);
+        } catch (Throwable $_) {}
+      }
+    }
 
     // Attach a custom sound to the post (if one was chosen).
     $soundIdIn = (int)($_POST['sound_id'] ?? ($reqPayload['sound_id'] ?? 0));
