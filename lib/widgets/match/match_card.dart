@@ -16,6 +16,8 @@ class MatchCard extends StatelessWidget {
   final bool isBackground;
   final double swipeProgress;
   final VoidCallback? onReport;
+  /// Tap on the photo: open this person's photo gallery.
+  final VoidCallback? onPhotoTap;
 
   const MatchCard({
     super.key,
@@ -23,6 +25,7 @@ class MatchCard extends StatelessWidget {
     this.isBackground = false,
     this.swipeProgress = 0.0,
     this.onReport,
+    this.onPhotoTap,
   });
 
   static const _pink = Color(0xFFFF007F);
@@ -66,7 +69,10 @@ class MatchCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _buildPhoto(),
+                GestureDetector(
+                  onTap: isBackground ? null : onPhotoTap,
+                  child: _buildPhoto(),
+                ),
 
                 // Soft shade at the top (for the ⋮ button) and a stronger
                 // one at the bottom where the info panel sits.
@@ -96,6 +102,20 @@ class MatchCard extends StatelessWidget {
                       icon: Icons.favorite_rounded,
                       iconColor: _pink,
                       text: '${profile.matchPercent}% match',
+                    ),
+                  ),
+
+                if (onPhotoTap != null && !isBackground)
+                  Positioned(
+                    top: profile.matchPercent > 0 ? 52 : 14,
+                    left: 14,
+                    child: GestureDetector(
+                      onTap: onPhotoTap,
+                      child: _glassPill(
+                        icon: Icons.photo_library_rounded,
+                        iconColor: _cyan,
+                        text: 'Photos',
+                      ),
                     ),
                   ),
 

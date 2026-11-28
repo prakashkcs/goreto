@@ -12,6 +12,7 @@ import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/models/match_user.dart';
 import 'package:love_vibe_pro/widgets/match/match_card.dart';
 import 'package:love_vibe_pro/widgets/manage_user_sheet.dart';
+import 'package:love_vibe_pro/screens/match/match_photo_gallery.dart';
 
 import 'package:love_vibe_pro/services/signaling_service.dart';
 import 'package:love_vibe_pro/models/call_session.dart';
@@ -733,6 +734,8 @@ class _MatchesViewState extends State<MatchesView>
                       key: ValueKey('current-${currentUser.id}'),
                       profile: currentUser,
                       swipeProgress: _swipeProgress,
+                      onPhotoTap: () =>
+                          MatchPhotoGallery.open(context, currentUser),
                       onReport: () => ManageUserSheet.show(
                         context,
                         userId: currentUser.id,
@@ -2709,14 +2712,21 @@ class _RandomCallViewState extends State<RandomCallView>
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        // Extra bottom padding clears the floating home nav bar (the Scaffold
-        // uses extendBody:true) so the gender chips + Start Call aren't hidden
-        // behind it; the centred column shifts up accordingly.
-        padding: EdgeInsets.fromLTRB(
-            32, 32, 32, 110 + MediaQuery.of(context).padding.bottom),
-        child: Column(
+    // padding.bottom already includes the floating nav bar (extendBody), so
+    // add only a small gap. The old "110 + padding.bottom" counted the bar
+    // twice: on shorter screens the column overflowed and Start Call sat
+    // outside its parent, where Flutter paints it but never delivers taps.
+    // Scrollable + min-height keeps it centred and always tappable.
+    final bottomGap = 16 + MediaQuery.of(context).padding.bottom;
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(32, 16, 32, bottomGap),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: (constraints.maxHeight - 16 - bottomGap)
+                .clamp(0.0, double.infinity),
+          ),
+          child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedBuilder(
@@ -2725,8 +2735,8 @@ class _RandomCallViewState extends State<RandomCallView>
                 return Transform.scale(
                   scale: _searching ? _pulseAnim.value : 1.0,
                   child: Container(
-                    width: 160,
-                    height: 160,
+                    width: 132,
+                    height: 132,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: LinearGradient(
@@ -2756,7 +2766,7 @@ class _RandomCallViewState extends State<RandomCallView>
                     child: Center(
                       child: Icon(
                         _searching ? Icons.search : Icons.video_call_rounded,
-                        size: 70,
+                        size: 60,
                         color: Colors.white,
                       ),
                     ),
@@ -2764,7 +2774,7 @@ class _RandomCallViewState extends State<RandomCallView>
                 );
               },
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 28),
             Text(
               _searching ? 'Finding someone...' : 'Start Random Call',
               style: const TextStyle(
@@ -2849,6 +2859,7 @@ class _RandomCallViewState extends State<RandomCallView>
                       ),
               ),
           ],
+        ),
         ),
       ),
     );

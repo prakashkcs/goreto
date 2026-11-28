@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -387,12 +388,18 @@ class TopGifterChip extends StatefulWidget {
   State<TopGifterChip> createState() => _TopGifterChipState();
 }
 
-class _TopGifterChipState extends State<TopGifterChip> {
+class _TopGifterChipState extends State<TopGifterChip>
+    with SingleTickerProviderStateMixin {
   int _index = 0;
   Timer? _timer;
   bool _following = false;
   bool _busy = false;
   late List<GiftTx> _sorted;
+  // Drives the looping float / glow / border shimmer.
+  late final AnimationController _loop = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2400),
+  )..repeat();
 
   @override
   void initState() {
@@ -417,7 +424,7 @@ class _TopGifterChipState extends State<TopGifterChip> {
   void _startCycle() {
     _timer?.cancel();
     if (_sorted.length <= 1) return;
-    _timer = Timer.periodic(const Duration(milliseconds: 2800), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 3200), (_) {
       if (!mounted) return;
       setState(() {
         _index = (_index + 1) % _sorted.length;
@@ -430,6 +437,7 @@ class _TopGifterChipState extends State<TopGifterChip> {
   @override
   void dispose() {
     _timer?.cancel();
+    _loop.dispose();
     super.dispose();
   }
 
@@ -456,127 +464,262 @@ class _TopGifterChipState extends State<TopGifterChip> {
     if (mounted) setState(() => _busy = false);
   }
 
+  /// Rarity colour by coin value: gold / purple / pink / cyan.
+  static Color _tierColor(int coins) {
+    if (coins >= 1000) return const Color(0xFFFFC83D);
+    if (coins >= 200) return const Color(0xFFD946EF);
+    if (coins >= 20) return const Color(0xFFFF007F);
+    return const Color(0xFF06B6D4);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_sorted.isEmpty) return const SizedBox.shrink();
     if (_index >= _sorted.length) _index = 0;
     final t = _sorted[_index];
+    final total = _sorted.length;
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 420),
+      switchInCurve: Curves.easeOutBack,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(-0.25, 0),
+            end: Offset.zero,
+          ).animate(anim),
+          child: ScaleTransition(
+            scale: Tween(begin: 0.85, end: 1.0).animate(anim),
+            alignment: Alignment.centerLeft,
+            child: child,
+          ),
+        ),
+      ),
+      child: _chip(t, total,
+          key: ValueKey('${t.senderId}_${t.giftName}_$_index')),
+    );
+  }
+
+  Widget _chip(GiftTx t, int total, {Key? key}) {
     final name =
         t.senderName.trim().isEmpty ? 'Someone' : t.senderName.split(' ').first;
     final avatar = t.senderAvatar;
     final hasAvatar = avatar.startsWith('http');
     final isSelf =
         widget.currentUserId != null && t.senderId == widget.currentUserId;
+    final tier = _tierColor(t.coinPrice);
 
-    return TweenAnimationBuilder<double>(
-      // New key each cycle so the entrance animation replays for every
-      // gift/gifter as the overlay rotates through them one by one.
-      key: ValueKey('${t.senderId}_${t.giftName}_$_index'),
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 450),
-      curve: Curves.easeOutBack,
-      builder: (_, v, child) {
-        final c = v.clamp(0.0, 1.0);
-        return Opacity(
-          opacity: c,
-          child: Transform.scale(
-            scale: 0.75 + 0.25 * c,
-            alignment: Alignment.bottomLeft,
-            child: child,
+    return AnimatedBuilder(
+      key: key,
+      animation: _loop,
+      builder: (context, _) {
+        final v = _loop.value; // 0..1
+        final wave = math.sin(v * 2 * math.pi); // -1..1
+        return GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            // Animated gradient border: the shimmer sweeps around the chip.
+            padding: const EdgeInsets.all(1.4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(26),
+              gradient: SweepGradient(
+                transform: GradientRotation(v * 2 * math.pi),
+                colors: [
+                  tier,
+                  tier.withValues(alpha: 0.15),
+                  const Color(0xFF06B6D4).withValues(alpha: 0.6),
+                  tier.withValues(alpha: 0.15),
+                  tier,
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: tier.withValues(alpha: 0.28 + 0.12 * wave),
+                  blurRadius: 14,
+                  spreadRadius: -2,
+                ),
+              ],
+            ),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(4, 4, 6, 4),
+              decoration: BoxDecoration(
+                color: const Color(0xE6100B1A),
+                borderRadius: BorderRadius.circular(25),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Floating gift with a pulsing glow + total badge.
+                  SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(colors: [
+                              tier.withValues(alpha: 0.45 + 0.15 * wave),
+                              tier.withValues(alpha: 0.0),
+                            ]),
+                          ),
+                        ),
+                        Transform.translate(
+                          offset: Offset(0, -2.5 * wave),
+                          child: Transform.rotate(
+                            angle: 0.06 * wave,
+                            child: SizedBox(
+                              width: 30,
+                              height: 30,
+                              child: (t.gifUrl.isNotEmpty &&
+                                      t.gifUrl.startsWith('http'))
+                                  ? CachedNetworkImage(
+                                      imageUrl: t.gifUrl,
+                                      fit: BoxFit.contain,
+                                      errorWidget: (_, __, ___) => Center(
+                                        child: Text(t.emoji,
+                                            style:
+                                                const TextStyle(fontSize: 20)),
+                                      ),
+                                    )
+                                  : Center(
+                                      child: Text(t.emoji,
+                                          style: const TextStyle(fontSize: 20)),
+                                    ),
+                            ),
+                          ),
+                        ),
+                        if (total > 1)
+                          Positioned(
+                            right: -3,
+                            top: -3,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(colors: [
+                                  Color(0xFFFF007F),
+                                  Color(0xFFD946EF)
+                                ]),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: const Color(0xFF100B1A), width: 1),
+                              ),
+                              child: Text('$total',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w900)),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Gifter avatar with a tier-coloured ring.
+                  Container(
+                    padding: const EdgeInsets.all(1.4),
+                    decoration:
+                        BoxDecoration(shape: BoxShape.circle, color: tier),
+                    child: CircleAvatar(
+                      radius: 11,
+                      backgroundColor: const Color(0xFF2A1A3E),
+                      backgroundImage:
+                          hasAvatar ? CachedNetworkImageProvider(avatar) : null,
+                      child: hasAvatar
+                          ? null
+                          : Text(name[0].toUpperCase(),
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800)),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 120),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 1),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                'sent ${t.giftName.isNotEmpty ? t.giftName : 'a gift'}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.65),
+                                    fontSize: 9.5),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            CoinIcon(size: 9, color: tier),
+                            const SizedBox(width: 2),
+                            Text('${t.coinPrice}',
+                                style: TextStyle(
+                                    color: tier,
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!isSelf) ...[
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => _toggleFollow(t.senderId),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          gradient: _following
+                              ? null
+                              : const LinearGradient(colors: [
+                                  Color(0xFFFF007F),
+                                  Color(0xFFD946EF)
+                                ]),
+                          color: _following
+                              ? Colors.white.withValues(alpha: 0.14)
+                              : null,
+                          borderRadius: BorderRadius.circular(12),
+                          border: _following
+                              ? Border.all(
+                                  color: Colors.white.withValues(alpha: 0.3))
+                              : null,
+                        ),
+                        child: Text(_following ? 'Following' : 'Follow',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         );
       },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(4, 4, 6, 4),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.55),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: const Color(0xFFFFD700).withValues(alpha: 0.45),
-              width: 1,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 34,
-                height: 34,
-                child: (t.gifUrl.isNotEmpty && t.gifUrl.startsWith('http'))
-                    ? CachedNetworkImage(
-                        imageUrl: t.gifUrl,
-                        fit: BoxFit.contain,
-                        errorWidget: (_, __, ___) =>
-                            Text(t.emoji, style: const TextStyle(fontSize: 22)),
-                      )
-                    : Text(t.emoji, style: const TextStyle(fontSize: 22)),
-              ),
-              const SizedBox(width: 4),
-              CircleAvatar(
-                radius: 12,
-                backgroundColor: const Color(0xFF3B82F6),
-                backgroundImage:
-                    hasAvatar ? CachedNetworkImageProvider(avatar) : null,
-                child: hasAvatar
-                    ? null
-                    : Text(name[0].toUpperCase(),
-                        style: const TextStyle(color: Colors.white, fontSize: 9)),
-              ),
-              const SizedBox(width: 6),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700)),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CoinIcon(size: 10, color: Color(0xFFFFD700)),
-                      const SizedBox(width: 2),
-                      Text('${t.coinPrice}',
-                          style: const TextStyle(
-                              color: Color(0xFFFFD700),
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ],
-              ),
-              if (!isSelf) ...[
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: () => _toggleFollow(t.senderId),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      gradient: _following
-                          ? null
-                          : const LinearGradient(
-                              colors: [Color(0xFFFF295C), Color(0xFFBF5AF2)]),
-                      color:
-                          _following ? Colors.white.withValues(alpha: 0.18) : null,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(_following ? 'Following' : 'Follow',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800)),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
