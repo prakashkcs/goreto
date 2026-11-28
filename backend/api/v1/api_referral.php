@@ -148,11 +148,19 @@ try {
             $code = (string) ($cSt->fetchColumn() ?: $candidate);
         }
 
+        // Has this account already redeemed someone's code? The wallet hides
+        // the redeem box when so (it showed it, then said "already used").
+        $usedSt = $pdo->prepare("SELECT COALESCE(referral_used, 0) AS used, COALESCE(referral_used_code, '') AS used_code FROM users WHERE id = ?");
+        try { $usedSt->execute([$userId]); $usedRow = $usedSt->fetch(PDO::FETCH_ASSOC) ?: []; }
+        catch (Throwable $e) { $usedRow = []; }
+
         out([
-            'status'        => 'success',
-            'referral_code' => $code,
-            'coins_reward'  => REFERRAL_REWARD,
-            'plans'         => [],
+            'status'             => 'success',
+            'referral_code'      => $code,
+            'coins_reward'       => REFERRAL_REWARD,
+            'referral_used'      => (int) ($usedRow['used'] ?? 0),
+            'referral_used_code' => (string) ($usedRow['used_code'] ?? ''),
+            'plans'              => [],
         ]);
     }
 

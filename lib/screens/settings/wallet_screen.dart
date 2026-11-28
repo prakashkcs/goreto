@@ -161,6 +161,10 @@ class _WalletScreenState extends State<WalletScreen> {
           _referralCoinsReward = (data['coins_reward'] as num?)?.toInt() ?? 100;
           _playstoreUrl = (data['playstore_url'] as String?) ?? '';
           _appstoreUrl  = (data['appstore_url']  as String?) ?? '';
+          // Already redeemed a friend's code -> hide the redeem box.
+          if ((int.tryParse('${data['referral_used'] ?? 0}') ?? 0) == 1) {
+            _referralUsed = true;
+          }
         });
       }
     } catch (_) {}
@@ -183,6 +187,10 @@ class _WalletScreenState extends State<WalletScreen> {
         await _loadWalletData();
       } else {
         NeonToast.error(context, result.message);
+        // Server says this account already used a code: stop offering the box.
+        if (result.message.toLowerCase().contains('already') && mounted) {
+          setState(() => _referralUsed = true);
+        }
       }
     } finally {
       if (mounted) setState(() => _isRedeeming = false);
@@ -432,6 +440,12 @@ class _WalletScreenState extends State<WalletScreen> {
                     controller: controller,
                     style: const TextStyle(color: Colors.white),
                     textCapitalization: TextCapitalization.characters,
+                    // Capital letters and digits only: lower-case is converted
+                    // as you type, anything else is ignored.
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+                      _UpperCaseFormatter(),
+                    ],
                     maxLength: 20,
                     onChanged: check,
                     decoration: InputDecoration(
@@ -986,6 +1000,11 @@ class _WalletScreenState extends State<WalletScreen> {
                                   color: Colors.white, letterSpacing: 1.1),
                               textCapitalization:
                                   TextCapitalization.characters,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                    RegExp(r'[A-Za-z0-9]')),
+                                _UpperCaseFormatter(),
+                              ],
                               decoration: InputDecoration(
                                 hintText: 'Enter code',
                                 hintStyle:
@@ -1227,5 +1246,14 @@ class _WalletScreenState extends State<WalletScreen> {
         CoinIcon(size: 14, color: color),
       ],
     );
+  }
+}
+
+/// Turns typed letters into capitals (referral codes are upper-case only).
+class _UpperCaseFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    return newValue.copyWith(text: newValue.text.toUpperCase());
   }
 }

@@ -1,3 +1,5 @@
+import 'package:love_vibe_pro/utils/date_util.dart';
+
 class Collection {
   final String id;
   final String title;
@@ -20,7 +22,7 @@ class Collection {
       title: (json['title'] ?? json['name'])?.toString() ?? 'Untitled',
       itemCount: rawCount is String ? int.tryParse(rawCount) ?? 0 : (rawCount as int? ?? 0),
       coverThumb: (json['cover_thumb'] ?? json['cover_url'] ?? json['cover'])?.toString(),
-      createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
+      createdAt: DateUtil.parseServerTime(json['created_at']?.toString()),
     );
   }
 

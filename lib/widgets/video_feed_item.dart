@@ -28,6 +28,7 @@ import 'package:love_vibe_pro/widgets/subscriber_lock_overlay.dart';
 import 'package:love_vibe_pro/screens/report/audio_report_sheet.dart';
 import 'package:love_vibe_pro/services/settings_store.dart';
 import 'package:love_vibe_pro/services/analytics_service.dart';
+import 'package:love_vibe_pro/utils/date_util.dart';
 
 class VideoFeedItem extends StatefulWidget {
   final Map<String, dynamic> post;
@@ -1640,8 +1641,7 @@ class _VideoCommentModel {
       avatar: getAuthorAvatar(json) ?? '',
       text: (json['comment'] ?? json['text'] ?? '').toString(),
       createdAt:
-          DateTime.tryParse(json['created_at'] ?? json['createdAt'] ?? '') ??
-              DateTime.now(),
+          DateUtil.parseServerTime((json['created_at'] ?? json['createdAt'])?.toString()),
       parentId: json['parent_id']?.toString(),
     );
   }

@@ -13,6 +13,7 @@ import 'package:love_vibe_pro/widgets/neon_toast.dart';
 import 'package:love_vibe_pro/screens/chat/group_chat_list_tab.dart';
 import 'package:love_vibe_pro/services/socket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:love_vibe_pro/utils/date_util.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -61,7 +62,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       setState(() {
         _onlineMap[uid] = online;
         if (!online && rawLastSeen != null) {
-          _lastSeenMap[uid] = DateTime.tryParse(rawLastSeen);
+          _lastSeenMap[uid] = DateUtil.parseServerTime(rawLastSeen);
         }
       });
     });

@@ -637,22 +637,22 @@ class ProfileHeader extends StatelessWidget {
                               height: 38,
                             ),
                     ),
-                    const SizedBox(width: 8),
-                    // Subscribe button — disabled when creator has no plan
-                    Expanded(
-                      flex: 5,
-                      child: NeonButton(
-                        label: 'Subscribe',
-                        isFilled: true,
-                        isPremium: true,
-                        onTap: profile.subscriptionStatus == 'active'
-                            ? onSubscribe
-                            : null,
-                        isDisabled: profile.subscriptionStatus != 'active',
-                        isLoading: isSubscribeLoading,
-                        height: 38,
+                    // Subscribe only for creators who actually have a plan;
+                    // otherwise Follow and Inbox share the row.
+                    if (profile.hasSubscriptionPlan) ...[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        flex: 5,
+                        child: NeonButton(
+                          label: 'Subscribe',
+                          isFilled: true,
+                          isPremium: true,
+                          onTap: onSubscribe,
+                          isLoading: isSubscribeLoading,
+                          height: 38,
+                        ),
                       ),
-                    ),
+                    ],
                     const SizedBox(width: 8),
                     // Inbox button
                     Expanded(

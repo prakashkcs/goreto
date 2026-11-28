@@ -119,6 +119,35 @@ if ($action === 'followers' || $action === 'following') {
     $limit = min(50, max(1, (int)($_GET['limit'] ?? 20)));
     $off   = ($page - 1) * $limit;
 
+    // Owner's privacy: who may open this person's followers/following list
+    // (privacy_follow_list: 0 everyone, 1 only their followers, 2 only them).
+    if ($uid !== (int) $me) {
+        $level = 0;
+        try {
+            $pl = $pdo->prepare("SELECT COALESCE(privacy_follow_list, 0) FROM users WHERE id = ? LIMIT 1");
+            $pl->execute([$uid]);
+            $level = (int) $pl->fetchColumn();
+        } catch (Throwable $e) { $level = 0; } // column not created yet
+        $allowed = $level === 0;
+        if ($level === 1) {
+            $fo = $pdo->prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1");
+            $fo->execute([(int) $me, $uid]);
+            $allowed = (bool) $fo->fetchColumn();
+        }
+        if (!$allowed) {
+            out([
+                'status'   => true,
+                'hidden'   => true,
+                'message'  => $level === 2
+                    ? 'This list is private.'
+                    : 'Only followers can see this list.',
+                'users'    => [],
+                'has_more' => false,
+                'page'     => $page,
+            ]);
+        }
+    }
+
     if ($action === 'followers') {
         // People who follow $uid
         $fetch_limit = (int)($limit + 1);

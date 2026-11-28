@@ -30,6 +30,7 @@ import 'package:love_vibe_pro/screens/profile/edit_profile_screen.dart';
 import 'package:love_vibe_pro/screens/profile/widgets/profile_plans_sheet.dart';
 import 'package:love_vibe_pro/widgets/manage_user_sheet.dart';
 import 'package:love_vibe_pro/screens/live/live_room_screen.dart';
+import 'package:love_vibe_pro/utils/date_util.dart';
 
 /// Production-ready Profile Screen with real data, local persistence, and no UI overflow
 class ProfileScreen extends StatefulWidget {
@@ -1455,8 +1456,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               .trim();
           return t.isNotEmpty ? t : null;
         }(),
-        createdAt: DateTime.tryParse(raw['created_at']?.toString() ?? '') ??
-            DateTime.now(),
+        createdAt: DateUtil.parseServerTime(raw['created_at']?.toString()),
         viewsUnique: raw['views_unique'] ?? raw['views'] ?? 0,
         viewsTotal:
             raw['views_total'] ?? raw['view_count'] ?? raw['views'] ?? 0,

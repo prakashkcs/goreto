@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/widgets/coin_icon.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/widgets/login_required_sheet.dart';
+import 'package:love_vibe_pro/utils/date_util.dart';
 
 /// Model for a gift transaction displayed on the overlay.
 class GiftTx {
@@ -58,8 +59,7 @@ class GiftTx {
           int.tryParse((json['coin_price'] ?? json['price'] ?? 0).toString()) ??
           0,
       createdAt:
-          DateTime.tryParse((json['created_at'] ?? '').toString()) ??
-          DateTime.now(),
+          DateUtil.parseServerTime((json['created_at'] ?? '').toString()),
     );
   }
 }

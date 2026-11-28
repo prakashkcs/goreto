@@ -37,6 +37,8 @@ class UserProfile {
   final String incomeStatus;
   final String kycStatus; // Added kycStatus field
   final String subscriptionStatus;
+  /// Creator has at least one active subscription plan (Subscribe shown only then).
+  final bool hasSubscriptionPlan;
   final List<String> interests;
   final List<String> lookingFor;
   final List<String> qualities;
@@ -75,6 +77,7 @@ class UserProfile {
     this.incomeStatus = 'none',
     this.kycStatus = 'none',
     this.subscriptionStatus = 'inactive',
+    this.hasSubscriptionPlan = false,
     this.interests = const [],
     this.lookingFor = const [],
     this.qualities = const [],
@@ -174,6 +177,7 @@ class UserProfile {
       incomeStatus: json["income_status"]?.toString() ?? 'none',
       kycStatus: json["kyc_status"]?.toString() ?? 'none',
       subscriptionStatus: json["subscription_status"]?.toString() ?? 'inactive',
+      hasSubscriptionPlan: _asBool(json["has_subscription_plan"], fallback: false),
       interests: List<String>.from(json["interests"] ?? []),
       lookingFor: List<String>.from(json["looking_for"] ?? []),
       qualities: List<String>.from(json["qualities"] ?? []),
@@ -241,6 +245,7 @@ class UserProfile {
       "income_status": incomeStatus,
       "kyc_status": kycStatus,
       "subscription_status": subscriptionStatus,
+      "has_subscription_plan": hasSubscriptionPlan,
       "interests": interests,
       "looking_for": lookingFor,
       "qualities": qualities,
@@ -280,6 +285,7 @@ class UserProfile {
     String? incomeStatus,
     String? kycStatus,
     String? subscriptionStatus,
+    bool? hasSubscriptionPlan,
     List<String>? interests,
     List<String>? lookingFor,
     List<String>? qualities,
@@ -313,6 +319,7 @@ class UserProfile {
       incomeStatus: incomeStatus ?? this.incomeStatus,
       kycStatus: kycStatus ?? this.kycStatus,
       subscriptionStatus: subscriptionStatus ?? this.subscriptionStatus,
+      hasSubscriptionPlan: hasSubscriptionPlan ?? this.hasSubscriptionPlan,
       interests: interests ?? this.interests,
       lookingFor: lookingFor ?? this.lookingFor,
       qualities: qualities ?? this.qualities,

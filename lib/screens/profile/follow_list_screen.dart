@@ -28,6 +28,7 @@ class _FollowListScreenState extends State<FollowListScreen> {
   bool _loading = false;
   bool _hasMore = true;
   bool _initialLoad = true;
+  String? _hiddenMessage; // owner made this list private
 
   @override
   void initState() {
@@ -57,6 +58,15 @@ class _FollowListScreenState extends State<FollowListScreen> {
     );
     if (!mounted) return;
     if (res != null) {
+      if (res['hidden'] == true) {
+        setState(() {
+          _hiddenMessage = res['message']?.toString() ?? 'This list is private.';
+          _hasMore = false;
+          _loading = false;
+          _initialLoad = false;
+        });
+        return;
+      }
       final list = (res['users'] as List? ?? [])
           .map((u) => _FollowUser.fromJson(u as Map<String, dynamic>))
           .toList();
@@ -74,6 +84,44 @@ class _FollowListScreenState extends State<FollowListScreen> {
         _hasMore = false;
       });
     }
+  }
+
+  // Shown when the owner limited who can see this list (privacy setting).
+  Widget _buildPrivate() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF151515),
+                border: Border.all(
+                    color: const Color(0xFFD946EF).withValues(alpha: 0.7),
+                    width: 1.5),
+              ),
+              child: const Icon(Icons.lock_outline_rounded,
+                  color: Color(0xFFD946EF), size: 34),
+            ),
+            const SizedBox(height: 16),
+            Text(_hiddenMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            const Text('The owner limited who can see this list.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white54, fontSize: 13)),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _refresh() async {
@@ -138,6 +186,8 @@ class _FollowListScreenState extends State<FollowListScreen> {
       ),
       body: _initialLoad
           ? _buildSkeletons()
+          : _hiddenMessage != null
+              ? _buildPrivate()
           : _users.isEmpty
               ? _buildEmpty()
               : RefreshIndicator(

@@ -607,6 +607,9 @@ try {
     $select[] = ($uAvatar ? "u.$uAvatar AS author_avatar" : "'' AS author_avatar");
   }
   $select[] = ($viewerId > 0) ? "CASE WHEN ul.user_id IS NULL THEN 0 ELSE 1 END AS is_liked" : "0 AS is_liked";
+  // Feed cards switch Follow -> Subscribe only for creators with a plan; the
+  // app read author_has_plan but it was never sent.
+  $select[] = "EXISTS(SELECT 1 FROM subscription_plans sp WHERE sp.creator_id = p.$pUserId AND sp.is_active = 1) AS author_has_plan";
   if ($viewerId > 0) {
     $select[] = "CASE WHEN fl.follower_id IS NOT NULL THEN 1 ELSE 0 END AS is_following";
     // Author follows the viewer back -> the app labels mutual follows "Friends".
@@ -746,6 +749,7 @@ try {
       'created_at' => (string) $r['created_at'],
       'likes_count' => intval($r['likes_count']),
       'is_liked' => intval($r['is_liked']),
+      'author_has_plan' => intval($r['author_has_plan'] ?? 0),
       'comments_count' => intval($r['comments_count']),
       'views_total' => intval($r['views_total']),
       'views_unique' => intval($r['views_unique']),

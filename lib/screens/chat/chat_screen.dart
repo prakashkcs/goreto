@@ -35,6 +35,7 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:love_vibe_pro/services/fast_audio_source.dart';
+import 'package:love_vibe_pro/utils/date_util.dart';
 
 class ChatScreen extends StatefulWidget {
   final String userId;
@@ -327,7 +328,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         if (!online) {
           // Use server-provided last_seen (null when privacy_show_last_seen = 0)
           _otherUserLastSeen = rawLastSeen != null
-              ? DateTime.tryParse(rawLastSeen)
+              ? DateUtil.parseServerTime(rawLastSeen)
               : null;
         }
       });

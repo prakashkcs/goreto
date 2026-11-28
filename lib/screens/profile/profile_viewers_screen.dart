@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:love_vibe_pro/services/api_service.dart';
 import 'package:love_vibe_pro/screens/profile_screen.dart';
+import 'package:love_vibe_pro/utils/date_util.dart';
 
 class ProfileViewersScreen extends StatefulWidget {
   const ProfileViewersScreen({super.key});
@@ -130,7 +131,9 @@ class _ViewerTile extends StatelessWidget {
   String _timeAgo(String? raw) {
     if (raw == null || raw.isEmpty) return '';
     try {
-      final dt = DateTime.parse(raw).toLocal();
+      // Server time is UTC without a zone; DateTime.parse treated it as local,
+      // so a visit just now showed "5 hours ago" (Nepal is UTC+5:45).
+      final dt = DateUtil.parseServerTime(raw);
       final diff = DateTime.now().difference(dt);
       if (diff.inMinutes < 1) return 'just now';
       if (diff.inHours < 1) return '${diff.inMinutes}m ago';

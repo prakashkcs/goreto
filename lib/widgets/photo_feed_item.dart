@@ -29,6 +29,7 @@ import 'package:love_vibe_pro/services/analytics_service.dart';
 import 'package:love_vibe_pro/widgets/login_required_sheet.dart';
 import 'package:love_vibe_pro/widgets/coin_icon.dart';
 import 'package:love_vibe_pro/services/fast_audio_source.dart';
+import 'package:love_vibe_pro/utils/date_util.dart';
 
 class PhotoFeedItem extends StatefulWidget {
   final Map<String, dynamic> post;
@@ -2084,8 +2085,7 @@ class _CommentModel {
       avatar: getAuthorAvatar(json) ?? '',
       text: (json['comment'] ?? json['text'] ?? '').toString(),
       createdAt:
-          DateTime.tryParse(json['created_at'] ?? json['createdAt'] ?? '') ??
-              DateTime.now(),
+          DateUtil.parseServerTime((json['created_at'] ?? json['createdAt'])?.toString()),
       parentId: json['parent_id']?.toString(),
       gifterLevel: level,
     );

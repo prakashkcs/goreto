@@ -59,6 +59,9 @@ $PRIVACY_COLS = [
     'privacy_feed_action_subscribe',
     'cross_border_consent',
     'cross_gender_proposal',
+    // Who can open my followers / following lists:
+    // 0 = everyone, 1 = only people who follow me, 2 = only me.
+    'privacy_follow_list',
 ];
 
 // ── Ensure columns exist in users table ──────────────────────────────────────
@@ -95,6 +98,7 @@ function ensure_privacy_columns(PDO $pdo, array $privacyCols): void
             'privacy_feed_action_subscribe'   => 0,
             'cross_border_consent'            => 0,
             'cross_gender_proposal'           => 1,
+            'privacy_follow_list'             => 0,  // everyone
         ];
 
         foreach ($privacyCols as $col) {
@@ -160,6 +164,12 @@ try {
         foreach ($PRIVACY_COLS as $col) {
             if (array_key_exists($col, $body)) {
                 $val = $body[$col];
+                // Three-way setting (0/1/2), not a yes/no switch.
+                if ($col === 'privacy_follow_list') {
+                    $setClauses[] = "`$col` = ?";
+                    $params[] = max(0, min(2, (int) $val));
+                    continue;
+                }
                 // Normalise: bool true/false, int 1/0, string "1"/"0"/"true"/"false"
                 if (is_bool($val)) {
                     $intVal = $val ? 1 : 0;

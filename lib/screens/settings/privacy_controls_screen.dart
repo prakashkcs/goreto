@@ -37,6 +37,7 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
   bool _privacyShowOnline = true;           // ON by default
   bool _privacyShowLastSeen = true;         // ON by default
   bool _privacyShowProfileViews = true;     // ON by default
+  int _followListLevel = 0; // followers/following list: 0 everyone, 1 my followers, 2 only me
 
   // ── Content ──
   bool _privacyAllowRepost = true;          // ON by default
@@ -183,7 +184,113 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
     _privacyShowLastSeen   = _asBool(user['privacy_show_last_seen'],   defaultValue: true);
     _privacyShowProfileViews = _asBool(user['privacy_show_profile_views'], defaultValue: true);
     _privacyAllowRepost    = _asBool(user['privacy_allow_repost'],     defaultValue: true);
+    _followListLevel = (int.tryParse('${user['privacy_follow_list'] ?? 0}') ?? 0).clamp(0, 2);
     _cacheDirectCallPref(_privacyAllowDirectCall);
+  }
+
+  Future<void> _setFollowListLevel(int level) async {
+    if (_applying || level == _followListLevel) return;
+    HapticFeedback.selectionClick();
+    final old = _followListLevel;
+    setState(() => _followListLevel = level);
+    final result = await _api
+        .updateUserPrivacySettings(<String, dynamic>{'privacy_follow_list': level});
+    if (!mounted) return;
+    if (result != null) {
+      _applyServerValues(result);
+    } else {
+      setState(() => _followListLevel = old);
+      NeonToast.error(context, 'Failed to update. Reverted.');
+    }
+  }
+
+  Widget _buildFollowListPrivacy() {
+    const color = Color(0xFF06B6D4);
+    const options = [
+      (0, 'Everyone', Icons.public),
+      (1, 'My followers', Icons.people_alt_outlined),
+      (2, 'Only me', Icons.lock_outline),
+    ];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(children: [
+            Icon(Icons.group_outlined, color: color, size: 20),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text('Who can see my followers & following',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14)),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          const Padding(
+            padding: EdgeInsets.only(left: 30),
+            child: Text(
+              'Controls who can open your Followers and Following lists. You can always see your own.',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              for (final o in options) ...[
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _setFollowListLevel(o.$1),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        gradient: _followListLevel == o.$1
+                            ? const LinearGradient(colors: [
+                                Color(0xFFFF007F),
+                                Color(0xFFD946EF)
+                              ])
+                            : null,
+                        color: _followListLevel == o.$1
+                            ? null
+                            : Colors.white.withValues(alpha: 0.05),
+                        border: Border.all(
+                          color: _followListLevel == o.$1
+                              ? Colors.transparent
+                              : Colors.white.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(o.$3, color: Colors.white, size: 18),
+                          const SizedBox(height: 4),
+                          Text(o.$2,
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11.5,
+                                  fontWeight: _followListLevel == o.$1
+                                      ? FontWeight.w800
+                                      : FontWeight.w500)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                if (o.$1 != 2) const SizedBox(width: 8),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _cacheDirectCallPref(bool value) async {
@@ -430,6 +537,8 @@ class _PrivacyControlsScreenState extends State<PrivacyControlsScreen> {
             ),
           ),
         ),
+
+      _buildFollowListPrivacy(),
 
       // ── CONTENT ────────────────────────────────────────────────
       const SizedBox(height: 20),
