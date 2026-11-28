@@ -198,6 +198,15 @@ class IncomingCallActivity : Activity() {
         findViewById<TextView>(R.id.tvCallType).text =
             if (callType == "audio") "Incoming Audio Call" else "Incoming Video Call"
 
+        // Direct random calls look different (badge + neon wash + wording) so
+        // nobody mistakes a stranger's random call for a friend calling.
+        if (isRandom == "true") {
+            findViewById<android.view.View>(R.id.randomTint)?.visibility = android.view.View.VISIBLE
+            findViewById<TextView>(R.id.randomBadge)?.visibility = android.view.View.VISIBLE
+            findViewById<TextView>(R.id.tvCallType).text =
+                if (callType == "audio") "Random audio call · someone new" else "Random video call · someone new"
+        }
+
         // Load avatar in background
         if (callerAvatar.isNotEmpty()) {
             executor.execute {

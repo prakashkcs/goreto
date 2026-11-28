@@ -134,6 +134,10 @@ class ZegoProvider implements VideoCallProvider {
     config.turnOnMicrophoneWhenJoining = true;
     config.useSpeakerWhenJoining = true;
     config.topMenuBar.isVisible = false;
+    // Zego prints each person's account name on their video tile. In a
+    // random call that ignored "Show name on random video call" (off by
+    // default); in a normal 1-on-1 call you already know who you called.
+    config.audioVideoView.showUserNameOnView = false;
     // Keep hang-up / camera / mic always on screen. Zego hides the bar after
     // a few seconds by default, which read as "no call buttons" on iOS.
     config.bottomMenuBar.hideAutomatically = false;

@@ -512,18 +512,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: (isRandom
-                          ? const Color(0xFF8B5CF6)
-                          : const Color(0xFFD946EF))
-                      .withValues(alpha: 0.3),
+                  color: isRandom
+                      ? const Color(0xFFFF007F).withValues(alpha: 0.85)
+                      : const Color(0xFFD946EF).withValues(alpha: 0.3),
+                  width: isRandom ? 1.6 : 1,
                 ),
                 boxShadow: [
                   BoxShadow(
                     color: (isRandom
-                            ? const Color(0xFF8B5CF6)
+                            ? const Color(0xFFFF007F)
                             : const Color(0xFFD946EF))
-                        .withValues(alpha: 0.15),
-                    blurRadius: 20,
+                        .withValues(alpha: isRandom ? 0.35 : 0.15),
+                    blurRadius: isRandom ? 28 : 20,
                     spreadRadius: 2,
                   ),
                   BoxShadow(
@@ -535,6 +535,37 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Random calls: a badge nobody can mistake for a friend calling.
+                  if (isRandom) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [
+                          Color(0xFFFF007F),
+                          Color(0xFFD946EF),
+                          Color(0xFF06B6D4),
+                        ]),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        callType == CallType.video
+                            ? '🎲  RANDOM VIDEO CALL'
+                            : '🎲  RANDOM AUDIO CALL',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Someone new wants to video chat',
+                      style: TextStyle(color: Colors.white70, fontSize: 12.5),
+                    ),
+                  ] else
                   // Label
                   Row(
                     children: [

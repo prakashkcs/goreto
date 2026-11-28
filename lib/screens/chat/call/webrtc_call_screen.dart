@@ -575,10 +575,38 @@ class _WebRTCCallScreenState extends State<WebRTCCallScreen> {
 
                   const SizedBox(height: 10),
 
+                  // Random calls: badge so it is clearly not a friend calling.
+                  if (widget.callSession.isRandomCall) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [
+                          Color(0xFFFF007F),
+                          Color(0xFFD946EF),
+                          Color(0xFF06B6D4),
+                        ]),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Text(
+                        '🎲  RANDOM VIDEO CALL',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+
                   // Status text
                   Text(
                     _callState == CallState.incoming
-                        ? 'Incoming ${widget.callSession.type == CallType.video ? 'video' : 'voice'} call'
+                        ? (widget.callSession.isRandomCall
+                            ? 'Someone new wants to video chat'
+                            : 'Incoming ${widget.callSession.type == CallType.video ? 'video' : 'voice'} call')
                         : _callState == CallState.connecting
                             ? 'Connecting...'
                             : _callState == CallState.declined

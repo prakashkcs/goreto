@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pink -> purple -> cyan wash so a random call is recognisable at a glance. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="315"
+        android:startColor="#66FF007F"
+        android:centerColor="#44D946EF"
+        android:endColor="#5506B6D4" />
+</shape>

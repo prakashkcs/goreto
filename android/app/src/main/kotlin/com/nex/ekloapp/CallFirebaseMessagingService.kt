@@ -255,7 +255,9 @@ class CallFirebaseMessagingService : FirebaseMessagingService() {
         val builder = NotificationCompat.Builder(this, CALL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_goreto)
             .setContentTitle(callerName)
-            .setContentText(if (callType == "audio") "Incoming Audio Call" else "Incoming Video Call")
+            .setContentText(
+                if (isRandom == "true") "🎲 Random video call · someone new"
+                else if (callType == "audio") "Incoming Audio Call" else "Incoming Video Call")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

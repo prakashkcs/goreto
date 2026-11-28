@@ -691,6 +691,16 @@ class FCMService {
       }
       if (notifBody.isEmpty) notifBody = rawTitle;
 
+      // Direct random call: say so, so it isn't mistaken for a friend calling.
+      if (isCall &&
+          (data['is_random'] == 'true' || data['is_random'] == true)) {
+        notifTitle = '🎲 Random video call';
+        final who = (data['caller_name'] ?? '').toString().trim();
+        notifBody = (who.isNotEmpty && who != 'Random User')
+            ? '$who · someone new wants to video chat'
+            : 'Someone new wants to video chat';
+      }
+
       // Stable notification ID so same-type alerts overwrite instead of stack
       final int notifId = isCall
           ? 999999

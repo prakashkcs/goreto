@@ -19,6 +19,14 @@
         android:layout_height="match_parent"
         android:background="@drawable/call_gradient_overlay" />
 
+    <!-- Random calls only: neon wash over the background (set in code). -->
+    <View
+        android:id="@+id/randomTint"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/neon_random_tint"
+        android:visibility="gone" />
+
     <!-- Top section: caller info -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -28,6 +36,22 @@
         android:layout_gravity="top"
         android:paddingTop="80dp"
         android:paddingBottom="24dp">
+
+        <!-- Random calls only: "RANDOM VIDEO CALL" badge (set in code). -->
+        <TextView
+            android:id="@+id/randomBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="22dp"
+            android:background="@drawable/neon_random_badge"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="7dp"
+            android:letterSpacing="0.12"
+            android:text="🎲  RANDOM VIDEO CALL"
+            android:textColor="#FFFFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
 
         <!-- Caller avatar (circular) -->
         <FrameLayout
